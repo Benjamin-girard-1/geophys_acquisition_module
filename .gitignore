@@ -1,0 +1,64 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors and local workspace settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ESP-IDF and C/C++ build output
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+*.o
+*.obj
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+compile_commands.json
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+.ninja_deps
+.ninja_log
+build.ninja
+
+# Locally stored vendor datasheets
+version_2/docs/datasheets/
+
+# Keep reproducible project configuration and dependency pins
+!sdkconfig.defaults
+!sdkconfig.defaults.*
+!dependencies.lock
+
+# KiCad local state, locks, autosaves, and backups
+*.kicad_prl
+*.kicad_sch-bak
+*.bak
+*-backups/
+_autosave-*
+~*.lck
+fp-info-cache
+
+# Python host tools and applications
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
