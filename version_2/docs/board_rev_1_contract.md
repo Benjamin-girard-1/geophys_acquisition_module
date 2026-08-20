@@ -3,26 +3,18 @@
 ## Document information
 
 - Status: Draft
-- PCB revision: Rev-1
+- PCB revision: V2-Rev-1
 - Schematic project:
   `version_2/hardware/pcb/rev_1/mainboard_v2_r1/`
-- Compute platform: ESP32-S3 DevKit [EXACT MODEL TBD]
-- Schematic revision/date: [TBD]
-- Last updated: [YYYY-MM-DD]
+- Compute platform: ESP32-S3 DevKitC
+- Schematic revision/date: 2026-07-23
+- Last updated: 2026-08-20
 
-## 1. Contract rules
-
-- This document is the firmware interpretation of the Rev-1 schematic.
-- GPIO assignments come from the schematic, not from source-code guesses.
-- Unknown information is marked `TBD`.
-- Electrical behavior must be verified before being marked `VERIFIED`.
-- Safe states take priority over normal functional states.
-
-## 2. ESP32 peripheral assignments
+## 1. ESP32 peripheral assignments
 
 | Function | ESP32 peripheral | Pins | Frequency/baud | DMA | Owner | Verified |
 |---|---|---|---:|---|---|---|
-| AD7779 control SPI | [TBD] | [TBD] | [TBD] | [YES/NO] | Board/ADC | [ ] |
+| AD7779 control SPI | SPI2 | CS:GPIO11, SCLK:GPIO12, MOSI:GPIO12, MISO:GPIO14 | [TBD] | yes | Board/ADC | [ ] |
 | AD7779 data interface | [TBD] | [TBD] | [TBD] | [YES/NO] | Acquisition | [ ] |
 | LSM6DSV SPI | [TBD] | [TBD] | [TBD] | [YES/NO] | Acquisition | [ ] |
 | MAX-M10S UART | [TBD] | [TBD] | [TBD] | N/A | GNSS | [ ] |
@@ -31,7 +23,7 @@
 | SDMMC | [TBD] | [TBD] | [TBD] | [YES/NO] | Storage | [ ] |
 | Debug/host UART | [TBD] | [TBD] | [TBD] | N/A | Transport | [ ] |
 
-## 3. Direct ESP32 signals
+## 2. Direct ESP32 signals
 
 | Signal | GPIO | Direction | Active level | Physical pull | Boot state | Safe state | Owner | Timing/interrupt | Verified |
 |---|---:|---|---|---|---|---|---|---|---|
@@ -43,7 +35,7 @@
 | `ESP32_GPS_TX` | [TBD] | Output | N/A | [TBD] | [TBD] | Idle high | GNSS | UART | [ ] |
 | [ADD SIGNAL] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
 
-## 4. Shift-register control signals
+## 3. Shift-register control signals
 
 ### Shift-register interface
 
