@@ -1,8 +1,0 @@
-https://www.st.com/resource/en/datasheet/lsm6dsv.pdf
-
-https://content.u-blox.com/sites/default/files/MAX-M10S_DataSheet_UBX-20035208.pdf
-
-https://www.analog.com/media/en/technical-documentation/data-sheets/ad7779.pdf
-
-https://assets.nexperia.com/documents/data-sheet/74HC_HCT595.pdf
-
