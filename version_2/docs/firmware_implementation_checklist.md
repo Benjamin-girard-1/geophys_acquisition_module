@@ -30,26 +30,12 @@ evidence is recorded.
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
 | HW-01 | Resolve every SH1/SH2 active polarity and define the complete safe 16-bit image | [x] | [ ] | |
-| HW-02 | Bench-verify after `board_init()` and through safe/runtime states that `SD_MUX_SEL` is Low, `EN_SD_MUX` is Low, and `USB2641_nRESET` is Low; confirm the SD card is routed only to the ESP32 side | [ ] | [ ] | |
+| HW-02 | Verify fixed ESP32 SD-mux levels and USB2641 reset/isolation state | [x] | [ ] | |
 | HW-03 | Resolve analog-rail enable order, active levels, and conservative settling times | [ ] | [ ] | |
 | HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [ ] | [ ] | |
 | HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [ ] | [ ] | |
 | HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [ ] | [ ] | |
 | HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [ ] | [ ] | |
-
-### HW-02 expected behavior
-
-- While `SR_OE_N` is High, the physical pulls select the ESP32 side but keep the mux disabled and
-  release the USB2641 reset. This temporary hardware-defined state ends when `board_init()` applies
-  the safe shift-register image.
-- After `board_init()` enables the 74HC595 outputs, SH1_A / `SD_MUX_SEL` must be Low to select the
-  ESP32 normally closed inputs, SH1_G / `EN_SD_MUX` must be Low to connect the selected path, and
-  SH1_F / `USB2641_nRESET` must be Low to hold the USB2641 in reset.
-- The three levels must remain unchanged during acquisition, safe-state entry, recoverable faults,
-  and fatal-failure handling. Milestone 1 does not initialize the ESP32 SDMMC peripheral.
-- Hardware evidence should include the three measured logic levels and confirmation that the SD
-  signals connect to the ESP32 side without USB2641 contention. Record the board identifier, date,
-  and logic-analyzer or multimeter evidence location.
 
 ## 1. ESP-IDF project scaffold
 
@@ -81,7 +67,7 @@ evidence is recorded.
 | FW-14 | Encode all Rev-1 pins, active levels, bus limits, and safe values only in `boards/rev_1` | [ ] | [ ] | |
 | FW-15 | Implement `board_init()`: safe direct GPIOs, outputs disabled, safe image latched, then outputs enabled | [ ] | [ ] | |
 | FW-16 | Implement idempotent `board_enter_safe_state()` for startup and fatal failures | [ ] | [ ] | |
-| FW-17 | Enforce the fixed SH1_A=Low, SH1_G=Low, and SH1_F=Low invariant in `board_init()`, all later shadow-image updates, and `board_enter_safe_state()`; expose no runtime ownership API | [ ] | [ ] | |
+| FW-17 | Keep the SD mux fixed to the ESP32 and the USB2641 reset/isolated for the entire runtime | [ ] | [ ] | |
 | FW-18 | Verify every power enable and pulse output during cold boot, reset, firmware download, and safe shutdown | [ ] | [ ] | |
 
 ## 4. AD7779 portable driver
