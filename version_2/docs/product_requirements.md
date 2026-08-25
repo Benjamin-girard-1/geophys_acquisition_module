@@ -2,11 +2,9 @@
 
 ## Document information
 
-- Status: Draft
 - Product version: V2
-- Primary use case: Magnetic-field acquisition
-- Last updated: [YYYY-MM-DD]
-- Author: [NAME]
+- Last updated: 2026-08-25
+- Author: Benjamin Girard
 
 ## 1. Initial product scope
 
@@ -18,84 +16,75 @@
 - AD7779 acquisition
 - Configurable sample rate
 - SD recording
-- UART/USB host communication
+- UART to USB (via bridge) host communication
 - On-demand magnetic SET/RESET control
-- Reuse of validated V1 host-application behavior
 
-### Deferred
+### Second milestone
 
 - Geophysical accelerometer card
-- Advanced signal processing
-- Bluetooth: [DEFERRED / REQUIRED]
-- Multiple simultaneous analog cards: [TBD]
-- Other: [TBD]
+- Bluetooth and PC interface
 
 ## 2. ADC acquisition requirements
 
 - ADC: AD7779
 - Resolution: 24-bit signed
-- Default output data rate: 1000 samples/s/channel
-- Minimum required configurable rate: [TBD] samples/s/channel
-- Maximum required configurable rate: [TBD] samples/s/channel
-- Requested rates must report the actual applied rate: Yes
+- Default output data rate: 1kSps per channel
+- Maximum required configurable rate: 16kSps per channel
 - Default active channels:
-  - Channel [TBD]: Magnetic X
-  - Channel [TBD]: Magnetic Y
-  - Channel [TBD]: Magnetic Z
-  - Channel [TBD]: Differential thermistor
-- Unused channels stored: [YES / NO]
-- Per-channel gain configurable: [YES / NO]
-- Supported gains: [×1 / ×2 / ×4 / ×8]
+  - Channel 0: X1
+  - Channel 1: Y1
+  - Channel 2: Z1
+  - Channel 3: Differential thermistor 1
+  - Channel 4: X2
+  - Channel 5: Y2
+  - Channel 6: Z2
+  - Channel 7: Differential thermistor 2
+- Unused channels stored: No
+- Per-channel gain configurable: Yes
+- Supported gains: ×1 / ×2 / ×4 / ×8
 - Data-loss policy: Never silently discard a frame
 - Overrun reporting: Required
 - CRC/header validation: Required
 
 ## 3. Analog bandwidth
-
-- Expected analog cutoff: approximately 362 Hz
+- RF filter: 18.7kHz
+- Servo / bandwidth limiter: RC=14.1s
+- AAF: 362 Hz
 - Filter order: First order
 - Primary signal frequency: approximately 2 Hz
-- Square-wave harmonics important: [YES / NO / TBD]
+- Square-wave harmonics important: Yes
 - Aliasing validation required at 1 kSPS: Yes
-- Measured cutoff frequency: [TBD]
-- Validated ADC rates: [TBD]
-- Additional filtering required: [TBD]
 
 ## 4. Synchronization and timing
 
 - X, Y, and Z must come from the same AD7779 conversion frame.
 - One timestamp represents the complete ADC frame.
-- Nominal sample period at 1 kSPS: 1 ms
-- Maximum acceptable inter-axis skew: Hardware simultaneous sampling
-- Maximum pulse-to-sample timestamp uncertainty: [TBD, initial target 100 µs]
-- Monotonic timestamp resolution: [TBD]
-- Absolute GNSS time accuracy: [TBD]
+- Absolute GNSS time accuracy: Time pulse is unavailable for the V1 rev 1, we will do the best we can with UART and the GNSS
 - Behavior when GNSS time is unavailable: [TBD]
 
 ## 5. Magnetic SET/RESET requirements
 
-- SET operation: On demand
-- RESET operation: On demand
-- Automatic periodic operation: Not required
-- Combined SET-then-RESET diagnostic sequence: [YES / NO]
-- Pulse width: [TBD µs/ms]
-- Minimum interval between pulses: [TBD]
-- Maximum number of consecutive pulses: [TBD]
-- Required dead time between SET and RESET: [TBD]
-- Post-pulse settling time: [TBD]
-- Samples during pulse marked invalid/transient: [YES / NO]
-- Samples during settling marked invalid/transient: [YES / NO]
+- SET operation: On demand; NEVER BOTH SET AND RESET AT THE SAME TIME
+- RESET operation: On demand; NEVER BOTH SET AND RESET AT THE SAME TIME this would short a 220 ohms with +18V and GND.
+- Combined SET-then-RESET diagnostic sequence: Yes
+- Pulse width of the SET AND RESET: few decades µs to a hundred of us (the set reset pulse through the strap should be 2-3us)
+- Minimum interval between pulses: No requirement determined in the V1
+- Maximum number of consecutive pulses: No requirement determined in the V1
+- Required dead time between SET and RESET: The pulses are so short we dont need to worry about that, worst case it shows a pulse on the data, we will deal with that later.
+- Post-pulse settling time: Same as above
+- Samples during pulse marked invalid/transient: Same as above
+- Samples during settling marked invalid/transient: Same as above
 - Pulse event timestamp recorded: Yes
 - Pulse output safe state: Inactive
 
 ## 6. Recording requirements
 
 - Raw ADC storage representation: Packed signed 24-bit
-- Default stored channels: [TBD]
-- Thermistor stored at full rate during validation: Yes
-- Long-term thermistor rate: [TBD]
-- Expected continuous recording duration: [TBD hours/days]
-- Expected SD-card capacity: [TBD]
+- Default stored channels: Selectable by user via the host app
+- Thermistor stored at full rate during validation: No, selectable with the user host app, default every 10 seconds, also we should add the temperature of the ADC and the IMU and ESP32 if it has a temperature sensor.
+- Long-term thermistor rate: every 10s
+- Expected continuous recording duration: 15 min to 8h,
+- Expected SD-card capacity: TBD, the current SD cards are 8GB
 - File segmentation rule:
   - Maximum duration: [TBD]
   - Maximum size: [TBD]
@@ -118,14 +107,8 @@
 ## 7. SD and USB behavior
 
 - ESP32 and USB2641 may never own the SD card simultaneously.
-- USB export while recording: [PROHIBITED / PAUSE RECORDING / TBD]
-- Required action before USB ownership:
-  - Stop new writes
-  - Flush buffers
-  - Close recording
-  - Unmount filesystem
-  - Place SDMMC pins safely
-  - Transfer mux ownership
+- USB export while recording: TBD
+- Required action before USB ownership: There is no USB owenership in V2 rev1.
 - Behavior when USB disconnects: [TBD]
 - Behavior when SD card is removed: [TBD]
 - Behavior when SD card is full: [TBD]
@@ -138,19 +121,18 @@
   - Serial-port selection
   - Live plotting
   - FFT
-  - Statistics
-  - CSV export
-  - Frame-gap detection
   - ADC gain controls
   - ADC-rate control
   - SET/RESET controls
-- V1 binary-protocol compatibility required: [YES / TEMPORARY / NO]
+- V1 binary-protocol compatibility required: No
 - V2 protocol decoder required: Yes
-- Protocol capability/version handshake required: [YES / NO]
-- Captured V1 regression packets available: [TBD]
-- Host operating systems: [TBD]
+- Protocol capability/version handshake required: No
+- Captured V1 regression packets available: No
+- Host operating systems: MacOS 15 default, it needs to be portable to windows later
 
 ## 9. Fault behavior
+
+We dont need fault behavior now, we should just output the relevent error so we can see it.
 
 | Fault | Required response | User-visible indication | Automatic recovery |
 |---|---|---|---|
