@@ -35,9 +35,9 @@ evidence is recorded.
 | HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [x] | [ ] | |
 | HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [x] | [ ] | |
 | HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [x] | [ ] | |
-| HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [ ] | [ ] | |
+| HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [x] | [ ] | |
 
-GPIO46 most likely not a problem, GPIO45 might cause some problems because the MAX-M10S is pulling it up by default. Will need to be accessed when integrating the MAX-M10S.
+GPIO46 and GPIO45 are not a concern.
 
 ## 1. ESP-IDF project scaffold
 
