@@ -1,0 +1,17 @@
+idf_component_register(
+    SRCS
+        "app.c"
+        "task_acquisition.c"
+        "task_bluetooth.c"
+        "task_communication.c"
+        "task_processing.c"
+        "task_storage.c"
+    INCLUDE_DIRS
+        "."
+    PRIV_REQUIRES
+        freertos
+        rev_1
+        magnetic
+        protocol
+        transports
+)

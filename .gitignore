@@ -30,8 +30,8 @@ cmake_install.cmake
 .ninja_log
 build.ninja
 
-# Locally stored vendor datasheets
-version_2/docs/datasheets/
+# Locally stored vendor datasheets (keep the tracked text reference)
+version_2/docs/datasheets/*.pdf
 
 # Keep reproducible project configuration and dependency pins
 !sdkconfig.defaults

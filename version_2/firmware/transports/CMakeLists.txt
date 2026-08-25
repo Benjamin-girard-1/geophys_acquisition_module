@@ -1,0 +1,9 @@
+idf_component_register(
+    SRCS
+        "transport_uart.c"
+        "transport_usb.c"
+    INCLUDE_DIRS
+        "."
+    PRIV_REQUIRES
+        esp32s3_devkit
+)
