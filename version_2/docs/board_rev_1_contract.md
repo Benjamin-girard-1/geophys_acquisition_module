@@ -14,76 +14,49 @@
 
 | Function | ESP32 peripheral | Pins | Frequency/baud | DMA | Owner | Verified |
 |---|---|---|---:|---|---|---|
-| AD7779 control SPI | SPI2 | CS:GPIO11, SCLK:GPIO12, MOSI:GPIO12, MISO:GPIO14 | [TBD] | yes | Board/ADC | [ ] |
-| AD7779 data interface | [TBD] | [TBD] | [TBD] | [YES/NO] | Acquisition | [ ] |
-| LSM6DSV SPI | [TBD] | [TBD] | [TBD] | [YES/NO] | Acquisition | [ ] |
-| MAX-M10S UART | [TBD] | [TBD] | [TBD] | N/A | GNSS | [ ] |
-| Card-slot 1 I²C | [TBD] | [TBD] | [TBD] | N/A | Board/card | [ ] |
-| Card-slot 2 I²C | [TBD] | [TBD] | [TBD] | N/A | Board/card | [ ] |
-| SDMMC | [TBD] | [TBD] | [TBD] | [YES/NO] | Storage | [ ] |
-| Debug/host UART | [TBD] | [TBD] | [TBD] | N/A | Transport | [ ] |
+| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI:GPIO12, MISO:GPIO14 | MAX:30MHz | Yes | task_acquisition | Yes |
+| AD7779 interface | GPIO | ADC_RESET:, ADC_START:, ADC_RESET:, ADC_CONVST_SAR | - | No | task_acquisition | Yes |
+| LSM6DSV SPI | SPI3 | SCLK:GPIO17, MOSI:GPIO18, CS:GPIO46, MISO:GPIO9 | MAX:30MHz | No | task_gnss | Yes |
+| MAX-M10S UART | UART1 | GPS_RX:GPIO45, GPS_TX:GPIO48 | MAX:921600 (baud) | No | task_acquisition | [ ] |
+| Card-slot 1 I²C / GPIO | I2C0 or GPIO | GPIO40, GPIO41 | - | No | TBD | Yes |
+| Card-slot 2 I²C / GPIO | I2C1 or GPIO | GPIO38, GPIO39 | - | No | TBD | Yes |
+| SDMMC | SDMMC0 | CMD:GPIO16, CLK:GPIO7, D0:GPIO5, D1:GPI4, D2:GPIO15, D3:GPIO6 | [TBD] | TBD | task_storage | Yes |
+| Debug/host UART | UART0 | - | - | N/A | TBD | Yes |
 
 ## 2. Direct ESP32 signals
 
 | Signal | GPIO | Direction | Active level | Physical pull | Boot state | Safe state | Owner | Timing/interrupt | Verified |
 |---|---:|---|---|---|---|---|---|---|---|
-| `ADC_DRDY` | [TBD] | Input | [TBD] | [TBD] | Input | Input | Acquisition | Falling-edge interrupt | [ ] |
-| `ADC_CS` | [TBD] | Output | Low | [TBD] | [TBD] | High | Board/ADC | [TBD] | [ ] |
-| `DEVICE_DETECT_1` | [TBD] | Input | [TBD] | [TBD] | Input | Input | Card detection | Debounce [TBD] | [ ] |
-| `DEVICE_DETECT_2` | [TBD] | Input | [TBD] | [TBD] | Input | Input | Card detection | Debounce [TBD] | [ ] |
-| `ESP32_GPS_RX` | [TBD] | Input | N/A | [TBD] | Input | Input | GNSS | UART | [ ] |
-| `ESP32_GPS_TX` | [TBD] | Output | N/A | [TBD] | [TBD] | Idle high | GNSS | UART | [ ] |
-| [ADD SIGNAL] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
+| `ADC_DRDY` | GPIO10 | Output | [TBD] | None | Input | Input | task_acquisition | Falling-edge interrupt | [ ] |
+| `ADC_RESET` | SH2_C | Output | [TBD] | Pull-up, 100k | Input | Input | task_acquisition | Falling-edge interrupt | [ ] |
+| `ADC_START` | SH2_D | Output | [TBD] | Pull-down, 100k | Input | Input | task_acquisition | Falling-edge interrupt | [ ] |
+| `ADC_CONVST_SAR` | SH2_F | Output | [TBD] | Pull-down, 100k | Input | Input | task_acquisition | Falling-edge interrupt | [ ] |
+| `ADC_MCLK_EN` | SH2_E | Output | [TBD] | Pull-up, 100k | Input | Input | task_acquisition | Falling-edge interrupt | [ ] |
+| `ADC_CS` | GPIO11 | Output | Low | [TBD] | Pull-up, 10k | High | task_acquisition |  | [ ] |
+| `DEVICE_DETECT_1` | GPIO3 | Input (ADC) | [TBD] | [TBD] | Input | Input | Card detection | Debounce [TBD] | [ ] |
+| `DEVICE_DETECT_2` | GPIO8 | Input (ADC) | [TBD] | [TBD] | Input | Input | Card detection | Debounce [TBD] | [ ] |
+| `SR_SHIFT_CLK` | GPIO19 | Output | [TBD] | None | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
+| `SR_DATA` | GPIO47 | Output | [TBD] | None | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
+| `SR_OE_N` | GPIO21 | Output | [TBD] | Pull-up, 10k | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
+| `SR_LATCH` | GPIO20 | Output | [TBD] | None | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
+| `SOLAR_PRESENT` | GPIO1 | Input | Low | Pull-up, 100k | - | - | [TBD] | - | Yes |
+| `5V_USB_PRESENT` | GPIO2 | Input | Low | Pull-up, 100k | - | - | [TBD] | - | Yes |
+| `EN_SUPERCAP_CHARGE` | GPIO42 | Output | [TBD] | None | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
+| `SD_MUX_SEL` | SH1_A | Output | [TBD] | Pull-down, 10k | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
+| `EN_SD_MUX` | SH1_G | Output | [TBD] | Pull-up, 100k | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
+| `USB2641_nRESET` | SH1_F | Output | [TBD] | Pull-up, 10k | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
+| `EN_LED` | SH1_H | Output | [TBD] |  | [TBD] | [TBD] | [TBD] | [TBD] | Yes |
 
-## 3. Shift-register control signals
-
-### Shift-register interface
-
-| Signal | GPIO | Direction | Active level | Boot state | Safe state | Verified |
-|---|---:|---|---|---|---|---|
-| `SR_DATA` | [TBD] | Output | [TBD] | [TBD] | [TBD] | [ ] |
-| `SR_SHIFT_CLK` | [TBD] | Output | [TBD] | [TBD] | [TBD] | [ ] |
-| `SR_LATCH` | [TBD] | Output | [TBD] | [TBD] | [TBD] | [ ] |
-| `SR_OE_N` | [TBD] | Output | Low enables | [TBD] | Disabled/high | [ ] |
-| `SRCLR` | [TBD] | Output | [TBD] | [TBD] | Clear asserted | [ ] |
-
-### Shift-register outputs
-
-| Bit | Schematic signal | Active level | Reset value | Safe value | Owner | Purpose | Verified |
-|---:|---|---|---:|---:|---|---|---|
-| 0 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 1 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 2 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 3 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 4 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 5 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 6 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 7 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-
-Repeat for the second shift register.
-
-## 5. ADC channel mapping
-
-| ADC channel | Card slot | Measurement | Differential inputs | Default gain | Stored by default | Verified |
-|---:|---:|---|---|---:|---|---|
-| 0 | [TBD] | Magnetic [X/Y/Z] | [TBD] | [TBD] | Yes | [ ] |
-| 1 | [TBD] | Magnetic [X/Y/Z] | [TBD] | [TBD] | Yes | [ ] |
-| 2 | [TBD] | Magnetic [X/Y/Z] | [TBD] | [TBD] | Yes | [ ] |
-| 3 | [TBD] | Thermistor | [TBD] | [TBD] | Yes | [ ] |
-| 4 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 5 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 6 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
-| 7 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [ ] |
 
 ## 6. Power rails
 
 | Rail | Control signal | Active level | Supplies | Default | Required before | Settling time | Fault indication |
 |---|---|---|---|---|---|---|---|
-| `3V3A` | [TBD] | [TBD] | [TBD] | Off | ADC/card init | [TBD] | [TBD] |
-| `9VA` | [TBD] | [TBD] | Magnetic bridge | Off | Magnetic acquisition | [TBD] | [TBD] |
-| `-5V` | [TBD] | [TBD] | Analog circuitry | Off | Magnetic acquisition | [TBD] | [TBD] |
-| `10V` | [TBD] | [TBD] | [TBD] | Off | [TBD] | [TBD] | [TBD] |
-| `18V` | [TBD] | [TBD] | Pulse circuitry | Off | SET/RESET | [TBD] | [TBD] |
+| `3V3A` | SH1_B | [TBD] | [TBD] | Off | ADC/card init | [TBD] | [TBD] |
+| `9VA` | SH1_C | [TBD] | Magnetic bridge | Off | Magnetic acquisition | [TBD] | [TBD] |
+| `-5V` | SH1_E | [TBD] | Analog circuitry | Off | Magnetic acquisition | [TBD] | [TBD] |
+| `10V` | SH1_C | [TBD] | [TBD] | Off | [TBD] | [TBD] | [TBD] |
+| `18V` | SH1_D | [TBD] | Pulse circuitry | Off | SET/RESET | [TBD] | [TBD] |
 
 ## 7. Power-up sequence
 
