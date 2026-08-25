@@ -34,7 +34,7 @@ evidence is recorded.
 | HW-03 | Resolve analog-rail enable order, active levels, and conservative settling times | [x] | [ ] | |
 | HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [x] | [ ] | |
 | HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [x] | [ ] | |
-| HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [ ] | [ ] | |
+| HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [x] | [ ] | |
 | HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [ ] | [ ] | |
 
 ## 1. ESP-IDF project scaffold
