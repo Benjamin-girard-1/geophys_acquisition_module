@@ -31,9 +31,9 @@ evidence is recorded.
 |---|---|:---:|:---:|---|
 | HW-01 | Resolve every SH1/SH2 active polarity and define the complete safe 16-bit image | [x] | [ ] | |
 | HW-02 | Verify fixed ESP32 SD-mux levels and USB2641 reset/isolation state | [x] | [ ] | |
-| HW-03 | Resolve analog-rail enable order, active levels, and conservative settling times | [ ] | [ ] | |
-| HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [ ] | [ ] | |
-| HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [ ] | [ ] | |
+| HW-03 | Resolve analog-rail enable order, active levels, and conservative settling times | [x] | [ ] | |
+| HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [x] | [ ] | |
+| HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [x] | [ ] | |
 | HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [ ] | [ ] | |
 | HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [ ] | [ ] | |
 
