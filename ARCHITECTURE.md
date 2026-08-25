@@ -88,6 +88,8 @@ source architecture.
 | FreeRTOS task and its owned queues or buffers | `firmware/app/` |
 | Rev-1 GPIO, chip select, polarity, or peripheral assignment | `firmware/boards/rev_1/` |
 | Behavior specific to a removable analog card | `firmware/analog_cards/<card>/` |
+| Magnetic-card SET/RESET pulse sequence, width, dead time, and settling policy | `firmware/analog_cards/magnetic/` |
+| Rev-1 18 V rail control and physical SET/RESET shift-register mapping | `firmware/boards/rev_1/` |
 | Register map or datasheet behavior for one IC | `firmware/drivers/<component>/` |
 | ESP-IDF SPI, I2C, UART, GPIO, timer, or SDMMC adapter | `firmware/platform/esp32s3_devkit/` |
 | Message framing or serialization | `firmware/protocol/` |
@@ -100,7 +102,10 @@ When a change seems to fit in more than one location, place the hardware-neutral
 policy at the higher layer and the hardware-specific mechanism at the lower
 layer. For example, the application decides when recording starts, the storage
 task owns the filesystem, the board keeps the Rev-1 SD mux in its fixed ESP32
-state, and the platform performs the SDMMC operations.
+state, and the platform performs the SDMMC operations. Likewise, the magnetic
+card module defines how a magnetic SET/RESET pulse is generated, while the
+Rev-1 board implements the mainboard's 18 V rail control and physical SH2 output
+mapping used by that sequence.
 
 ## Dependency direction
 
@@ -310,6 +315,16 @@ single integrated circuit. An analog-card module may know:
 An analog-card module must not know ESP32 GPIO numbers, ESP-IDF peripheral
 handles, protocol packet layouts, filesystem behavior, or user-interface policy.
 The selected `board` supplies its control and bus callbacks.
+
+`analog_cards/magnetic/` owns the complete magnetic SET/RESET behavior: allowed
+operations, pulse width, ordering, dead time, and post-pulse settling policy. It
+uses callbacks supplied at initialization and never knows the 18 V enable bit or
+the SET/RESET shift-register positions. The Rev-1 board owns those mainboard
+mechanisms and remains the only writer of the physical 74HC595 chain.
+
+`analog_cards/acc_geoph/` has no SET/RESET pulse behavior. Card-specific gain
+control for that card belongs in its own module and is independent of the
+magnetic pulse interface.
 
 Current card scaffolds are:
 

@@ -54,8 +54,10 @@ Milestone-1 execution and verification are tracked in
 
 - `main/` initializes the platform, selected board, and application.
 - `app/` owns acquisition, processing, storage, communication, and product state.
-- `boards/` maps the custom PCB wiring to portable drivers and platform services.
-- `analog_cards/` describes complete removable card assemblies.
+- `boards/` maps the custom PCB wiring to portable drivers and platform services, including the
+  Rev-1 mainboard's 18 V rail and physical shift-register outputs.
+- `analog_cards/` describes complete removable card assemblies. Magnetic SET/RESET pulse generation
+  belongs in `analog_cards/magnetic/` and is not shared with `analog_cards/acc_geoph/`.
 - `drivers/` implements individual components without depending on ESP-IDF,
   FreeRTOS, or board wiring.
 - `platform/esp32s3_devkit/` isolates ESP-IDF and immutable DevKit details.

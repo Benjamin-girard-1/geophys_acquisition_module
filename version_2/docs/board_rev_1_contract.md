@@ -14,7 +14,7 @@
 
 | Function | ESP32 peripheral | Pins | Frequency/baud | DMA | Owner | Verification |
 |---|---|---|---:|---|---|---|
-| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Operating: [TBD]; reads ≤20 MHz; writes ≤30 MHz | Yes | `task_acquisition` | Schematic + datasheet |
+| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Initial: 8 MHz, mode 0; reads ≤20 MHz; writes ≤30 MHz | Yes | `task_acquisition` | Schematic + datasheet + working V1 reference; Rev-1 bench open |
 | AD7779 control | 74HC595 #2 | RESET:SH2_C, START:SH2_D, MCLK_EN:SH2_E, CONVST_SAR:SH2_F | - | No | `task_acquisition` through `board` | Schematic |
 | LSM6DSV SPI | SPI3 | SCLK:GPIO17, MOSI:GPIO18, CS:GPIO46, MISO:GPIO9 | ≤10 MHz | No | `task_imu` | Schematic + datasheet |
 | MAX-M10S UART | UART1 | ESP32 RX:GPIO45, ESP32 TX:GPIO48 | Target: 921600 baud | No | `task_gnss` | Schematic; bench open |
@@ -29,8 +29,8 @@
 |---|---:|---|---|---|---|---|---|---|---|
 | `ADC_DRDY` | GPIO10 | Input | Low | None | Input | Input | `task_acquisition` | Falling-edge interrupt | Schematic + datasheet |
 | `ADC_CS` | GPIO11 | Output | Low | Pull-up, 10 kΩ | High | High | `task_acquisition` | Assert only for an ADC transaction | Schematic |
-| `DEVICE_DETECT_1` | GPIO3 | Analog input | Analog ID voltage | [TBD] | Input; strapping sampled | Input | `card_detect` | Sample and average; thresholds [TBD] | Schematic |
-| `DEVICE_DETECT_2` | GPIO8 | Analog input | Analog ID voltage | [TBD] | Input | Input | `card_detect` | Sample and average; thresholds [TBD] | Schematic |
+| `DEVICE_DETECT_1` | GPIO3 | Analog input | Analog ID voltage | Pull-up, 10 kΩ to 3.3 V | Input; strapping sampled | Input | `card_detect` | Sample and average at startup | Schematic |
+| `DEVICE_DETECT_2` | GPIO8 | Analog input | Analog ID voltage | Pull-up, 10 kΩ to 3.3 V | Input | Input | `card_detect` | Sample and average at startup | Schematic |
 | `SR_SHIFT_CLK` | GPIO19 | Output | Rising edge | None | USB Serial/JTAG default | Low after claimed | `board` | No clock edges while changing ownership | Schematic |
 | `SR_DATA` | GPIO47 | Output | N/A | None | Input/high impedance | Low after claimed | `board` | Stable before shift-clock edge | Schematic |
 | `SR_OE_N` | GPIO21 | Output | Low enables outputs | Pull-up, 10 kΩ | High | High until safe image is latched | `board` | Enable last; disable first | Schematic |
@@ -84,6 +84,9 @@ ADC oscillator is enabled until the safe image is latched and the 74HC595 output
 ## 4. ESP32 pin restrictions and Rev-1 limitations
 
 - GPIO3, GPIO45, and GPIO46 are ESP32-S3 strapping pins used by this board.
+- GPIO3 is also `DEVICE_DETECT_1`. Its card-divider voltage is present while the ESP32 samples its
+  strapping pins, before firmware can configure or average the ADC input. Verify cold boot and
+  firmware download with no card and with each defined identification resistor in slot 1.
 - GPIO45 is the MAX-M10S-to-ESP32 receive line and also selects the ESP32-S3 `VDD_SPI`
   strapping state. Verify the voltage on GPIO45 through power-up and reset while the GNSS board
   is connected and powered.
@@ -129,11 +132,15 @@ milestone-1 UART acquisition. They remain milestone-2 work.
 
 | Rail | Control signal | Active level | Supplies | Default | Required before | Settling time | Fault indication |
 |---|---|---|---|---|---|---|---|
-| `3V3A` | SH1_B / `EN_LDO_3V3` | High | ADC/card analog circuitry [TBD] | Off | ADC/card init | [TBD] | [TBD] |
-| `10V` | SH1_C / `EN_BST_10V` | High | Upstream supply for 9VA [verify] | Off | 9VA | [TBD] | [TBD] |
-| `9VA` | Derived from 10V; no independent shift-register output | N/A | ADC/reference and magnetic bridge [TBD] | Follows 10V path | Magnetic acquisition | [TBD] | [TBD] |
-| `-5VA` | SH1_E / `EN_INV_-5V` | High | Analog circuitry | Off | Magnetic acquisition | [TBD] | [TBD] |
-| `18V` | SH1_D / `EN_BST_18V` | High | Pulse circuitry | Off | SET/RESET | [TBD] | [TBD] |
+| `3V3A` | SH1_B / `EN_LDO_3V3` | High | ADC/card analog circuitry [TBD] | Off | ADC/card init | 100 ms initial value | [TBD] |
+| `10V` | SH1_C / `EN_BST_10V` | High | Upstream supply for 9VA [verify] | Off | 9VA | 100 ms initial value | [TBD] |
+| `9VA` | Derived from 10V; no independent shift-register output | N/A | ADC/reference and magnetic bridge [TBD] | Follows 10V path | Magnetic acquisition | Included in 10 V wait | [TBD] |
+| `-5VA` | SH1_E / `EN_INV_-5V` | High | Analog circuitry | Off | Magnetic acquisition | 100 ms initial value | [TBD] |
+| `18V` | SH1_D / `EN_BST_18V` | High | Pulse circuitry | Off; enabled on demand only | SET/RESET | 100 ms before pulse | [TBD] |
+
+The initial delays are deliberately conservative. Their purpose is to avoid simultaneous rail startup
+and large combined inrush, not to meet a known tight device requirement. Rev-1 bench measurements may
+shorten them later without changing the sequence or ownership model.
 
 ## 7. Power-up sequence
 
@@ -142,12 +149,42 @@ milestone-1 UART acquisition. They remain milestone-2 work.
 | 1 | Configure direct control GPIOs safely | Immediate | [TBD] | Remain safe |
 | 2 | Disable shift-register outputs | Immediate | `SR_OE_N` inactive | Remain safe |
 | 3 | Load safe shift-register image `0x0010` | Before enabling outputs | Confirm 16-bit shadow state | Remain safe |
-| 4 | Enable required digital rail | [TBD] | [TBD] | Disable rails |
-| 5 | Enable required analog rails | [TBD] | [TBD] | Disable rails |
-| 6 | Enable ADC master clock | [TBD] | Clock detected | Disable ADC |
-| 7 | Reset and initialize AD7779 | [TBD] | Status/identity checks | Report ADC fault |
-| 8 | Detect and initialize analog card | [TBD] | Card detected | Mark unavailable |
-| 9 | Start acquisition when requested | Command | DRDY active | Report failure |
+| 4 | Enable shift-register outputs | Safe image already latched | `SR_OE_N` active | Remain safe |
+| 5 | Detect both analog cards | Average each ID input for the startup detection window | Stable classification | Keep card controls inactive |
+| 6 | Enable `3V3A` when required | Wait 100 ms | [TBD] | Disable controlled rails |
+| 7 | Enable `10V`, producing the derived 9VA path | Wait 100 ms | [TBD] | Disable controlled rails |
+| 8 | Enable `-5VA` | Wait 100 ms | [TBD] | Disable controlled rails |
+| 9 | Enable ADC master clock | Wait at least 5 ms | Clock detected | Disable ADC |
+| 10 | Reset and initialize AD7779 | Use the initial sequence below | Status/identity checks | Report ADC fault |
+| 11 | Initialize the detected magnetic card | After required rails are stable | Card available | Mark unavailable |
+| 12 | Start acquisition when requested | Command | DRDY active | Report failure |
+
+The 18 V rail is not part of normal acquisition startup. It remains off until an on-demand SET or
+RESET request, then is enabled and allowed to settle for 100 ms before the pulse.
+
+### Initial AD7779 control and SPI baseline
+
+The first Rev-1 implementation uses the electrically proven V1 settings as a conservative baseline:
+
+| Parameter | Initial Rev-1 value |
+|---|---|
+| SPI host and format | SPI2, full duplex, mode 0, MSB first |
+| SPI clock | 8 MHz for register access and conversion-frame reads |
+| Chip select | GPIO11, software controlled, active Low |
+| CS timing margin | 1 µs after asserting CS and 1 µs before releasing CS |
+| Transfer context | Blocking/polling transfer from `task_acquisition`; never from the DRDY ISR |
+| Master clock | Set `ADC_MCLK_EN` High, then wait at least 5 ms |
+| Hardware reset | Hold `ADC_RESET` Low for 2 ms, release High, then wait at least 10 ms |
+| START | Hold Low through clock/reset startup, then drive High and leave High when inactive |
+| CONVST_SAR | Keep Low because milestone 1 does not use the SAR ADC |
+| SPI soft reset | Hold SDI High for 64 SCLK cycles, then wait at least 5 ms |
+| Initialization check | Poll `INIT_COMPLETE`; initial timeout 500 ms |
+
+The V1 AD7779 register definitions, CRC handling, configuration sequence, and frame decoding are
+working references. They must be adapted to the V2 architecture: the portable AD7779 driver remains
+free of ESP-IDF and FreeRTOS, while the ESP32 platform supplies the SPI transaction and GPIO/interrupt
+mechanisms. The V1 dedicated streaming task inside its hardware adapter is not an architectural
+precedent for V2.
 
 ## 8. Power-down sequence
 
@@ -201,19 +238,32 @@ timing is not a firmware requirement because runtime ownership switching is unsu
 
 - Detection signals: `DEVICE_DETECT_1` on GPIO3 and `DEVICE_DETECT_2` on GPIO8.
 - Signal type: analog identification voltage; binary active level is not applicable.
-- Physical pull/resistor network: [TBD from schematic].
-- Detection at startup: [YES / NO].
-- Hot-plug supported: [YES / NO].
-- Sampling/averaging interval: [TBD].
-- Power allowed before identification: [TBD].
-- Behavior when removed during acquisition: [TBD].
-- Behavior for unknown or ambiguous voltage: keep card controls inactive; detailed policy [TBD].
+- Physical resistor network: 10 kΩ pull-up to 3.3 V on the mainboard and one card-identification
+  resistor from the detect signal to ground on the expansion card.
+- Detection at startup: Yes, before enabling the controlled analog rails.
+- Hot-plug supported: No for milestone 1; changing a card requires a restart.
+- Sampling/averaging interval: initial target is 2 seconds at 100 samples/s per slot. Use a median or
+  trimmed mean so a small number of startup outliers cannot determine the card type. Configure the
+  ESP32 ADC input range to cover 3.3 V and use its calibration support when converting to millivolts.
+- Power allowed before identification: fixed 3.3 V digital supply only; controlled analog and pulse
+  rails remain off.
+- Behavior when removed during acquisition: unsupported in milestone 1; detailed fault detection is
+  deferred because the ID inputs are not monitored continuously.
+- Behavior for unknown or ambiguous voltage: keep card controls and controlled rails inactive for
+  that slot and report the measured voltage to the host.
 
-| Card state/type | Nominal detect voltage | Accepted minimum | Accepted maximum | Required rails | Driver |
-|---|---:|---:|---:|---|---|
-| No card | [TBD] | [TBD] | [TBD] | None | None |
-| Magnetic card | [TBD] | [TBD] | [TBD] | [TBD] | `card_magnetic` |
-| Unknown/invalid | Outside valid ranges | N/A | N/A | None | None |
+For a 3.3 V pull-up supply, the expected divider voltage is
+`3.3 V × R_card / (10 kΩ + R_card)`. Initial classification boundaries are the midpoints between
+the nominal voltages. These thresholds are suitable for first firmware but remain subject to calibrated
+ESP32 ADC and assembled-card measurements.
+
+| Card state/type | Card resistor to ground | Nominal detect voltage | Initial accepted minimum | Initial accepted maximum | Milestone-1 handling |
+|---|---:|---:|---:|---:|---|
+| No card | Open circuit | 3.30 V | 2.750 V | ADC full scale | Leave slot inactive |
+| Magnetic card | 20 kΩ | 2.20 V | 1.925 V | 2.750 V | Initialize `card_magnetic` |
+| Accelerometer card | 10 kΩ | 1.65 V | 1.375 V | 1.925 V | Identify and report; driver deferred |
+| Resistivity card | 5 kΩ | 1.10 V | 0.550 V | 1.375 V | Identify and report; driver deferred |
+| Unknown/invalid | Short, out-of-range, or unstable | N/A | Outside accepted ranges | Outside accepted ranges | Keep slot inactive and report voltage |
 
 ## 11. Magnetic SET/RESET sequence
 
@@ -221,27 +271,44 @@ timing is not a firmware requirement because runtime ownership switching is unsu
 |---|---:|---:|
 | Control signal | `SET_1` (SH2_H) or `SET_2` (SH2_B), according to slot | `RESET_1` (SH2_G) or `RESET_2` (SH2_A), according to slot |
 | Active level | High pulse; Low inactive | High pulse; Low inactive |
-| Pulse width | [TBD] | [TBD] |
-| Pre-pulse delay | [TBD] | [TBD] |
-| Post-pulse settling | [TBD] | [TBD] |
-| Required rail | 18V pulse rail; verify final requirement | 18V pulse rail; verify final requirement |
-| Repetition policy | On demand only; minimum interval [TBD] | On demand only; minimum interval [TBD] |
+| Pulse width | Initial value: 200 us; bench verification required | Initial value: 200 us; bench verification required |
+| Pre-pulse delay | 100 ms after enabling the 18 V rail | 100 ms after enabling the 18 V rail |
+| Post-pulse settling | [TBD by ADC observation] | [TBD by ADC observation] |
+| Required rail | 18 V pulse rail, enabled only for the request | 18 V pulse rail, enabled only for the request |
+| Repetition policy | On demand only; no periodic operation; minimum interval [TBD] | On demand only; no periodic operation; minimum interval [TBD] |
+
+The initial timing values come from the working V1 `hmc100x` implementation. They are starting
+values, not Rev-1 verification evidence. V1 used a 10 ms interval in its combined diagnostic, in
+the order RESET then SET. The V2 interface currently describes that diagnostic in the opposite
+order, so a combined operation must not be implemented until its required order and measurement
+purpose are resolved. Independent on-demand SET and RESET requests are unaffected by this question.
+
+The V1 default left the 9VA magnetic-bridge supply enabled during a pulse. V2 follows that behavior:
+the pulse sequence does not cycle the normal acquisition rails. The V1 periodic task, direct access
+to shift-register bits, simultaneous selection of both slots, and policy of leaving the 18 V rail on
+are not architectural precedents for V2.
 
 Sequence:
 
-1. Confirm magnetic card is present.
-2. Confirm acquisition/pulse resource is available.
-3. Enable required pulse rail, if necessary.
-4. Wait for rail settling.
-5. Mark acquisition state as pulse/transient.
-6. Generate the firmware-timed pulse.
-7. Return pulse output inactive.
-8. Wait for analog settling.
+1. Confirm that a magnetic card is present in the requested slot.
+2. Acquire the acquisition/pulse resource and reject overlapping pulse requests.
+3. Through the board API, force SET and RESET inactive for both slots.
+4. Mark acquisition state as pulse/transient before switching the pulse rail.
+5. Enable the 18 V pulse rail and wait 100 ms.
+6. Assert only the requested slot and operation for an initial 200 us.
+7. Return the pulse output inactive, then disable the 18 V rail.
+8. Wait for the bench-defined analog settling interval while samples remain transient.
 9. Resume normal sample-valid state.
-10. Record pulse result and timestamp.
+10. Record the requested operation, actual timing, affected frames, and result.
 
 SET and RESET must never be active simultaneously. Samples acquired during the pulse and
 post-pulse settling interval remain timestamped but are marked transient/invalid for scientific use.
+Every success, failure, timeout, and abort path must leave all SET/RESET outputs Low and the 18 V
+rail disabled. `task_acquisition` owns command serialization and sample-validity timing.
+`analog_cards/magnetic` owns the card-specific pulse generation, including pulse width, ordering,
+dead time, and settling policy. It requests the 18 V rail and logical SET/RESET state through bound
+callbacks. Only the Rev-1 `board` module controls the mainboard 18 V rail and translates those
+logical requests into shift-register changes. `analog_cards/acc_geoph` has no SET/RESET behavior.
 
 ## 12. Open hardware questions
 
@@ -249,12 +316,13 @@ post-pulse settling interval remain timestamped but are marked transient/invalid
 |---|---|---|---|
 | Does the MAX-M10S TX level on GPIO45 preserve the required ESP32 `VDD_SPI` strap during every reset condition? | Hardware | Schematic + oscilloscope | Open |
 | Does the GPIO46/LSM6DSV CS state allow normal boot and firmware download? | Hardware/firmware | Schematic + boot test | Open |
+| Do the no-card, 20 kΩ, 10 kΩ, and 5 kΩ slot-1 detection states preserve the required GPIO3 strap behavior? | Hardware/firmware | Repeated cold boot and download test | Open |
 | Do the assembled-board SH1/SH2 boot and safe levels match the schematic/datasheet-derived contract, especially floating `EN_INV_-5V`? | Hardware | Oscilloscope/logic analyzer | Open |
-| What are the exact analog-card identification voltage ranges and tolerances? | Hardware | Resistor network + ADC test | Open |
-| What are the safe SET/RESET pulse widths, minimum interval, and analog settling time? | Hardware | Magnetic-card design + oscilloscope | Open |
+| Do the assembled-card divider voltages fall inside the initial identification windows with adequate margin? | Hardware | Calibrated ESP32 ADC + multimeter | Open |
+| Does the initial 200 us SET/RESET pulse provide the required current and duration, and what minimum request interval and post-pulse analog settling time are safe? | Hardware | V1 reference + magnetic-card design + oscilloscope/ADC data | Open |
 | What startup settling delay, if any, is required before milestone-2 SDMMC initialization? | Hardware | Mux datasheet + logic analyzer | Open |
 | What is the safe boot level and policy for `EN_SUPERCAP_CHARGE`? | Hardware | Schematic + power test | Open |
-| Which AD7779 SPI clock is reliable on the assembled board? | Firmware/hardware | Logic analyzer + ADC test | Open |
+| Does the initial 8 MHz, mode-0, manual-CS AD7779 SPI baseline operate reliably on the assembled Rev-1 board? | Firmware/hardware | Logic analyzer + ADC test | Open |
 
 ## 13. Verification record
 

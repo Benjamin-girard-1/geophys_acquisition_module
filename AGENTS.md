@@ -43,7 +43,9 @@ hardware-verified. Preserve the existing layered structure:
 - `app/`: product behavior, tasks, queues, and resource ownership.
 - `boards/rev_1/`: Rev-1 GPIO/peripheral mapping, polarities, safe states,
   power sequencing, and board-level operations.
-- `analog_cards/`: removable-card behavior without ESP32 GPIO numbers.
+- `analog_cards/`: removable-card behavior without ESP32 GPIO numbers. Magnetic
+  SET/RESET pulse generation belongs specifically in `analog_cards/magnetic/`;
+  it is not part of `analog_cards/acc_geoph/`.
 - `drivers/`: portable IC register behavior without ESP-IDF or FreeRTOS.
 - `platform/esp32s3_devkit/`: generic ESP-IDF mechanisms and immutable DevKit
   integration.
@@ -68,9 +70,11 @@ ownership switching.
 ## Non-negotiable firmware rules
 
 - Maintain one writer/owner for every stateful hardware resource.
-- `task_acquisition` owns AD7779 configuration/streaming and magnetic pulse
-  timing. `task_communication` owns UART transport and protocol handling. Only
-  the board module writes the 74HC595 image or direct Rev-1 control GPIOs.
+- `task_acquisition` owns AD7779 configuration/streaming, pulse-command
+  serialization, and ADC validity marking. `analog_cards/magnetic` owns the
+  magnetic SET/RESET pulse sequence and timing. `task_communication` owns UART
+  transport and protocol handling. Only the board module controls the
+  mainboard 18 V rail or writes the 74HC595 image and direct Rev-1 GPIOs.
 - Application code uses board-level operations. It does not manipulate IC
   registers, ESP32 GPIO registers, or shift-register bits directly.
 - Keep the ADC data-ready ISR minimal: timestamp, enqueue/notify, and count

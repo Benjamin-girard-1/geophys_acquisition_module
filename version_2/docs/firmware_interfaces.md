@@ -33,6 +33,10 @@ Their scaffolds may compile, but they do not initialize hardware or allocate run
   mapping, and component instances.
 - Analog-card modules describe a card as a product component but never manipulate raw GPIO numbers
   or shift-register bits.
+- `analog_cards/magnetic` owns the magnetic SET/RESET pulse-generation sequence and its card-specific
+  timing. It requests 18 V rail and logical SET/RESET output changes through callbacks supplied by
+  `boards/rev_1`.
+- `analog_cards/acc_geoph` does not implement or expose magnetic SET/RESET operations.
 - Application tasks use board, card, and protocol interfaces. They do not call portable IC drivers
   directly.
 - Protocol and transport code contain no product hardware control.
@@ -124,8 +128,9 @@ from task context.
 
 ## 5. Board-level interface
 
-`boards/rev_1/board.h` is the only application-facing entry to Rev-1 hardware. It exposes product
-operations without GPIO numbers, active levels, shift-register positions, or ESP-IDF handles.
+`boards/rev_1/board.h` is the only entry to Rev-1 hardware. It exposes product operations and the
+callbacks bound to card modules without exposing GPIO numbers, active levels, shift-register
+positions, or ESP-IDF handles.
 
 Required milestone-1 operations:
 
@@ -138,7 +143,8 @@ Required milestone-1 operations:
 | Initialize/configure ADC | `task_acquisition` | Apply channel mask, gains, sample rate, CRC/header policy |
 | Start/stop ADC | `task_acquisition` | Perform the required board and AD7779 sequence |
 | Read one ADC frame | `task_acquisition` | Return one simultaneous frame and validation status |
-| Execute magnetic pulse | `task_acquisition` | Validate slot, serialize pulse access, enforce dead time, and return timing/result |
+| Set 18 V pulse-rail state | Magnetic-card module through a bound callback | Enable or disable the Rev-1 mainboard rail without exposing SH1_D |
+| Set one logical card pulse output | Magnetic-card module through a bound callback | Safely drive the selected slot's SET or RESET output without exposing SH2 positions |
 | Read/update safe shift image | `board` only | Maintain one 16-bit shadow and prevent unrelated-bit overwrite |
 
 Board rules:
@@ -150,6 +156,21 @@ Board rules:
 - Only `board` calls the 74HC595 driver.
 - The SD mux is initialized once toward the ESP32 and is never switched at runtime.
 - The USB2641 remains reset/isolated; there is no USB2641 ownership API.
+
+### Magnetic-card pulse interface
+
+`analog_cards/magnetic/card_magnetic.*` implements the magnetic-card pulse operation. It owns the
+SET/RESET sequence, pulse width, inter-pulse dead time, and post-pulse settling requirement. The
+module uses abstract callbacks for the monotonic clock/delay, the mainboard 18 V rail, and the
+selected slot's logical SET/RESET outputs.
+
+The Rev-1 board implements the rail and output callbacks because the 18 V converter, 74HC595 chain,
+and output-to-slot mapping are on the mainboard. The magnetic module must not contain `EN_BST_18V`,
+SH1/SH2 positions, ESP32 GPIO numbers, or 74HC595 calls.
+
+`task_acquisition` accepts and serializes pulse commands, invokes the magnetic-card operation, and
+marks the affected ADC frames transient. It does not implement the electrical pulse waveform. The
+accelerometer-card module has no corresponding SET/RESET operation.
 
 ## 6. Driver lifecycle
 
@@ -219,7 +240,7 @@ Rules:
 | Card slot | Slot 1 or slot 2 |
 | Operation | SET, RESET, or on-demand SET-then-RESET diagnostic |
 | Requested timestamp | Time command was accepted |
-| Configured control width | Board-level command-pulse duration |
+| Configured control width | Magnetic-card command-pulse duration |
 | Actual timestamp | Time the pulse operation began |
 | Settling end | First time normal samples may be valid |
 | First/last affected sequence | Inclusive transient frame range |
@@ -231,7 +252,8 @@ Rules:
 |---|---|---|---|
 | AD7779 configuration and streaming | `task_acquisition` | Communication/status | Acquisition command queue and status snapshot |
 | ADC frame/block pool | `task_acquisition` | `task_communication` | Free-block and ready-block queues |
-| Magnetic SET/RESET timing | `task_acquisition` | Communication | Acquisition command queue |
+| Pulse-command serialization and ADC validity window | `task_acquisition` | Communication | Acquisition command queue |
+| Magnetic SET/RESET sequence and card-specific timing | `analog_cards/magnetic` | `task_acquisition` | Magnetic-card operation interface and bound callbacks |
 | Rev-1 GPIO, rails, and shift-register image | `board` module | Acquisition/application | Board API |
 | UART transport and protocol parser | `task_communication` | Acquisition/application | Queues and immutable snapshots |
 | Card-detection state | `board` / `card_detect` | Acquisition/communication | Board status snapshot |
