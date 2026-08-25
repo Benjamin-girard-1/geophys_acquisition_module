@@ -47,22 +47,39 @@ the board API so unrelated bits cannot overwrite one another.
 
 | Output | Signal | Active level | Physical pull | Electrical boot state while `SR_OE_N` is high | Required safe state | Logical owner | Verification |
 |---|---|---|---|---|---|---|---|
-| SH1_A | `SD_MUX_SEL` | [TBD] | Pull-down, 10 kΩ | Low | ESP32 selection; exact level [TBD] | `board` | Schematic; truth level open |
-| SH1_B | `EN_LDO_3V3` | [TBD] | [TBD] | [TBD] | Inactive | `board` | Schematic; polarity open |
-| SH1_C | `EN_BST_10V` | [TBD] | [TBD] | [TBD] | Inactive | `board` | Schematic; polarity open |
-| SH1_D | `EN_BST_18V` | [TBD] | [TBD] | [TBD] | Inactive | `board` | Schematic; polarity open |
-| SH1_E | `EN_INV_-5V` | [TBD] | [TBD] | [TBD] | Inactive | `board` | Schematic; polarity open |
-| SH1_F | `USB2641_nRESET` | Low | Pull-up, 10 kΩ | High | Low; USB2641 held reset/isolated | `board` | Schematic |
-| SH1_G | `EN_SD_MUX` | [TBD] | Pull-up, 100 kΩ | High | Enabled for ESP32 path; exact level [TBD] | `board` | Schematic; polarity open |
-| SH1_H | `EN_LED` | [TBD] | None | High impedance | Inactive | `board` | Schematic; polarity open |
-| SH2_A | `RESET_2` | [TBD] | [TBD] | [TBD] | Inactive | Selected card driver | Schematic; polarity open |
-| SH2_B | `SET_2` | [TBD] | [TBD] | [TBD] | Inactive | Selected card driver | Schematic; polarity open |
-| SH2_C | `ADC_RESET` | Low | Pull-up, 100 kΩ | High | Low while ADC is held in reset | `task_acquisition` | Schematic + datasheet |
-| SH2_D | `ADC_START` | [TBD] | Pull-down, 100 kΩ | Low | Inactive | `task_acquisition` | Schematic; polarity open |
-| SH2_E | `ADC_MCLK_EN` | [TBD] | Pull-up, 100 kΩ | High | Inactive level [TBD] | `task_acquisition` | Schematic; polarity open |
-| SH2_F | `ADC_CONVST_SAR` | [TBD] | Pull-down, 100 kΩ | Low | Inactive | `task_acquisition` | Schematic; polarity open |
-| SH2_G | `RESET_1` | [TBD] | [TBD] | [TBD] | Inactive | Selected card driver | Schematic; polarity open |
-| SH2_H | `SET_1` | [TBD] | [TBD] | [TBD] | Inactive | Selected card driver | Schematic; polarity open |
+| SH1_A | `SD_MUX_SEL` | Selector: Low = ESP32; High = USB2641 | Pull-down, 10 kΩ | Low; ESP32 selected | Low; ESP32 selected | `board` | Schematic + mux datasheet |
+| SH1_B | `EN_LDO_3V3` | High enables | Device-internal pull-down | Low; disabled | Low; disabled | `board` | Schematic + regulator datasheet |
+| SH1_C | `EN_BST_10V` | High enables | Pull-down, 100 kΩ | Low; disabled | Low; disabled | `board` | Schematic + regulator datasheet |
+| SH1_D | `EN_BST_18V` | High enables | Pull-down, 100 kΩ | Low; disabled | Low; disabled | `board` | Schematic + regulator datasheet |
+| SH1_E | `EN_INV_-5V` | High enables | None external | Undefined if the regulator input supply is present | Low; disabled | `board` | Schematic + regulator datasheet; boot level not bench tested |
+| SH1_F | `USB2641_nRESET` | Low asserts reset | Pull-up, 10 kΩ | High; reset released | Low; USB2641 held reset/isolated | `board` | Schematic + USB2641 datasheet |
+| SH1_G | `EN_SD_MUX` | Low enables mux; High disconnects all channels | Pull-up, 100 kΩ | High; mux disabled | Low; mux enabled on ESP32 path | `board` | Schematic + mux datasheet |
+| SH1_H | `EN_LED` | High enables | Gate pull-down, 100 kΩ | Low; disabled | Low; disabled | `board` | Schematic |
+| SH2_A | `RESET_2` | High pulse request | Pull-down, 100 kΩ | Low; inactive | Low; inactive | Selected card driver | Schematic + reused magnetic-card design; bench open |
+| SH2_B | `SET_2` | High pulse request | Pull-down, 100 kΩ | Low; inactive | Low; inactive | Selected card driver | Schematic + reused magnetic-card design; bench open |
+| SH2_C | `ADC_RESET` | Low asserts reset | Pull-up, 100 kΩ | High; reset released | Low; reset asserted | `task_acquisition` | Schematic + AD7779 datasheet |
+| SH2_D | `ADC_START` | Low synchronization pulse; idle High | Pull-down, 100 kΩ | Low; synchronization asserted | High; inactive | `task_acquisition` | Schematic + AD7779 datasheet |
+| SH2_E | `ADC_MCLK_EN` | High or floating enables clock output | Pull-up, 100 kΩ | High; clock enabled | Low; clock disabled | `task_acquisition` | Schematic + oscillator datasheet |
+| SH2_F | `ADC_CONVST_SAR` | Rising edge/High pulse requests conversion | Pull-down, 100 kΩ | Low; inactive | Low; inactive because SAR is unused | `task_acquisition` | Schematic + AD7779 datasheet |
+| SH2_G | `RESET_1` | High pulse request | Pull-down, 100 kΩ | Low; inactive | Low; inactive | Selected card driver | Schematic + reused magnetic-card design; bench open |
+| SH2_H | `SET_1` | High pulse request | Pull-down, 100 kΩ | Low; inactive | Low; inactive | Selected card driver | Schematic + reused magnetic-card design; bench open |
+
+### Safe 16-bit image
+
+The serialized image uses SH1_A through SH1_H as bits 15 through 8 and SH2_A through SH2_H as
+bits 7 through 0. Bit 0 is shifted first because it must travel through both 74HC595 devices.
+
+The canonical safe image is `0x0010`. Only SH2_D / `ADC_START` is High. This image:
+
+- selects and enables the fixed ESP32 SD path;
+- holds the USB2641 in reset;
+- disables the analog rails, pulse supply, ADC master clock, SAR request, and LED;
+- holds the AD7779 in reset with `ADC_START` inactive; and
+- holds every SET/RESET request inactive.
+
+The resistor-defined states while `SR_OE_N` is High are not equivalent to this safe image. In
+particular, the USB2641 reset is released, the ADC reset is released, `ADC_START` is Low, and the
+ADC oscillator is enabled until the safe image is latched and the 74HC595 outputs are enabled.
 
 ## 4. ESP32 pin restrictions and Rev-1 limitations
 
@@ -112,11 +129,11 @@ milestone-1 UART acquisition. They remain milestone-2 work.
 
 | Rail | Control signal | Active level | Supplies | Default | Required before | Settling time | Fault indication |
 |---|---|---|---|---|---|---|---|
-| `3V3A` | SH1_B / `EN_LDO_3V3` | [TBD] | ADC/card analog circuitry [TBD] | Off | ADC/card init | [TBD] | [TBD] |
-| `10V` | SH1_C / `EN_BST_10V` | [TBD] | Upstream supply for 9VA [verify] | Off | 9VA | [TBD] | [TBD] |
+| `3V3A` | SH1_B / `EN_LDO_3V3` | High | ADC/card analog circuitry [TBD] | Off | ADC/card init | [TBD] | [TBD] |
+| `10V` | SH1_C / `EN_BST_10V` | High | Upstream supply for 9VA [verify] | Off | 9VA | [TBD] | [TBD] |
 | `9VA` | Derived from 10V; no independent shift-register output | N/A | ADC/reference and magnetic bridge [TBD] | Follows 10V path | Magnetic acquisition | [TBD] | [TBD] |
-| `-5VA` | SH1_E / `EN_INV_-5V` | [TBD] | Analog circuitry | Off | Magnetic acquisition | [TBD] | [TBD] |
-| `18V` | SH1_D / `EN_BST_18V` | [TBD] | Pulse circuitry | Off | SET/RESET | [TBD] | [TBD] |
+| `-5VA` | SH1_E / `EN_INV_-5V` | High | Analog circuitry | Off | Magnetic acquisition | [TBD] | [TBD] |
+| `18V` | SH1_D / `EN_BST_18V` | High | Pulse circuitry | Off | SET/RESET | [TBD] | [TBD] |
 
 ## 7. Power-up sequence
 
@@ -124,7 +141,7 @@ milestone-1 UART acquisition. They remain milestone-2 work.
 |---:|---|---|---|---|
 | 1 | Configure direct control GPIOs safely | Immediate | [TBD] | Remain safe |
 | 2 | Disable shift-register outputs | Immediate | `SR_OE_N` inactive | Remain safe |
-| 3 | Load safe shift-register image | [TBD] | Readback/shadow state | Remain safe |
+| 3 | Load safe shift-register image `0x0010` | Before enabling outputs | Confirm 16-bit shadow state | Remain safe |
 | 4 | Enable required digital rail | [TBD] | [TBD] | Disable rails |
 | 5 | Enable required analog rails | [TBD] | [TBD] | Disable rails |
 | 6 | Enable ADC master clock | [TBD] | Clock detected | Disable ADC |
@@ -150,7 +167,7 @@ not expose an API for selecting the USB2641 side.
 
 | State | ESP32 SDMMC | USB2641 | Mux selection | Filesystem |
 |---|---|---|---|---|
-| Boot/safe initialization | High impedance | Assert reset as soon as the safe image is applied | Select ESP32 before enabling the mux; exact levels [TBD] | Unmounted |
+| Boot/safe initialization | High impedance | Assert reset as soon as the safe image is applied | `SD_MUX_SEL` Low and `EN_SD_MUX` Low | Unmounted |
 | Milestone-1 runtime | Not initialized | Reset/isolated | Fixed to ESP32 | Unmounted |
 | Milestone-2 recording | Enabled when storage starts | Reset/isolated | Fixed to ESP32 | Mounted by ESP32 |
 | Storage fault | Disabled or stopped safely | Reset/isolated | Remains fixed to ESP32 | Unmounted when possible |
@@ -158,15 +175,15 @@ not expose an API for selecting the USB2641 side.
 Initialization requirements:
 
 1. Keep shift-register outputs disabled while loading the safe image.
-2. Put `SD_MUX_SEL` in the ESP32-selection state.
-3. Assert `USB2641_nRESET`.
-4. Put `EN_SD_MUX` in the state required to connect the ESP32 path.
+2. Set `SD_MUX_SEL` Low to select the ESP32 normally closed path.
+3. Set `USB2641_nRESET` Low to assert reset.
+4. Set `EN_SD_MUX` Low to enable the selected ESP32 path.
 5. Enable shift-register outputs only after all other SH1/SH2 bits are safe.
 6. Never change these three SD/USB control bits during normal runtime.
 
-The exact logic levels and any required initial settling delay remain to be verified from the mux
-and USB2641 circuitry. Break-before-make timing is not a firmware requirement because runtime
-ownership switching is unsupported.
+The fixed logic levels are resolved from the schematic and mux/USB2641 datasheets. Any required
+initial settling delay before milestone-2 SDMMC initialization remains a bench item. Break-before-make
+timing is not a firmware requirement because runtime ownership switching is unsupported.
 
 ## 10. Analog-card detection
 
@@ -191,7 +208,7 @@ ownership switching is unsupported.
 | Parameter | SET | RESET |
 |---|---:|---:|
 | Control signal | `SET_1` (SH2_H) or `SET_2` (SH2_B), according to slot | `RESET_1` (SH2_G) or `RESET_2` (SH2_A), according to slot |
-| Active level | [TBD] | [TBD] |
+| Active level | High pulse; Low inactive | High pulse; Low inactive |
 | Pulse width | [TBD] | [TBD] |
 | Pre-pulse delay | [TBD] | [TBD] |
 | Post-pulse settling | [TBD] | [TBD] |
@@ -220,10 +237,10 @@ post-pulse settling interval remain timestamped but are marked transient/invalid
 |---|---|---|---|
 | Does the MAX-M10S TX level on GPIO45 preserve the required ESP32 `VDD_SPI` strap during every reset condition? | Hardware | Schematic + oscilloscope | Open |
 | Does the GPIO46/LSM6DSV CS state allow normal boot and firmware download? | Hardware/firmware | Schematic + boot test | Open |
-| What are the active polarities and boot levels of every SH1/SH2 output? | Hardware | Schematic + datasheets | Open |
+| Do the assembled-board SH1/SH2 boot and safe levels match the schematic/datasheet-derived contract, especially floating `EN_INV_-5V`? | Hardware | Oscilloscope/logic analyzer | Open |
 | What are the exact analog-card identification voltage ranges and tolerances? | Hardware | Resistor network + ADC test | Open |
 | What are the safe SET/RESET pulse widths, minimum interval, and analog settling time? | Hardware | Magnetic-card design + oscilloscope | Open |
-| What exact `SD_MUX_SEL` and `EN_SD_MUX` levels establish the fixed ESP32 path, and what startup settling delay is required? | Hardware | Schematic + mux datasheet + logic analyzer | Open |
+| What startup settling delay, if any, is required before milestone-2 SDMMC initialization? | Hardware | Mux datasheet + logic analyzer | Open |
 | What is the safe boot level and policy for `EN_SUPERCAP_CHARGE`? | Hardware | Schematic + power test | Open |
 | Which AD7779 SPI clock is reliable on the assembled board? | Firmware/hardware | Logic analyzer + ADC test | Open |
 
