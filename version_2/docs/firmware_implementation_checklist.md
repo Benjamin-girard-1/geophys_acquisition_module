@@ -29,7 +29,7 @@ evidence is recorded.
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
-| HW-01 | Resolve every SH1/SH2 active polarity and define the complete safe 16-bit image | [ ] | [ ] | |
+| HW-01 | Resolve every SH1/SH2 active polarity and define the complete safe 16-bit image | [x] | [ ] | |
 | HW-02 | Verify fixed ESP32 SD-mux levels and USB2641 reset/isolation state | [ ] | [ ] | |
 | HW-03 | Resolve analog-rail enable order, active levels, and conservative settling times | [ ] | [ ] | |
 | HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [ ] | [ ] | |
