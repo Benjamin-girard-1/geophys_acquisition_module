@@ -181,6 +181,18 @@ Initialization requirements:
 5. Enable shift-register outputs only after all other SH1/SH2 bits are safe.
 6. Never change these three SD/USB control bits during normal runtime.
 
+Firmware implementation requirements:
+
+- Encode these three fixed values in the Rev-1 board configuration and in the canonical safe image;
+  application code must not know their shift-register positions or electrical levels.
+- `board_init()` applies the complete safe image before enabling the 74HC595 outputs.
+- Every later shift-register update preserves `SD_MUX_SEL = Low`, `EN_SD_MUX = Low`, and
+  `USB2641_nRESET = Low`; `board_enter_safe_state()` reasserts the same values.
+- Do not expose a board API for changing SD ownership, disabling the ESP32 mux path, or releasing
+  the USB2641 reset.
+- Milestone 1 does not initialize SDMMC or the USB2641. The ESP32 SDMMC pins remain unclaimed while
+  the physical mux path is already fixed toward the ESP32 for milestone 2.
+
 The fixed logic levels are resolved from the schematic and mux/USB2641 datasheets. Any required
 initial settling delay before milestone-2 SDMMC initialization remains a bench item. Break-before-make
 timing is not a firmware requirement because runtime ownership switching is unsupported.
