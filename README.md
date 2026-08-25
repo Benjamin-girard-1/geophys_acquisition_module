@@ -17,6 +17,8 @@ hardware-tested.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for module responsibilities, dependency
 rules, initialization order, and the detailed implementation-status table.
+Milestone-1 execution and verification are tracked in
+[version_2/docs/firmware_implementation_checklist.md](version_2/docs/firmware_implementation_checklist.md).
 
 ## Repository layout
 

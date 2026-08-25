@@ -99,8 +99,8 @@ source architecture.
 When a change seems to fit in more than one location, place the hardware-neutral
 policy at the higher layer and the hardware-specific mechanism at the lower
 layer. For example, the application decides when recording starts, the storage
-task owns the filesystem, the board controls SD-card ownership, and the platform
-performs the SDMMC operations.
+task owns the filesystem, the board keeps the Rev-1 SD mux in its fixed ESP32
+state, and the platform performs the SDMMC operations.
 
 ## Dependency direction
 
@@ -358,27 +358,26 @@ an opaque context to each driver instance. Unsupported functionality is omitted
 or returns an explicit not-supported result; it is not declared without an
 implementation.
 
-## Storage and SD-card ownership
+## Storage and fixed SD-card ownership
 
 The storage architecture crosses several layers:
 
 - `task_storage` owns normal filesystem access and recording files.
-- `board` owns the product-specific SD/USB multiplexer policy and control pins.
+- `board` initializes the product-specific SD/USB multiplexer once for ESP32
+  ownership and holds the USB2641 reset/isolated.
 - `platform` performs ESP-IDF SDMMC and filesystem operations.
-- The USB transport or export mode requests storage ownership through an
-  application or board-level interface; it does not switch the mux directly.
 
-The firmware must model at least these storage states:
+When milestone-2 storage is implemented, the firmware must model at least these
+storage states:
 
 - Unavailable or uninitialized.
 - Owned by the ESP32 for recording or playback.
-- Transitioning, with all writes flushed and the filesystem unmounted.
-- Exposed to the USB2641/host side.
 - Faulted or unexpectedly removed.
 
-Only one side may own the storage medium at a time. The exact reset, enable,
-multiplexer, mount, and settling sequence belongs to the Rev-1 board
-implementation and must be verified against the schematic and datasheets.
+V2 Rev-1 firmware does not expose the SD card through the USB2641 and does not
+switch SD ownership at runtime. The exact fixed mux select/enable levels and
+USB2641 reset state belong to the Rev-1 board implementation and must be
+verified against the schematic and datasheets.
 
 ## Communication architecture
 
@@ -527,7 +526,7 @@ failures prevent acquisition from starting.
 - Board and platform services receive hardware smoke tests for each peripheral.
 - Acquisition tests cover data-ready timing, buffering, overruns, and sustained
   throughput.
-- Storage tests cover full media, removal, write errors, mux ownership changes,
+- Storage tests cover full media, removal, write errors, fixed mux isolation,
   unmounting, and interrupted power.
 - Long-duration tests cover timestamp drift, GNSS loss/reacquisition, queue
   pressure, and watchdog recovery.
@@ -547,7 +546,7 @@ or implementation.
 | Application startup and shared types | Partial | No | No | No |
 | Acquisition task | Yes | No | No | No |
 | Processing task | Yes | No | No | No |
-| Storage task and SD/USB ownership | Partial | No | No | No |
+| Storage task and fixed SD ownership | Partial | No | No | No |
 | Communication task | Yes | No | No | No |
 | Bluetooth task | Yes | No | No | No |
 | AD7779 driver | Yes | No | No | No |

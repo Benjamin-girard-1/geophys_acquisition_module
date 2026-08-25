@@ -21,7 +21,7 @@
 | Card-slot 1 I²C / GPIO | I2C0 or GPIO | GPIO40, GPIO41 | [TBD] | No | `card_detect` / selected card driver | Schematic |
 | Card-slot 2 I²C / GPIO | I2C1 or GPIO | GPIO38, GPIO39 | [TBD] | No | `card_detect` / selected card driver | Schematic |
 | SD card | SDMMC host | CMD:GPIO16, CLK:GPIO7, D0:GPIO5, D1:GPIO4, D2:GPIO15, D3:GPIO6 | [TBD] | TBD | `task_storage` | Schematic |
-| Debug/host UART | UART0 | TX:GPIO43, RX:GPIO44 (DevKit default) | [TBD] | N/A | `task_communication` | DevKit assignment |
+| Debug/host UART | UART0 | TX:GPIO43, RX:GPIO44 (DevKit default) | Target: 921600 baud | N/A | `task_communication` | DevKit assignment; bench open |
 
 ## 2. Direct ESP32 signals
 
@@ -47,13 +47,13 @@ the board API so unrelated bits cannot overwrite one another.
 
 | Output | Signal | Active level | Physical pull | Electrical boot state while `SR_OE_N` is high | Required safe state | Logical owner | Verification |
 |---|---|---|---|---|---|---|---|
-| SH1_A | `SD_MUX_SEL` | [TBD] | Pull-down, 10 kΩ | Low | Safe-idle selection [TBD] | `task_storage` | Schematic |
+| SH1_A | `SD_MUX_SEL` | [TBD] | Pull-down, 10 kΩ | Low | ESP32 selection; exact level [TBD] | `board` | Schematic; truth level open |
 | SH1_B | `EN_LDO_3V3` | [TBD] | [TBD] | [TBD] | Inactive | `board` | Schematic; polarity open |
 | SH1_C | `EN_BST_10V` | [TBD] | [TBD] | [TBD] | Inactive | `board` | Schematic; polarity open |
 | SH1_D | `EN_BST_18V` | [TBD] | [TBD] | [TBD] | Inactive | `board` | Schematic; polarity open |
 | SH1_E | `EN_INV_-5V` | [TBD] | [TBD] | [TBD] | Inactive | `board` | Schematic; polarity open |
-| SH1_F | `USB2641_nRESET` | Low | Pull-up, 10 kΩ | High | Low when USB does not own SD | `task_storage` | Schematic |
-| SH1_G | `EN_SD_MUX` | [TBD] | Pull-up, 100 kΩ | High | Mux disabled; level [TBD] | `task_storage` | Schematic; polarity open |
+| SH1_F | `USB2641_nRESET` | Low | Pull-up, 10 kΩ | High | Low; USB2641 held reset/isolated | `board` | Schematic |
+| SH1_G | `EN_SD_MUX` | [TBD] | Pull-up, 100 kΩ | High | Enabled for ESP32 path; exact level [TBD] | `board` | Schematic; polarity open |
 | SH1_H | `EN_LED` | [TBD] | None | High impedance | Inactive | `board` | Schematic; polarity open |
 | SH2_A | `RESET_2` | [TBD] | [TBD] | [TBD] | Inactive | Selected card driver | Schematic; polarity open |
 | SH2_B | `SET_2` | [TBD] | [TBD] | [TBD] | Inactive | Selected card driver | Schematic; polarity open |
@@ -89,6 +89,23 @@ the board API so unrelated bits cannot overwrite one another.
 - **Open:** the item has not yet been resolved.
 
 `Schematic` verification does not imply that the signal has been electrically tested.
+
+### Milestone-1 blocking decisions
+
+Not every open value prevents the first firmware work. The following gates identify when each
+hardware decision becomes mandatory.
+
+| Gate | Values that must be resolved | Blocks |
+|---|---|---|
+| Before enabling 74HC595 outputs | Active polarity and safe level of every SH1/SH2 signal; complete safe 16-bit image; fixed `SD_MUX_SEL`, `EN_SD_MUX`, and `USB2641_nRESET` levels | Rev-1 `board_init()` and any powered hardware test |
+| Before driving `EN_SUPERCAP_CHARGE` | Active polarity, boot-safe level, and allowed power policy | Supercapacitor-charge control; keep GPIO high impedance until resolved |
+| Before starting AD7779 acquisition | Analog-rail enable polarities/order/settling; `ADC_MCLK_EN` and `ADC_START` levels; reset/clock timing; conservative SPI clock | ADC initialization and acquisition bench test |
+| Before accepting card detection | Detect resistor network, no-card and magnetic-card voltage windows, sampling/averaging policy, and hot-plug policy | Automatic card identification and slot availability |
+| Before enabling SET/RESET commands | SET/RESET active levels, firmware control width, 18 V settling/recharge limits, minimum interval, and post-pulse settling | Magnetic pulse feature; acquisition may proceed with pulses disabled |
+| Before claiming reliable Rev-1 boot | GPIO45 and GPIO46 strapping behavior with attached GNSS/IMU hardware | Hardware-validation sign-off; these milestone-2 devices remain uninitialized in milestone 1 |
+
+SDMMC clock/DMA settings, GNSS timing, IMU configuration, and SD recording behavior do not block
+milestone-1 UART acquisition. They remain milestone-2 work.
 
 
 ## 6. Power rails
@@ -126,48 +143,32 @@ the board API so unrelated bits cannot overwrite one another.
 | 5 | Disable card power | [TBD] | [TBD] |
 | 6 | Retain required keepalive state | [TBD] | [TBD] |
 
-## 9. SD/USB ownership states
+## 9. Fixed SD/USB policy
 
-| State | ESP32 SDMMC | USB2641 | Mux enabled | Mux selection | Filesystem |
-|---|---|---|---|---|---|
-| Safe idle | High impedance | Reset/disabled | [TBD] | [TBD] | Unmounted |
-| ESP32 owns SD | Enabled | Reset/isolated | Enabled | ESP32 | Mounted |
-| Transitioning | Disabled | Reset/isolated | Disabled | [TBD] | Unmounted |
-| USB owns SD | High impedance | Enabled | Enabled | USB2641 | Unmounted by ESP32 |
-| Fault | High impedance | Reset/disabled | Disabled | [TBD] | Unmounted |
+V2 Rev-1 has no runtime SD ownership transitions. The board initializes this path once and does
+not expose an API for selecting the USB2641 side.
 
-## 10. ESP32-to-USB transition
+| State | ESP32 SDMMC | USB2641 | Mux selection | Filesystem |
+|---|---|---|---|---|
+| Boot/safe initialization | High impedance | Assert reset as soon as the safe image is applied | Select ESP32 before enabling the mux; exact levels [TBD] | Unmounted |
+| Milestone-1 runtime | Not initialized | Reset/isolated | Fixed to ESP32 | Unmounted |
+| Milestone-2 recording | Enabled when storage starts | Reset/isolated | Fixed to ESP32 | Mounted by ESP32 |
+| Storage fault | Disabled or stopped safely | Reset/isolated | Remains fixed to ESP32 | Unmounted when possible |
 
-| Step | Action | Required delay/condition |
-|---:|---|---|
-| 1 | Stop accepting storage writes | Queue drained |
-| 2 | Flush and close current recording | Successful close |
-| 3 | Unmount filesystem | Successful unmount |
-| 4 | Stop SDMMC and release pins | [TBD] |
-| 5 | Disable SD mux | [TBD] |
-| 6 | Select USB2641 side | [TBD] |
-| 7 | Enable mux | [TBD] |
-| 8 | Release/reset USB2641 | [TBD] |
-| 9 | Report USB ownership | State confirmed |
+Initialization requirements:
 
-## 11. USB-to-ESP32 transition
+1. Keep shift-register outputs disabled while loading the safe image.
+2. Put `SD_MUX_SEL` in the ESP32-selection state.
+3. Assert `USB2641_nRESET`.
+4. Put `EN_SD_MUX` in the state required to connect the ESP32 path.
+5. Enable shift-register outputs only after all other SH1/SH2 bits are safe.
+6. Never change these three SD/USB control bits during normal runtime.
 
-The transition must not begin until the host has safely ejected/unmounted the volume. USB cable
-removal alone is not proof that all host writes were completed.
+The exact logic levels and any required initial settling delay remain to be verified from the mux
+and USB2641 circuitry. Break-before-make timing is not a firmware requirement because runtime
+ownership switching is unsupported.
 
-| Step | Action | Required delay/condition |
-|---:|---|---|
-| 1 | Confirm host has released the volume | Explicit command/eject policy [TBD] |
-| 2 | Assert `USB2641_nRESET` | Reset assertion time [TBD] |
-| 3 | Disable SD mux | Break-before-make delay [TBD] |
-| 4 | Select ESP32 side | Mux truth table verified |
-| 5 | Enable SD mux | Mux settling time [TBD] |
-| 6 | Configure and start SDMMC pins | Pins were high impedance during transition |
-| 7 | Mount and validate filesystem | Mount succeeds; recovery policy [TBD] |
-| 8 | Resume storage writes | Only after successful mount |
-| 9 | Report ESP32 ownership | State confirmed |
-
-## 12. Analog-card detection
+## 10. Analog-card detection
 
 - Detection signals: `DEVICE_DETECT_1` on GPIO3 and `DEVICE_DETECT_2` on GPIO8.
 - Signal type: analog identification voltage; binary active level is not applicable.
@@ -185,7 +186,7 @@ removal alone is not proof that all host writes were completed.
 | Magnetic card | [TBD] | [TBD] | [TBD] | [TBD] | `card_magnetic` |
 | Unknown/invalid | Outside valid ranges | N/A | N/A | None | None |
 
-## 13. Magnetic SET/RESET sequence
+## 11. Magnetic SET/RESET sequence
 
 | Parameter | SET | RESET |
 |---|---:|---:|
@@ -213,7 +214,7 @@ Sequence:
 SET and RESET must never be active simultaneously. Samples acquired during the pulse and
 post-pulse settling interval remain timestamped but are marked transient/invalid for scientific use.
 
-## 14. Open hardware questions
+## 12. Open hardware questions
 
 | Question | Responsible person | Source | Status |
 |---|---|---|---|
@@ -222,18 +223,18 @@ post-pulse settling interval remain timestamped but are marked transient/invalid
 | What are the active polarities and boot levels of every SH1/SH2 output? | Hardware | Schematic + datasheets | Open |
 | What are the exact analog-card identification voltage ranges and tolerances? | Hardware | Resistor network + ADC test | Open |
 | What are the safe SET/RESET pulse widths, minimum interval, and analog settling time? | Hardware | Magnetic-card design + oscilloscope | Open |
-| What are the SD mux select truth table and break-before-make delays? | Hardware | Mux datasheet + logic analyzer | Open |
+| What exact `SD_MUX_SEL` and `EN_SD_MUX` levels establish the fixed ESP32 path, and what startup settling delay is required? | Hardware | Schematic + mux datasheet + logic analyzer | Open |
 | What is the safe boot level and policy for `EN_SUPERCAP_CHARGE`? | Hardware | Schematic + power test | Open |
 | Which AD7779 SPI clock is reliable on the assembled board? | Firmware/hardware | Logic analyzer + ADC test | Open |
 
-## 15. Verification record
+## 13. Verification record
 
 | Requirement | Test method | Result | Date | Evidence |
 |---|---|---|---|---|
 | Safe boot outputs | Oscilloscope/logic analyzer | [TBD] | [TBD] | [TBD] |
 | ADC DRDY timing | Logic analyzer | [TBD] | [TBD] | [TBD] |
 | Power sequence | Oscilloscope | [TBD] | [TBD] | [TBD] |
-| SD mux isolation | Logic analyzer/multimeter | [TBD] | [TBD] | [TBD] |
+| Fixed ESP32 SD mux selection and USB2641 reset/isolation | Logic analyzer/multimeter | [TBD] | [TBD] | [TBD] |
 | SET pulse width | Oscilloscope | [TBD] | [TBD] | [TBD] |
 | ESP32 strapping with GNSS/IMU connected | Repeated cold boot and download test | [TBD] | [TBD] | [TBD] |
 | GNSS UART inter-device alignment | Common-event comparison between two units | [TBD] | [TBD] | [TBD] |
