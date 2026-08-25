@@ -747,6 +747,17 @@
 			(embedded_fonts no)
 		)
 	)
+	(text "Ajouter timepulse prochaine révision"
+		(exclude_from_sim no)
+		(at 153.924 91.694 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+				(color 255 0 255 1)
+			)
+		)
+		(uuid "221f6e63-190f-4fe4-9986-96dcac3bde49")
+	)
 	(junction
 		(at 138.43 113.03)
 		(diameter 0)
@@ -1014,17 +1025,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 128.27 107.95 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "d01fb49e-6afb-4583-a49c-54ec6255b9c5")
 		)
@@ -1235,17 +1235,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 138.43 116.84 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 138.43 116.84 0)
 			(hide yes)
 			(show_name no)

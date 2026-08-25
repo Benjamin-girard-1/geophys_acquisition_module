@@ -5794,17 +5794,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 124.46 30.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "e21f9b27-3c2a-44bb-a332-7902fbdb6308")
 		)
@@ -5907,17 +5896,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 100.33 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 100.33 90)
 			(hide yes)
 			(show_name no)
@@ -6041,17 +6019,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 163.83 59.69 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 163.83 59.69 0)
 			(hide yes)
 			(show_name no)
@@ -6407,17 +6374,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 147.32 124.46 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "7874c37d-41ec-438e-83d4-ecc4fd1ed321")
 		)
@@ -6520,17 +6476,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 160.02 67.31 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 160.02 67.31 90)
 			(hide yes)
 			(show_name no)
@@ -6655,17 +6600,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 76.2 85.09 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "1cd37c9a-0fa7-409c-b9aa-21bdc57773fb")
 		)
@@ -6780,17 +6714,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 76.2 113.03 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "c1b3cd12-28cd-4eb5-a435-6bab1a081ebf")
 		)
@@ -6893,17 +6816,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 241.3 35.56 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 241.3 35.56 90)
 			(hide yes)
 			(show_name no)
@@ -7028,17 +6940,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 67.31 30.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "c479cf5d-bd24-4717-9a89-62faaed7e5ce")
 		)
@@ -7141,17 +7042,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 160.02 90.17 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 160.02 90.17 90)
 			(hide yes)
 			(show_name no)
@@ -7353,17 +7243,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 218.44 39.37 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "4b51d79d-1dbb-4947-b1f8-6f31f6b25a89")
 		)
@@ -7466,17 +7345,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 110.49 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 110.49 90)
 			(hide yes)
 			(show_name no)
@@ -7678,17 +7546,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 74.93 185.42 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "f3fe5f1c-daca-4add-83aa-d9b0070aa597")
 		)
@@ -7793,17 +7650,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 57.15 30.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 57.15 30.48 0)
 			(hide yes)
 			(show_name no)
@@ -7926,17 +7772,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 69.85 64.77 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "b876810c-5f1c-4afe-8e6a-da78c85070e8")
 		)
@@ -8039,17 +7874,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 91.44 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 91.44 90)
 			(hide yes)
 			(show_name no)
@@ -8174,17 +7998,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 35.56 157.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "8f39a345-d9c8-4695-9980-fa5549184c40")
 		)
@@ -8299,17 +8112,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 231.14 39.37 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "79fb8204-57be-4488-b5ca-29de527fe90e")
 		)
@@ -8414,17 +8216,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 147.32 180.34 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 147.32 180.34 0)
 			(hide yes)
 			(show_name no)
@@ -8857,17 +8648,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 69.85 69.85 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "cb0bf1cc-2a8b-4bfc-aabd-1c90df4fe7d6")
 		)
@@ -9047,17 +8827,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 60.96 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 60.96 90)
 			(hide yes)
 			(show_name no)
@@ -9335,17 +9104,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 195.58 148.59 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "8a6a4369-ddf2-4935-8e81-b228bc992d3a")
 		)
@@ -9466,17 +9224,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 76.2 67.31 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "1a6fb6f6-ec0f-42a0-bad0-055dd4f16cb9")
 		)
@@ -9579,17 +9326,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 210.82 35.56 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 210.82 35.56 90)
 			(hide yes)
 			(show_name no)
@@ -9779,17 +9515,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 135.89 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 135.89 90)
 			(hide yes)
 			(show_name no)
@@ -9992,17 +9717,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 55.88 157.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "0ef7e275-71a4-45f6-a50d-7d25a58db32e")
 		)
@@ -10107,17 +9821,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 76.2 76.2 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 76.2 76.2 0)
 			(hide yes)
 			(show_name no)
@@ -10310,17 +10013,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 115.57 113.03 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 115.57 113.03 0)
 			(hide yes)
 			(show_name no)
@@ -10711,17 +10403,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 218.44 142.24 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "3f1dfc2e-481f-4959-b7c8-6ce7c43c45c0")
 		)
@@ -10826,17 +10507,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 45.72 157.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 45.72 157.48 0)
 			(hide yes)
 			(show_name no)
@@ -10961,17 +10631,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 76.2 58.42 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "521c91fb-d7d0-41f5-9d6d-082c37ff43cc")
 		)
@@ -11086,17 +10745,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 85.09 185.42 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "82917de2-fdaf-436a-b0fc-72fabcec4089")
 		)
@@ -11201,17 +10849,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 66.04 176.53 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 66.04 176.53 0)
 			(hide yes)
 			(show_name no)
@@ -11722,17 +11359,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 147.32 99.06 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "2f254824-cf9d-448a-b777-78d34e7be61e")
 		)
@@ -11923,17 +11549,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 69.85 87.63 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "912bbf8d-52b5-4479-b399-5e317c1cb909")
 		)
@@ -12036,17 +11651,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 55.88 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 55.88 90)
 			(hide yes)
 			(show_name no)
@@ -12169,17 +11773,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 69.85 105.41 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "41f95835-c2dd-4fbd-ab3e-bae36dbc72f5")
 		)
@@ -12282,17 +11875,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 78.74 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 78.74 90)
 			(hide yes)
 			(show_name no)
@@ -12492,17 +12074,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 69.85 130.81 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "75c1f55f-62ed-403d-81a8-16fb7a12166d")
 		)
@@ -12682,17 +12253,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 73.66 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 73.66 90)
 			(hide yes)
 			(show_name no)
@@ -12892,17 +12452,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 69.85 115.57 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "a9632d68-43ae-4f49-9ebe-269b7a8714c1")
 		)
@@ -13007,17 +12556,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 157.48 133.35 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 157.48 133.35 0)
 			(hide yes)
 			(show_name no)
@@ -13373,17 +12911,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 97.79 30.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "1162e347-9e09-4daf-8048-eb6e2bf801d8")
 		)
@@ -13575,17 +13102,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 45.72 30.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "59e2b9f6-42df-4be3-8336-569fee5302ec")
 		)
@@ -13767,17 +13283,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 66.04 161.29 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 66.04 161.29 0)
 			(hide yes)
 			(show_name no)
@@ -14056,17 +13561,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 76.2 93.98 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "131e303e-8e5f-4096-b4b9-57914af3800a")
 		)
@@ -14246,17 +13740,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 69.85 96.52 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 69.85 96.52 90)
 			(hide yes)
 			(show_name no)
@@ -14535,17 +14018,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 76.2 133.35 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "4d65b387-2888-43b8-9fac-56039056366a")
 		)
@@ -14650,17 +14122,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 76.2 102.87 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 76.2 102.87 0)
 			(hide yes)
 			(show_name no)
@@ -14860,17 +14321,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 69.85 82.55 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "91ea22d8-5837-40cc-8cc5-093cff45f49a")
 		)
@@ -14975,17 +14425,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 87.63 30.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 87.63 30.48 0)
 			(hide yes)
 			(show_name no)
@@ -15187,17 +14626,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 199.39 129.54 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "40e75015-1a81-4fda-bfd3-4e0621ccd1f8")
 		)
@@ -15389,17 +14817,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 77.47 30.48 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "d9c71b7b-a908-4d72-bc04-8de6de617ffe")
 		)
@@ -15581,17 +14998,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 212.09 129.54 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 212.09 129.54 0)
 			(hide yes)
 			(show_name no)

@@ -1277,17 +1277,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 191.77 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "5b628fd2-191f-4e77-aa1d-69c0ca4a2347")
 		)
@@ -1470,17 +1459,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 201.93 93.98 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "0e0dac72-80ca-48b2-bcc9-80ef6fa999d9")
 		)
@@ -1632,17 +1610,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 180.34 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 180.34 71.12 0)
 			(hide yes)
 			(show_name no)

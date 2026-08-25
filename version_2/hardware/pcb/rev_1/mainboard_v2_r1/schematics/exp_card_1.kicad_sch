@@ -2700,17 +2700,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 93.98 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "0ac1e35e-bf5d-4c46-8a92-78a7dec76a34")
 		)
@@ -2796,17 +2785,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 138.43 109.22 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 138.43 109.22 0)
 			(hide yes)
 			(show_name no)
@@ -3522,17 +3500,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 152.4 88.9 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "a2d51d94-a5a6-40c3-80c8-10b11523d011")
 		)
@@ -3620,17 +3587,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 228.6 91.44 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 228.6 91.44 0)
 			(hide yes)
 			(show_name no)
@@ -3845,17 +3801,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 104.14 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "2555b926-52ed-4451-8463-ba0851a72100")
 		)
@@ -3943,17 +3888,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 228.6 99.06 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 228.6 99.06 0)
 			(hide yes)
 			(show_name no)
@@ -4461,17 +4395,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 228.6 76.2 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(instances
 			(project "mainboard_v2_r1"
 				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1/772043ad-5698-4eec-9f80-f66e77d9ab7d"
@@ -4552,17 +4475,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 228.6 83.82 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 228.6 83.82 0)
 			(hide yes)
 			(show_name no)

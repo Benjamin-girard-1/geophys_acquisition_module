@@ -4178,17 +4178,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 166.37 133.35 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "74d6e48e-c007-4467-a64c-1c728f4a5519")
 		)
@@ -4259,17 +4248,6 @@
 			)
 		)
 		(property "Description" "Single Pole Single Throw (SPST) switch, separate symbol"
-			(at 168.91 48.26 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 168.91 48.26 0)
 			(hide yes)
 			(show_name no)
@@ -4366,17 +4344,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 143.51 73.66 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "dc4c00fb-60b9-4f9b-b9a6-b1858fdd0c36")
 		)
@@ -4452,17 +4419,6 @@
 		)
 		(property "Description" "Generic connector, single row, 01x01, script generated"
 			(at 180.34 116.84 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
-			(at 180.34 116.84 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4626,17 +4582,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 73.66 135.89 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "86d83cd5-e540-45fc-b1fc-bccbd412efc5")
 		)
@@ -4716,17 +4661,6 @@
 		)
 		(property "Description" "Generic connector, single row, 01x01, script generated"
 			(at 180.34 118.11 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
-			(at 180.34 118.11 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4848,17 +4782,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 66.04 88.9 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 66.04 88.9 90)
 			(hide yes)
 			(show_name no)
@@ -4992,17 +4915,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 171.45 123.19 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "96705b72-c2ba-4b2c-a161-bf1a39885fdd")
 		)
@@ -5086,17 +4998,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 34.29 119.38 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 34.29 119.38 0)
 			(hide yes)
 			(show_name no)
@@ -5194,17 +5095,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 222.25 86.36 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(instances
 			(project "mainboard_v2_r1"
 				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1/12e32701-7c59-459f-9fd3-2d7a03863ef6"
@@ -5282,17 +5172,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 222.25 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 222.25 71.12 0)
 			(hide yes)
 			(show_name no)
@@ -5609,17 +5488,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 167.64 59.69 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "270526fb-56ae-48f0-aaa6-43825b72ebb7")
 		)
@@ -5779,17 +5647,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 182.88 118.11 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "54fd8ee9-3cb9-4cc0-a9e8-65c949a21517")
 		)
@@ -5860,17 +5717,6 @@
 		)
 		(property "Description" "400W bidirectional Transient Voltage Suppressor, 6.0Vr, SMA(DO-214AC)"
 			(at 87.63 90.17 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
-			(at 87.63 90.17 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5951,17 +5797,6 @@
 		)
 		(property "Description" "Generic connector, single row, 01x02, script generated"
 			(at 167.64 58.42 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
-			(at 167.64 58.42 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6084,17 +5919,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 104.14 154.94 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 104.14 154.94 0)
 			(hide yes)
 			(show_name no)
@@ -6286,17 +6110,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 107.95 90.17 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "7a8337b2-8f88-4897-82a3-ad1137570a73")
 		)
@@ -6458,17 +6271,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 182.88 116.84 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "4dce679e-a3f3-4f6c-beea-d6ac5ff45e0e")
 		)
@@ -6589,17 +6391,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 156.21 73.66 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "1546c9a7-8cdb-48a5-83e7-816b21e70a73")
 		)
@@ -6670,17 +6461,6 @@
 			)
 		)
 		(property "Description" "USB 2.0-only 14P Type-C Receptacle connector"
-			(at 45.72 80.01 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 45.72 80.01 0)
 			(hide yes)
 			(show_name no)
@@ -6823,17 +6603,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 222.25 78.74 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(instances
 			(project "mainboard_v2_r1"
 				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1/12e32701-7c59-459f-9fd3-2d7a03863ef6"
@@ -6900,17 +6669,6 @@
 			)
 		)
 		(property "Description" "Polarized capacitor"
-			(at 114.3 163.83 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 114.3 163.83 0)
 			(hide yes)
 			(show_name no)
@@ -7091,17 +6849,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 34.29 132.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(instances
 			(project "mainboard_v2_r1"
 				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1/12e32701-7c59-459f-9fd3-2d7a03863ef6"
@@ -7169,17 +6916,6 @@
 		)
 		(property "Description" "400W bidirectional Transient Voltage Suppressor, 6.0Vr, SMA(DO-214AC)"
 			(at 165.1 77.47 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
-			(at 165.1 77.47 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7283,17 +7019,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 34.29 125.73 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 34.29 125.73 0)
 			(hide yes)
 			(show_name no)
@@ -7500,17 +7225,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 76.2 88.9 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "51971d2d-534a-40e7-a0aa-85550843e651")
 		)
@@ -7659,17 +7373,6 @@
 		)
 		(property "Description" "Generic connector, single row, 01x02, script generated"
 			(at 72.39 146.05 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
-			(at 72.39 146.05 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7990,17 +7693,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 88.9 135.89 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "5c20d9c4-68dd-4f9c-8f98-8abb230d38d4")
 		)
@@ -8071,17 +7763,6 @@
 			)
 		)
 		(property "Description" "Generic connector, single row, 01x02, script generated"
-			(at 53.34 154.94 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 53.34 154.94 0)
 			(hide yes)
 			(show_name no)
@@ -8217,17 +7898,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 71.12 88.9 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "fe6c4fcb-909a-4828-a1cf-b5db70d73fa2")
 		)
@@ -8300,17 +7970,6 @@
 		)
 		(property "Description" "Generic connector, single row, 01x02, script generated"
 			(at 72.39 147.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
-			(at 72.39 147.32 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8445,17 +8104,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 81.28 88.9 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "1"
 			(uuid "8ef77729-4fff-42d5-82f2-2cc6f50175e9")
 		)
@@ -8560,17 +8208,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 113.03 90.17 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "b207a4a4-b92c-4e72-9b22-69cfe8aee69a")
 		)
@@ -8644,17 +8281,6 @@
 		)
 		(property "Description" "400W bidirectional Transient Voltage Suppressor, 26.0Vr, SMA(DO-214AC)"
 			(at 90.17 163.83 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
-			(at 90.17 163.83 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8758,17 +8384,6 @@
 			)
 		)
 		(property "Field5" ""
-			(at 222.25 63.5 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 222.25 63.5 0)
 			(hide yes)
 			(show_name no)
@@ -8943,17 +8558,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 34.29 113.03 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(instances
 			(project "mainboard_v2_r1"
 				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1/12e32701-7c59-459f-9fd3-2d7a03863ef6"
@@ -9028,17 +8632,6 @@
 			)
 		)
 		(property "Sim.Pins" "1=K 2=A"
-			(at 181.61 107.95 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 181.61 107.95 0)
 			(hide yes)
 			(show_name no)
@@ -9251,17 +8844,6 @@
 				)
 			)
 		)
-		(property "Sim.Enable" ""
-			(at 172.72 139.7 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
 		(pin "2"
 			(uuid "e2db7c86-8872-471c-b0e0-5236e4e15974")
 		)
@@ -9414,17 +8996,6 @@
 			)
 		)
 		(property "Description" "30V Vds, 5.7A Id, N-Channel MOSFET, SOT-23"
-			(at 180.34 133.35 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Enable" ""
 			(at 180.34 133.35 0)
 			(hide yes)
 			(show_name no)
