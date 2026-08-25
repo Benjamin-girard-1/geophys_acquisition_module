@@ -43,7 +43,7 @@ GPIO46 and GPIO45 are not a concern.
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
-| FW-01 | Add the ESP-IDF project and component `CMakeLists.txt` files without breaking architecture boundaries | [ ] | [ ] | |
+| FW-01 | Add the ESP-IDF project and component `CMakeLists.txt` files without breaking architecture boundaries | [x] | [ ] | |
 | FW-02 | Add reproducible ESP32-S3 defaults in `sdkconfig.defaults`; keep generated `sdkconfig` local | [ ] | [ ] | |
 | FW-03 | Build the empty application with warnings enabled and no unexplained warnings | [ ] | [ ] | |
 | FW-04 | Flash Rev-1 and reach `app_main()` repeatedly without unsafe output activity | [ ] | [ ] | |
