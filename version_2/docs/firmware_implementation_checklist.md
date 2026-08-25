@@ -37,6 +37,8 @@ evidence is recorded.
 | HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [x] | [ ] | |
 | HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [ ] | [ ] | |
 
+GPIO46 most likely not a problem, GPIO45 might cause some problems because the MAX-M10S is pulling it up by default. Will need to be accessed when integrating the MAX-M10S.
+
 ## 1. ESP-IDF project scaffold
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
