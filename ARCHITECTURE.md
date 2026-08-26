@@ -51,6 +51,7 @@ version_2/
 │   ├── pcb/                     KiCad projects organized by board revision
 │   └── mechanical/              Mechanical design files
 ├── firmware/
+│   ├── common/                  Portable types shared across firmware layers
 │   ├── main/                    ESP-IDF main component and composition root
 │   │   └── main.c
 │   ├── app/                     Product behavior and FreeRTOS task ownership
@@ -84,6 +85,7 @@ source architecture.
 
 | New code | Location |
 |---|---|
+| Portable status categories or other truly cross-layer firmware types | `firmware/common/` |
 | Product mode, recording behavior, or acquisition policy | `firmware/app/` |
 | FreeRTOS task and its owned queues or buffers | `firmware/app/` |
 | Rev-1 GPIO, chip select, polarity, or peripheral assignment | `firmware/boards/rev_1/` |
@@ -139,6 +141,8 @@ platform
 
 Allowed dependencies:
 
+- All firmware layers may use the portable types in `common/`; `common/` does
+  not depend on any other firmware component, ESP-IDF, or FreeRTOS.
 - `main/` initializes the platform, selected board revision, and application.
 - `app/` uses application types, board-level services, protocol interfaces, and
   transport-independent communication interfaces.
@@ -555,6 +559,7 @@ or implementation.
 |---|---:|---:|---:|---:|
 | Repository architecture and ignore rules | Yes | Yes | Yes | N/A |
 | ESP-IDF project and build configuration | Partial | No | No | No |
+| Common firmware status types | Yes | Yes | Yes | N/A |
 | `app_main` composition root | Yes | No | No | No |
 | ESP32-S3 DevKit platform services | Partial | No | No | No |
 | Rev-1 custom board integration | Yes | No | No | No |

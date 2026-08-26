@@ -34,6 +34,7 @@ Milestone-1 execution and verification are tracked in
 └── version_2/
     ├── docs/                    Datasheet links and supporting documentation
     ├── firmware/
+    │   ├── common/              Portable types shared across firmware layers
     │   ├── main/                ESP-IDF entry point and composition root
     │   ├── app/                 Product behavior and FreeRTOS tasks
     │   ├── boards/              Custom carrier-board integration by revision
@@ -52,6 +53,8 @@ Milestone-1 execution and verification are tracked in
 
 ## Firmware boundaries
 
+- `common/` defines dependency-free status categories and other truly
+  cross-layer portable types.
 - `main/` initializes the platform, selected board, and application.
 - `app/` owns acquisition, processing, storage, communication, and product state.
 - `boards/` maps the custom PCB wiring to portable drivers and platform services, including the
