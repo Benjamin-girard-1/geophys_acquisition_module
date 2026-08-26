@@ -47,7 +47,7 @@ GPIO46 and GPIO45 are not a concern.
 | FW-02 | Add reproducible ESP32-S3 defaults in `sdkconfig.defaults`; keep generated `sdkconfig` local | [x] |
 | FW-03 | Build the empty application with warnings enabled and no unexplained warnings | [x] |
 | FW-04 | Flash Rev-1 and reach `app_main()` repeatedly without unsafe output activity | [ ] |
-| FW-05 | Keep binary host UART output separate from diagnostic logging | [ ] |
+| FW-05 | Keep binary host UART output separate from diagnostic logging | [x] |
 
 ## 2. Common types and ESP32-S3 platform services
 
