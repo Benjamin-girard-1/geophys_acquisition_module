@@ -27,27 +27,27 @@ evidence is recorded.
 
 ## 0. Hardware and contract gates
 
-| ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
-|---|---|:---:|:---:|---|
-| HW-01 | Resolve every SH1/SH2 active polarity and define the complete safe 16-bit image | [x] | [ ] | |
-| HW-02 | Verify fixed ESP32 SD-mux levels and USB2641 reset/isolation state | [x] | [ ] | |
-| HW-03 | Resolve analog-rail enable order, active levels, and conservative settling times | [x] | [ ] | |
-| HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [x] | [ ] | |
-| HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [x] | [ ] | |
-| HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [x] | [ ] | |
-| HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [x] | [ ] | |
+| ID | Deliverable and acceptance condition | Complete |
+|---|---|:---:|
+| HW-01 | Resolve every SH1/SH2 active polarity and define the complete safe 16-bit image | [x] |
+| HW-02 | Verify fixed ESP32 SD-mux levels and USB2641 reset/isolation state | [x] |
+| HW-03 | Resolve analog-rail enable order, active levels, and conservative settling times | [x] |
+| HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [x] |
+| HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [x] |
+| HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [x] |
+| HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [x] |
 
 GPIO46 and GPIO45 are not a concern.
 
 ## 1. ESP-IDF project scaffold
 
-| ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
-|---|---|:---:|:---:|---|
-| FW-01 | Add the ESP-IDF project and component `CMakeLists.txt` files without breaking architecture boundaries | [x] | [ ] | |
-| FW-02 | Add reproducible ESP32-S3 defaults in `sdkconfig.defaults`; keep generated `sdkconfig` local | [x] | [ ] | |
-| FW-03 | Build the empty application with warnings enabled and no unexplained warnings | [x] | [ ] | |
-| FW-04 | Flash Rev-1 and reach `app_main()` repeatedly without unsafe output activity | [ ] | [ ] | |
-| FW-05 | Keep binary host UART output separate from diagnostic logging | [ ] | [ ] | |
+| ID | Deliverable and acceptance condition | Complete |
+|---|---|:---:|
+| FW-01 | Add the ESP-IDF project and component `CMakeLists.txt` files without breaking architecture boundaries | [x] |
+| FW-02 | Add reproducible ESP32-S3 defaults in `sdkconfig.defaults`; keep generated `sdkconfig` local | [x] |
+| FW-03 | Build the empty application with warnings enabled and no unexplained warnings | [x] |
+| FW-04 | Flash Rev-1 and reach `app_main()` repeatedly without unsafe output activity | [ ] |
+| FW-05 | Keep binary host UART output separate from diagnostic logging | [ ] |
 
 ## 2. Common types and ESP32-S3 platform services
 
