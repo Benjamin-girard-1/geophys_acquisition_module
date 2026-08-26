@@ -17,3 +17,19 @@ CONFIG_SPIRAM_MEMTEST=y
 
 # Keep peripheral clocks fixed during milestone-1 acquisition and UART streaming.
 # CONFIG_PM_ENABLE is not set
+
+# UART0 is reserved for the framed binary host protocol. Do not allow ESP-IDF,
+# printf, or a secondary USB Serial/JTAG console to inject text into that link.
+CONFIG_ESP_CONSOLE_NONE=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# Normal diagnostics are structured protocol messages, not console text.
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
+CONFIG_LOG_DEFAULT_LEVEL_NONE=y
+CONFIG_LOG_MAXIMUM_EQUALS_DEFAULT=y
+CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT=y
+
+# Keep the reversible factory ROM-log behavior. The host parser must discard
+# reset-time ROM bytes until it finds a valid V2 frame; never burn an eFuse just
+# to silence this output.
+CONFIG_BOOT_ROM_LOG_ALWAYS_ON=y
