@@ -57,7 +57,7 @@ GPIO46 and GPIO45 are not a concern.
 | FW-07 | Implement monotonic microsecond time and the explicitly ISR-safe timestamp operation | [x] |
 | FW-08 | Implement generic GPIO input/output and interrupt services | [x] |
 | FW-09 | Implement blocking portable SPI callbacks with timeout and atomic bus access | [x] |
-| FW-10 | Implement UART byte transport with partial-read/write and timeout handling | [ ] |
+| FW-10 | Implement UART byte transport with partial-read/write and timeout handling | [x] |
 | FW-11 | Translate platform failures into the common error model with operation context | [ ] |
 
 ## 3. Shift register and Rev-1 safe board initialization
