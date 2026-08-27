@@ -6,10 +6,10 @@
 
 #include "driver/gpio.h"
 #include "driver/uart.h"
-#include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "platform_error.h"
 
 struct platform_uart {
     uart_port_t port;
@@ -18,26 +18,28 @@ struct platform_uart {
     bool initialized;
 };
 
-static fw_status_t status_from_esp_err(esp_err_t result)
+static uint32_t uart_instance(const platform_uart_t *uart)
 {
-    switch (result) {
-    case ESP_OK:
-        return FW_STATUS_OK;
-    case ESP_ERR_INVALID_ARG:
-        return FW_STATUS_INVALID_ARGUMENT;
-    case ESP_ERR_INVALID_STATE:
-        return FW_STATUS_INVALID_STATE;
-    case ESP_ERR_NOT_FOUND:
-        return FW_STATUS_NOT_FOUND;
-    case ESP_ERR_TIMEOUT:
-        return FW_STATUS_TIMEOUT;
-    case ESP_ERR_NOT_SUPPORTED:
-        return FW_STATUS_UNSUPPORTED;
-    case ESP_ERR_NO_MEM:
-        return FW_STATUS_INTERNAL;
+    return (uart == NULL) ? FW_ERROR_INSTANCE_NONE : (uint32_t)uart->port;
+}
+
+static uint32_t uart_instance_from_platform(platform_uart_port_t port)
+{
+    switch (port) {
+    case PLATFORM_UART_PORT_0:
+        return 0U;
+    case PLATFORM_UART_PORT_1:
+        return 1U;
+    case PLATFORM_UART_PORT_2:
+        return 2U;
     default:
-        return FW_STATUS_IO;
+        return FW_ERROR_INSTANCE_NONE;
     }
+}
+
+static uint32_t size_to_detail(size_t size)
+{
+    return (size > (size_t)UINT32_MAX) ? UINT32_MAX : (uint32_t)size;
 }
 
 static bool port_to_idf(platform_uart_port_t port, uart_port_t *idf_port)
@@ -147,15 +149,23 @@ static bool uart_is_ready(const platform_uart_t *uart)
 }
 
 fw_status_t platform_uart_initialize(const platform_uart_config_t *config,
-                                     platform_uart_t **uart)
+                                     platform_uart_t **uart,
+                                     fw_error_context_t *error)
 {
     uart_port_t idf_port;
     uart_word_length_t idf_data_bits;
     uart_parity_t idf_parity;
     uart_stop_bits_t idf_stop_bits;
 
+    platform_error_clear(error);
+
     if ((config == NULL) || (uart == NULL)) {
-        return FW_STATUS_INVALID_ARGUMENT;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_INITIALIZE,
+            (config == NULL) ? FW_ERROR_INSTANCE_NONE :
+            uart_instance_from_platform(config->port),
+            (config == NULL) ? 0U : config->requested_baud_rate);
     }
     *uart = NULL;
 
@@ -169,16 +179,28 @@ fw_status_t platform_uart_initialize(const platform_uart_config_t *config,
         (config->requested_baud_rate > (uint32_t)INT_MAX) ||
         (config->rx_buffer_size_bytes > (size_t)INT_MAX) ||
         (config->rx_buffer_size_bytes <= (size_t)UART_HW_FIFO_LEN(idf_port))) {
-        return FW_STATUS_INVALID_ARGUMENT;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_INITIALIZE,
+            uart_instance_from_platform(config->port),
+            config->requested_baud_rate);
     }
     if (uart_is_driver_installed(idf_port)) {
-        return FW_STATUS_INVALID_STATE;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_STATE, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_INITIALIZE,
+            uart_instance_from_platform(config->port),
+            config->requested_baud_rate);
     }
 
     platform_uart_t *new_uart = heap_caps_calloc(
         1U, sizeof(*new_uart), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (new_uart == NULL) {
-        return FW_STATUS_INTERNAL;
+        return platform_error_set(
+            error, FW_STATUS_INTERNAL, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_INITIALIZE,
+            uart_instance_from_platform(config->port),
+            config->requested_baud_rate);
     }
 
     const uart_config_t idf_config = {
@@ -191,39 +213,50 @@ fw_status_t platform_uart_initialize(const platform_uart_config_t *config,
         .source_clk = UART_SCLK_DEFAULT,
     };
 
-    fw_status_t status = status_from_esp_err(
-        uart_param_config(idf_port, &idf_config));
+    fw_status_t status = platform_error_from_esp_err(
+        uart_param_config(idf_port, &idf_config), error,
+        FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_INITIALIZE,
+        uart_instance_from_platform(config->port),
+        config->requested_baud_rate);
     if (status != FW_STATUS_OK) {
         heap_caps_free(new_uart);
         return status;
     }
 
-    status = status_from_esp_err(uart_set_pin(
+    status = platform_error_from_esp_err(uart_set_pin(
         idf_port,
         (int)config->tx_pin,
         (int)config->rx_pin,
         UART_PIN_NO_CHANGE,
-        UART_PIN_NO_CHANGE));
+        UART_PIN_NO_CHANGE), error, FW_ERROR_RESOURCE_UART,
+        FW_ERROR_OPERATION_INITIALIZE,
+        uart_instance_from_platform(config->port),
+        config->requested_baud_rate);
     if (status != FW_STATUS_OK) {
         heap_caps_free(new_uart);
         return status;
     }
 
-    status = status_from_esp_err(uart_driver_install(
+    status = platform_error_from_esp_err(uart_driver_install(
         idf_port,
         (int)config->rx_buffer_size_bytes,
         0,
         0,
         NULL,
-        0));
+        0), error, FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_INITIALIZE,
+        uart_instance_from_platform(config->port),
+        config->requested_baud_rate);
     if (status != FW_STATUS_OK) {
         heap_caps_free(new_uart);
         return status;
     }
 
     uint32_t actual_baud_rate = 0U;
-    status = status_from_esp_err(
-        uart_get_baudrate(idf_port, &actual_baud_rate));
+    status = platform_error_from_esp_err(
+        uart_get_baudrate(idf_port, &actual_baud_rate), error,
+        FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_INITIALIZE,
+        uart_instance_from_platform(config->port),
+        config->requested_baud_rate);
     if (status != FW_STATUS_OK) {
         (void)uart_driver_delete(idf_port);
         heap_caps_free(new_uart);
@@ -239,46 +272,74 @@ fw_status_t platform_uart_initialize(const platform_uart_config_t *config,
 }
 
 fw_status_t platform_uart_wait_tx_idle(platform_uart_t *uart,
-                                       uint32_t timeout_us)
+                                       uint32_t timeout_us,
+                                       fw_error_context_t *error)
 {
+    platform_error_clear(error);
+
     if (!uart_is_ready(uart)) {
-        return (uart == NULL) ? FW_STATUS_INVALID_ARGUMENT :
-               FW_STATUS_NOT_INITIALIZED;
+        return platform_error_set(
+            error,
+            (uart == NULL) ? FW_STATUS_INVALID_ARGUMENT :
+            FW_STATUS_NOT_INITIALIZED,
+            FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_WAIT,
+            uart_instance(uart), timeout_us);
     }
     if (timeout_us == 0U) {
-        return FW_STATUS_INVALID_ARGUMENT;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WAIT, uart_instance(uart), timeout_us);
     }
 
     const int64_t deadline_us = deadline_from_timeout(timeout_us);
     const TickType_t wait_ticks = ticks_until(deadline_us);
     if (wait_ticks == 0U) {
-        return FW_STATUS_TIMEOUT;
+        return platform_error_set(
+            error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WAIT, uart_instance(uart), timeout_us);
     }
 
-    const fw_status_t status = status_from_esp_err(
-        uart_wait_tx_done(uart->port, wait_ticks));
+    const fw_status_t status = platform_error_from_esp_err(
+        uart_wait_tx_done(uart->port, wait_ticks), error,
+        FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_WAIT,
+        uart_instance(uart), timeout_us);
     if (status != FW_STATUS_OK) {
         return status;
     }
 
-    return (esp_timer_get_time() <= deadline_us) ?
-           FW_STATUS_OK : FW_STATUS_TIMEOUT;
+    if (esp_timer_get_time() > deadline_us) {
+        return platform_error_set(
+            error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WAIT, uart_instance(uart), timeout_us);
+    }
+    return FW_STATUS_OK;
 }
 
 fw_status_t platform_uart_deinitialize(platform_uart_t *uart,
-                                       uint32_t timeout_us)
+                                       uint32_t timeout_us,
+                                       fw_error_context_t *error)
 {
+    platform_error_clear(error);
+
     if (!uart_is_ready(uart)) {
-        return (uart == NULL) ? FW_STATUS_INVALID_ARGUMENT :
-               FW_STATUS_NOT_INITIALIZED;
+        return platform_error_set(
+            error,
+            (uart == NULL) ? FW_STATUS_INVALID_ARGUMENT :
+            FW_STATUS_NOT_INITIALIZED,
+            FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_DEINITIALIZE,
+            uart_instance(uart), timeout_us);
     }
 
-    fw_status_t status = platform_uart_wait_tx_idle(uart, timeout_us);
+    fw_status_t status = platform_uart_wait_tx_idle(uart, timeout_us, NULL);
     if (status != FW_STATUS_OK) {
-        return status;
+        return platform_error_set(
+            error, status, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_DEINITIALIZE, uart_instance(uart), timeout_us);
     }
 
-    status = status_from_esp_err(uart_driver_delete(uart->port));
+    status = platform_error_from_esp_err(
+        uart_driver_delete(uart->port), error, FW_ERROR_RESOURCE_UART,
+        FW_ERROR_OPERATION_DEINITIALIZE, uart_instance(uart), timeout_us);
     if (status != FW_STATUS_OK) {
         return status;
     }
@@ -292,26 +353,41 @@ fw_status_t platform_uart_read_some(platform_uart_t *uart,
                                     uint8_t *data,
                                     size_t capacity_bytes,
                                     size_t *bytes_read,
-                                    uint32_t timeout_us)
+                                    uint32_t timeout_us,
+                                    fw_error_context_t *error)
 {
+    platform_error_clear(error);
+
     if (bytes_read == NULL) {
-        return FW_STATUS_INVALID_ARGUMENT;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_READ, uart_instance(uart),
+            size_to_detail(capacity_bytes));
     }
     *bytes_read = 0U;
 
     if (!uart_is_ready(uart)) {
-        return (uart == NULL) ? FW_STATUS_INVALID_ARGUMENT :
-               FW_STATUS_NOT_INITIALIZED;
+        return platform_error_set(
+            error,
+            (uart == NULL) ? FW_STATUS_INVALID_ARGUMENT :
+            FW_STATUS_NOT_INITIALIZED,
+            FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_READ,
+            uart_instance(uart), size_to_detail(capacity_bytes));
     }
     if ((data == NULL) || (capacity_bytes == 0U) ||
         (capacity_bytes > (size_t)UINT32_MAX) || (timeout_us == 0U)) {
-        return FW_STATUS_INVALID_ARGUMENT;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_READ, uart_instance(uart),
+            size_to_detail(capacity_bytes));
     }
 
     const int64_t deadline_us = deadline_from_timeout(timeout_us);
     size_t buffered_bytes = 0U;
-    fw_status_t status = status_from_esp_err(
-        uart_get_buffered_data_len(uart->port, &buffered_bytes));
+    fw_status_t status = platform_error_from_esp_err(
+        uart_get_buffered_data_len(uart->port, &buffered_bytes), error,
+        FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_READ,
+        uart_instance(uart), size_to_detail(capacity_bytes));
     if (status != FW_STATUS_OK) {
         return status;
     }
@@ -319,21 +395,32 @@ fw_status_t platform_uart_read_some(platform_uart_t *uart,
     if (buffered_bytes == 0U) {
         const TickType_t wait_ticks = ticks_until(deadline_us);
         if (wait_ticks == 0U) {
-            return FW_STATUS_TIMEOUT;
+            return platform_error_set(
+                error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+                FW_ERROR_OPERATION_READ, uart_instance(uart),
+                size_to_detail(capacity_bytes));
         }
 
         const int result = uart_read_bytes(
             uart->port, data, 1U, wait_ticks);
         if (result < 0) {
-            return FW_STATUS_IO;
+            return platform_error_set(
+                error, FW_STATUS_IO, FW_ERROR_RESOURCE_UART,
+                FW_ERROR_OPERATION_READ, uart_instance(uart),
+                size_to_detail(capacity_bytes));
         }
         if (result == 0) {
-            return FW_STATUS_TIMEOUT;
+            return platform_error_set(
+                error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+                FW_ERROR_OPERATION_READ, uart_instance(uart),
+                size_to_detail(capacity_bytes));
         }
         *bytes_read = 1U;
 
-        status = status_from_esp_err(
-            uart_get_buffered_data_len(uart->port, &buffered_bytes));
+        status = platform_error_from_esp_err(
+            uart_get_buffered_data_len(uart->port, &buffered_bytes), error,
+            FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_READ,
+            uart_instance(uart), size_to_detail(capacity_bytes));
         if (status != FW_STATUS_OK) {
             return status;
         }
@@ -350,89 +437,147 @@ fw_status_t platform_uart_read_some(platform_uart_t *uart,
             (uint32_t)drain_bytes,
             0U);
         if (result < 0) {
-            return FW_STATUS_IO;
+            return platform_error_set(
+                error, FW_STATUS_IO, FW_ERROR_RESOURCE_UART,
+                FW_ERROR_OPERATION_READ, uart_instance(uart),
+                size_to_detail(capacity_bytes));
         }
         *bytes_read += (size_t)result;
     }
 
     if (*bytes_read == 0U) {
-        return FW_STATUS_TIMEOUT;
+        return platform_error_set(
+            error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_READ, uart_instance(uart),
+            size_to_detail(capacity_bytes));
     }
 
-    return (esp_timer_get_time() <= deadline_us) ?
-           FW_STATUS_OK : FW_STATUS_TIMEOUT;
+    if (esp_timer_get_time() > deadline_us) {
+        return platform_error_set(
+            error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_READ, uart_instance(uart),
+            size_to_detail(capacity_bytes));
+    }
+    return FW_STATUS_OK;
 }
 
 fw_status_t platform_uart_write_some(platform_uart_t *uart,
                                      const uint8_t *data,
                                      size_t length_bytes,
                                      size_t *bytes_written,
-                                     uint32_t timeout_us)
+                                     uint32_t timeout_us,
+                                     fw_error_context_t *error)
 {
+    platform_error_clear(error);
+
     if (bytes_written == NULL) {
-        return FW_STATUS_INVALID_ARGUMENT;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+            size_to_detail(length_bytes));
     }
     *bytes_written = 0U;
 
     if (!uart_is_ready(uart)) {
-        return (uart == NULL) ? FW_STATUS_INVALID_ARGUMENT :
-               FW_STATUS_NOT_INITIALIZED;
+        return platform_error_set(
+            error,
+            (uart == NULL) ? FW_STATUS_INVALID_ARGUMENT :
+            FW_STATUS_NOT_INITIALIZED,
+            FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_WRITE,
+            uart_instance(uart), size_to_detail(length_bytes));
     }
     if ((data == NULL) || (length_bytes == 0U) ||
         (length_bytes > (size_t)UINT32_MAX) || (timeout_us == 0U)) {
-        return FW_STATUS_INVALID_ARGUMENT;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+            size_to_detail(length_bytes));
     }
 
     const int64_t deadline_us = deadline_from_timeout(timeout_us);
     int result = uart_tx_chars(uart->port, (const char *)data,
                                (uint32_t)length_bytes);
     if (result < 0) {
-        return FW_STATUS_IO;
+        return platform_error_set(
+            error, FW_STATUS_IO, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+            size_to_detail(length_bytes));
     }
     if (result > 0) {
         *bytes_written = (size_t)result;
-        return (esp_timer_get_time() <= deadline_us) ?
-               FW_STATUS_OK : FW_STATUS_TIMEOUT;
+        if (esp_timer_get_time() > deadline_us) {
+            return platform_error_set(
+                error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+                FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+                size_to_detail(length_bytes));
+        }
+        return FW_STATUS_OK;
     }
 
     const TickType_t wait_ticks = ticks_until(deadline_us);
     if (wait_ticks == 0U) {
-        return FW_STATUS_TIMEOUT;
+        return platform_error_set(
+            error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+            size_to_detail(length_bytes));
     }
 
-    fw_status_t status = status_from_esp_err(
-        uart_wait_tx_done(uart->port, wait_ticks));
+    fw_status_t status = platform_error_from_esp_err(
+        uart_wait_tx_done(uart->port, wait_ticks), error,
+        FW_ERROR_RESOURCE_UART, FW_ERROR_OPERATION_WRITE,
+        uart_instance(uart), size_to_detail(length_bytes));
     if (status != FW_STATUS_OK) {
         return status;
     }
     if (esp_timer_get_time() > deadline_us) {
-        return FW_STATUS_TIMEOUT;
+        return platform_error_set(
+            error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+            size_to_detail(length_bytes));
     }
 
     result = uart_tx_chars(uart->port, (const char *)data,
                            (uint32_t)length_bytes);
     if (result < 0) {
-        return FW_STATUS_IO;
+        return platform_error_set(
+            error, FW_STATUS_IO, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+            size_to_detail(length_bytes));
     }
     if (result == 0) {
-        return FW_STATUS_TIMEOUT;
+        return platform_error_set(
+            error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+            size_to_detail(length_bytes));
     }
 
     *bytes_written = (size_t)result;
-    return (esp_timer_get_time() <= deadline_us) ?
-           FW_STATUS_OK : FW_STATUS_TIMEOUT;
+    if (esp_timer_get_time() > deadline_us) {
+        return platform_error_set(
+            error, FW_STATUS_TIMEOUT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_WRITE, uart_instance(uart),
+            size_to_detail(length_bytes));
+    }
+    return FW_STATUS_OK;
 }
 
 fw_status_t platform_uart_get_baud_rate(const platform_uart_t *uart,
                                         uint32_t *requested_baud_rate,
-                                        uint32_t *actual_baud_rate)
+                                        uint32_t *actual_baud_rate,
+                                        fw_error_context_t *error)
 {
+    platform_error_clear(error);
+
     if ((uart == NULL) || (requested_baud_rate == NULL) ||
         (actual_baud_rate == NULL)) {
-        return FW_STATUS_INVALID_ARGUMENT;
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_READ, uart_instance(uart), 0U);
     }
     if (!uart->initialized) {
-        return FW_STATUS_NOT_INITIALIZED;
+        return platform_error_set(
+            error, FW_STATUS_NOT_INITIALIZED, FW_ERROR_RESOURCE_UART,
+            FW_ERROR_OPERATION_READ, uart_instance(uart), 0U);
     }
 
     *requested_baud_rate = uart->requested_baud_rate;

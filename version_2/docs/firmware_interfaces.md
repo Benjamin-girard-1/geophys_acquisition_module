@@ -67,18 +67,24 @@ Portable modules return one status category:
 Rules:
 
 - Portable drivers never expose `esp_err_t`.
-- Platform adapters translate ESP-IDF results into the common status model.
-- Board/card layers attach the resource and operation that failed.
+- Platform adapters translate ESP-IDF results into the common status model and may return an
+  optional `fw_error_context_t` containing the normalized status, resource category, operation,
+  resource instance, and portable operation-specific detail.
+- Passing a null error-context output requests status-only handling. A provided context is cleared
+  on success, and its `detail` field never contains a raw ESP-IDF error value.
+- Board/card layers preserve useful lower-layer context or replace it with the product resource and
+  operation at their own boundary.
 - Public protocol errors use stable V2 error codes, not ESP-IDF or private driver numbers.
-- An error event contains code, source, severity, monotonic timestamp, detail value, and occurrence
-  count.
+- The per-call error context is not itself an error event. A reported error event additionally
+  contains source, severity, monotonic timestamp, and occurrence count.
 - Repeated errors may be coalesced, but their count is never lost.
 - ADC data loss is represented by sequence discontinuity and counters, never only by a text log.
 
 ## 4. Platform service contracts
 
-All callbacks carry an opaque context pointer. Unless explicitly named ISR-safe, they are called only
-from task context.
+Task-context platform and transport callbacks carry an opaque resource pointer and may accept an
+optional error-context output. Unless explicitly named ISR-safe, callbacks are called only from task
+context.
 
 ### SPI
 

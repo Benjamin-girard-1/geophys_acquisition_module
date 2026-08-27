@@ -559,7 +559,7 @@ or implementation.
 |---|---:|---:|---:|---:|
 | Repository architecture and ignore rules | Yes | Yes | Yes | N/A |
 | ESP-IDF project and build configuration | Partial | No | No | No |
-| Common firmware status and time types | Yes | Yes | Yes | N/A |
+| Common firmware status, error-context, and time types | Yes | Yes | Yes | N/A |
 | `app_main` composition root | Yes | No | No | No |
 | ESP32-S3 DevKit platform services | Partial | Partial | Partial | Partial |
 | Rev-1 custom board integration | Yes | No | No | No |

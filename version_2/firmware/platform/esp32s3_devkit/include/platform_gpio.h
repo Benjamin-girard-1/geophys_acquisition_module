@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "fw_status.h"
+#include "fw_error.h"
 
 typedef uint32_t platform_gpio_pin_t;
 
@@ -33,7 +33,8 @@ typedef enum {
 typedef void (*platform_gpio_isr_handler_t)(void *context);
 
 fw_status_t platform_gpio_configure_input(platform_gpio_pin_t pin,
-                                          platform_gpio_pull_t pull);
+                                          platform_gpio_pull_t pull,
+                                          fw_error_context_t *error);
 
 /**
  * @brief Configure an output without producing an unintended initial pulse.
@@ -42,13 +43,16 @@ fw_status_t platform_gpio_configure_input(platform_gpio_pin_t pin,
  * enabled.
  */
 fw_status_t platform_gpio_configure_output(platform_gpio_pin_t pin,
-                                           platform_gpio_level_t initial_level);
+                                           platform_gpio_level_t initial_level,
+                                           fw_error_context_t *error);
 
 fw_status_t platform_gpio_write(platform_gpio_pin_t pin,
-                                platform_gpio_level_t level);
+                                platform_gpio_level_t level,
+                                fw_error_context_t *error);
 
 fw_status_t platform_gpio_read(platform_gpio_pin_t pin,
-                               platform_gpio_level_t *level);
+                               platform_gpio_level_t *level,
+                               fw_error_context_t *error);
 
 /**
  * @brief Install the process-wide per-pin GPIO ISR service.
@@ -56,7 +60,7 @@ fw_status_t platform_gpio_read(platform_gpio_pin_t pin,
  * Call once during startup before application tasks can register interrupts.
  * Repeated successful calls are harmless.
  */
-fw_status_t platform_gpio_interrupt_service_init(void);
+fw_status_t platform_gpio_interrupt_service_init(fw_error_context_t *error);
 
 /**
  * @brief Attach a per-pin handler while leaving that pin's interrupt disabled.
@@ -64,10 +68,14 @@ fw_status_t platform_gpio_interrupt_service_init(void);
 fw_status_t platform_gpio_interrupt_attach(platform_gpio_pin_t pin,
                                            platform_gpio_interrupt_t trigger,
                                            platform_gpio_isr_handler_t handler,
-                                           void *context);
+                                           void *context,
+                                           fw_error_context_t *error);
 
-fw_status_t platform_gpio_interrupt_enable(platform_gpio_pin_t pin);
-fw_status_t platform_gpio_interrupt_disable(platform_gpio_pin_t pin);
-fw_status_t platform_gpio_interrupt_detach(platform_gpio_pin_t pin);
+fw_status_t platform_gpio_interrupt_enable(platform_gpio_pin_t pin,
+                                           fw_error_context_t *error);
+fw_status_t platform_gpio_interrupt_disable(platform_gpio_pin_t pin,
+                                            fw_error_context_t *error);
+fw_status_t platform_gpio_interrupt_detach(platform_gpio_pin_t pin,
+                                           fw_error_context_t *error);
 
 #endif /* GEOPHYS_PLATFORM_GPIO_H */

@@ -58,13 +58,15 @@ typedef struct {
  */
 fw_status_t platform_spi_bus_initialize(
     const platform_spi_bus_config_t *config,
-    platform_spi_bus_t **bus);
+    platform_spi_bus_t **bus,
+    fw_error_context_t *error);
 
 /**
  * @brief Release an empty bus after any outstanding DMA result is drained.
  */
 fw_status_t platform_spi_bus_deinitialize(platform_spi_bus_t *bus,
-                                          uint32_t timeout_us);
+                                          uint32_t timeout_us,
+                                          fw_error_context_t *error);
 
 /**
  * @brief Add a manually selected SPI device and allocate its fixed buffers.
@@ -72,10 +74,12 @@ fw_status_t platform_spi_bus_deinitialize(platform_spi_bus_t *bus,
 fw_status_t platform_spi_device_add(
     platform_spi_bus_t *bus,
     const platform_spi_device_config_t *config,
-    platform_spi_device_t **device);
+    platform_spi_device_t **device,
+    fw_error_context_t *error);
 
 fw_status_t platform_spi_device_remove(platform_spi_device_t *device,
-                                       uint32_t timeout_us);
+                                       uint32_t timeout_us,
+                                       fw_error_context_t *error);
 
 /**
  * @brief Synchronous transfer matching fw_spi_transfer_callback_t.
@@ -88,7 +92,8 @@ fw_status_t platform_spi_transfer(void *context,
                                   const uint8_t *tx_data,
                                   uint8_t *rx_data,
                                   size_t length_bytes,
-                                  uint32_t timeout_us);
+                                  uint32_t timeout_us,
+                                  fw_error_context_t *error);
 
 /**
  * @brief Change a device clock while it has no active transfer.
@@ -100,12 +105,14 @@ fw_status_t platform_spi_transfer(void *context,
 fw_status_t platform_spi_device_set_clock(platform_spi_device_t *device,
                                           uint32_t requested_clock_hz,
                                           uint32_t timeout_us,
-                                          uint32_t *actual_clock_hz);
+                                          uint32_t *actual_clock_hz,
+                                          fw_error_context_t *error);
 
 fw_status_t platform_spi_device_get_clock(
     const platform_spi_device_t *device,
     uint32_t *requested_clock_hz,
-    uint32_t *actual_clock_hz);
+    uint32_t *actual_clock_hz,
+    fw_error_context_t *error);
 
 fw_spi_interface_t platform_spi_device_interface(
     platform_spi_device_t *device);

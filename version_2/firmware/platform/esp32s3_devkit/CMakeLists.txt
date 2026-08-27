@@ -1,5 +1,6 @@
 idf_component_register(
     SRCS
+        "src/platform_error.c"
         "src/platform_gpio.c"
         "src/platform_spi.c"
         "src/platform_time.c"
