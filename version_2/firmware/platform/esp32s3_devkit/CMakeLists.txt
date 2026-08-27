@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "src/platform_gpio.c"
+        "src/platform_spi.c"
         "src/platform_time.c"
     INCLUDE_DIRS
         "include"
@@ -8,5 +9,8 @@ idf_component_register(
         common
     PRIV_REQUIRES
         esp_driver_gpio
+        esp_driver_spi
         esp_timer
+        freertos
+        heap
 )

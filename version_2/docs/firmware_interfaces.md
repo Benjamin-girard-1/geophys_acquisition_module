@@ -5,7 +5,7 @@
 - Status: Frozen for milestone 1
 - Product version: V2
 - Initial target: two magnetic cards, eight synchronized AD7779 channels
-- Last updated: 2026-08-25
+- Last updated: 2026-08-27
 
 ## 1. Purpose and milestone-1 scope
 
@@ -82,12 +82,17 @@ from task context.
 
 ### SPI
 
-- One blocking full-duplex transfer operation is sufficient for portable drivers.
+- One synchronous, DMA-backed full-duplex transfer operation is sufficient for portable drivers.
+- Synchronous means only the calling task waits; the scheduler, interrupts, and other SPI buses
+  continue to run. Continuous acquisition does not use CPU busy-polling.
 - The context binds a configured SPI device, including bus, chip select, mode, and clock.
 - A transfer is atomic relative to other devices on the same bus.
 - The caller supplies transmit and/or receive buffers, byte length, and timeout.
 - Null TX produces filler bytes; null RX discards received bytes.
 - The platform validates DMA suitability or copies through an internal DMA-safe buffer.
+- DMA buffers are allocated before acquisition and never allocated during steady-state transfers.
+- SPI clock changes are applied only while the owning device is stopped. The board supplies the
+  initial and maximum clocks, and the platform reports the achieved hardware clock.
 - No SPI transfer occurs in a GPIO ISR.
 - AD7779 and LSM6DSV clock limits come from `board_config.h`, not from application code.
 

@@ -8,7 +8,7 @@
   `version_2/hardware/pcb/rev_1/mainboard_v2_r1/`
 - Compute platform: ESP32-S3 DevKitC
 - Schematic revision/date: 2026-07-23
-- Last updated: 2026-08-25
+- Last updated: 2026-08-27
 
 ## 1. ESP32 peripheral assignments
 
@@ -172,7 +172,7 @@ The first Rev-1 implementation uses the electrically proven V1 settings as a con
 | SPI clock | 8 MHz for register access and conversion-frame reads |
 | Chip select | GPIO11, software controlled, active Low |
 | CS timing margin | 1 µs after asserting CS and 1 µs before releasing CS |
-| Transfer context | Blocking/polling transfer from `task_acquisition`; never from the DRDY ISR |
+| Transfer context | Synchronous DMA-backed transfer from `task_acquisition`; never busy-polled or called from the DRDY ISR |
 | Master clock | Set `ADC_MCLK_EN` High, then wait at least 5 ms |
 | Hardware reset | Hold `ADC_RESET` Low for 2 ms, release High, then wait at least 10 ms |
 | START | Hold Low through clock/reset startup, then drive High and leave High when inactive |
