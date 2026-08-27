@@ -52,25 +52,25 @@ GPIO46 and GPIO45 are not a concern.
 ## 2. Common types and ESP32-S3 platform services
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
-|---|---|:---:|:---:|---|
-| FW-06 | Define the common status/error categories without exposing `esp_err_t` outside the platform layer | [x] | [ ] | |
-| FW-07 | Implement monotonic microsecond time and the explicitly ISR-safe timestamp operation | [x] | [ ] | |
-| FW-08 | Implement generic GPIO input/output and interrupt services | [ ] | [ ] | |
-| FW-09 | Implement blocking portable SPI callbacks with timeout and atomic bus access | [ ] | [ ] | |
-| FW-10 | Implement UART byte transport with partial-read/write and timeout handling | [ ] | [ ] | |
-| FW-11 | Translate platform failures into the common error model with operation context | [ ] | [ ] | |
+|---|---|:---:|
+| FW-06 | Define the common status/error categories without exposing `esp_err_t` outside the platform layer | [x] |
+| FW-07 | Implement monotonic microsecond time and the explicitly ISR-safe timestamp operation | [x] |
+| FW-08 | Implement generic GPIO input/output and interrupt services | [ ] |
+| FW-09 | Implement blocking portable SPI callbacks with timeout and atomic bus access | [ ] |
+| FW-10 | Implement UART byte transport with partial-read/write and timeout handling | [ ] |
+| FW-11 | Translate platform failures into the common error model with operation context | [ ] |
 
 ## 3. Shift register and Rev-1 safe board initialization
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
-|---|---|:---:|:---:|---|
-| FW-12 | Implement the portable 74HC595 driver with a complete 16-bit shadow image | [ ] | [ ] | |
-| FW-13 | Test bit order, latch behavior, unrelated-bit preservation, and invalid arguments with fake GPIO callbacks | [ ] | [ ] | |
-| FW-14 | Encode all Rev-1 pins, active levels, bus limits, and safe values only in `boards/rev_1` | [ ] | [ ] | |
-| FW-15 | Implement `board_init()`: safe direct GPIOs, outputs disabled, safe image latched, then outputs enabled | [ ] | [ ] | |
-| FW-16 | Implement idempotent `board_enter_safe_state()` for startup and fatal failures | [ ] | [ ] | |
-| FW-17 | Keep the SD mux fixed to the ESP32 and the USB2641 reset/isolated for the entire runtime | [ ] | [ ] | |
-| FW-18 | Verify every power enable and pulse output during cold boot, reset, firmware download, and safe shutdown | [ ] | [ ] | |
+|---|---|:---:|
+| FW-12 | Implement the portable 74HC595 driver with a complete 16-bit shadow image | [ ] |
+| FW-13 | Test bit order, latch behavior, unrelated-bit preservation, and invalid arguments with fake GPIO callbacks | [ ] |
+| FW-14 | Encode all Rev-1 pins, active levels, bus limits, and safe values only in `boards/rev_1` | [ ] |
+| FW-15 | Implement `board_init()`: safe direct GPIOs, outputs disabled, safe image latched, then outputs enabled | [ ] |
+| FW-16 | Implement idempotent `board_enter_safe_state()` for startup and fatal failures | [ ] |
+| FW-17 | Keep the SD mux fixed to the ESP32 and the USB2641 reset/isolated for the entire runtime | [ ] |
+| FW-18 | Verify every power enable and pulse output during cold boot, reset, firmware download, and safe shutdown | [ ] |
 
 ## 4. AD7779 portable driver
 
