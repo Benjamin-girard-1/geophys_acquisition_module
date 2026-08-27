@@ -54,7 +54,7 @@ GPIO46 and GPIO45 are not a concern.
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
 | FW-06 | Define the common status/error categories without exposing `esp_err_t` outside the platform layer | [x] | [ ] | |
-| FW-07 | Implement monotonic microsecond time and the explicitly ISR-safe timestamp operation | [ ] | [ ] | |
+| FW-07 | Implement monotonic microsecond time and the explicitly ISR-safe timestamp operation | [x] | [ ] | |
 | FW-08 | Implement generic GPIO input/output and interrupt services | [ ] | [ ] | |
 | FW-09 | Implement blocking portable SPI callbacks with timeout and atomic bus access | [ ] | [ ] | |
 | FW-10 | Implement UART byte transport with partial-read/write and timeout handling | [ ] | [ ] | |
