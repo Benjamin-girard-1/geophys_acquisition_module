@@ -572,7 +572,7 @@ or implementation.
 | AD7779 driver | Yes | No | No | No |
 | LSM6DSV driver | Yes | No | No | No |
 | MAX-M10S driver | Yes | No | No | No |
-| 74HC/HCT595 driver | Yes | No | No | No |
+| 74HC/HCT595 driver | Yes | Yes | Yes | No |
 | Analog-card detection | Yes | No | No | No |
 | Magnetic analog card | Yes | No | No | No |
 | Geophysical accelerometer card | Yes | No | No | No |

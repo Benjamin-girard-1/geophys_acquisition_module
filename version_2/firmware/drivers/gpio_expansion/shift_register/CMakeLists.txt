@@ -3,4 +3,6 @@ idf_component_register(
         "74hc_hct595.c"
     INCLUDE_DIRS
         "."
+    REQUIRES
+        common
 )
