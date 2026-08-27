@@ -46,14 +46,14 @@ GPIO46 and GPIO45 are not a concern.
 | FW-01 | Add the ESP-IDF project and component `CMakeLists.txt` files without breaking architecture boundaries | [x] |
 | FW-02 | Add reproducible ESP32-S3 defaults in `sdkconfig.defaults`; keep generated `sdkconfig` local | [x] |
 | FW-03 | Build the empty application with warnings enabled and no unexplained warnings | [x] |
-| FW-04 | Flash Rev-1 and reach `app_main()` repeatedly without unsafe output activity | [ ] |
+| FW-04 | Flash Rev-1 and reach `app_main()` repeatedly without unsafe output activity | [x] |
 | FW-05 | Keep binary host UART output separate from diagnostic logging | [x] |
 
 ## 2. Common types and ESP32-S3 platform services
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
-| FW-06 | Define the common status/error categories without exposing `esp_err_t` outside the platform layer | [ ] | [ ] | |
+| FW-06 | Define the common status/error categories without exposing `esp_err_t` outside the platform layer | [x] | [ ] | |
 | FW-07 | Implement monotonic microsecond time and the explicitly ISR-safe timestamp operation | [ ] | [ ] | |
 | FW-08 | Implement generic GPIO input/output and interrupt services | [ ] | [ ] | |
 | FW-09 | Implement blocking portable SPI callbacks with timeout and atomic bus access | [ ] | [ ] | |
