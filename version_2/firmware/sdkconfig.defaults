@@ -18,6 +18,9 @@ CONFIG_SPIRAM_MEMTEST=y
 # Keep peripheral clocks fixed during milestone-1 acquisition and UART streaming.
 # CONFIG_PM_ENABLE is not set
 
+# The ADC data-ready ISR timestamps each conversion from the monotonic clock.
+CONFIG_ESP_TIMER_IN_IRAM=y
+
 # UART0 is reserved for the framed binary host protocol. Do not allow ESP-IDF,
 # printf, or a secondary USB Serial/JTAG console to inject text into that link.
 CONFIG_ESP_CONSOLE_NONE=y
