@@ -21,7 +21,7 @@
 | Card-slot 1 I²C / GPIO | I2C0 or GPIO | GPIO40, GPIO41 | [TBD] | No | `card_detect` / selected card driver | Schematic |
 | Card-slot 2 I²C / GPIO | I2C1 or GPIO | GPIO38, GPIO39 | [TBD] | No | `card_detect` / selected card driver | Schematic |
 | SD card | SDMMC host | CMD:GPIO16, CLK:GPIO7, D0:GPIO5, D1:GPIO4, D2:GPIO15, D3:GPIO6 | [TBD] | TBD | `task_storage` | Schematic |
-| Debug/host UART | UART0 | TX:GPIO43, RX:GPIO44 (DevKit default) | Target: 921600 baud | N/A | `task_communication` | DevKit assignment; bench open |
+| Debug/host UART | UART0 | TX:GPIO43, RX:GPIO44 (DevKit default) | Default: 921600 baud, 8-N-1, no flow control; higher rates configurable while stopped | N/A | `task_communication` | DevKit assignment; bench open |
 
 ## 2. Direct ESP32 signals
 

@@ -3,6 +3,7 @@ idf_component_register(
         "src/platform_gpio.c"
         "src/platform_spi.c"
         "src/platform_time.c"
+        "src/platform_uart.c"
     INCLUDE_DIRS
         "include"
     REQUIRES
@@ -10,6 +11,7 @@ idf_component_register(
     PRIV_REQUIRES
         esp_driver_gpio
         esp_driver_spi
+        esp_driver_uart
         esp_timer
         freertos
         heap

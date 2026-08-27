@@ -4,6 +4,7 @@ idf_component_register(
         "transport_usb.c"
     INCLUDE_DIRS
         "."
-    PRIV_REQUIRES
+    REQUIRES
+        common
         esp32s3_devkit
 )

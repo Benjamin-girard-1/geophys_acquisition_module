@@ -578,7 +578,7 @@ or implementation.
 | Geophysical accelerometer card | Yes | No | No | No |
 | Shared protocol specification | Yes | No | No | N/A |
 | Firmware protocol implementation | Yes | No | No | No |
-| UART transport | Yes | No | No | No |
+| UART transport | Yes | Yes | Yes | No |
 | USB transport | Yes | No | No | No |
 | Host application | Directory only | No | No | No |
 | Automated tests and continuous integration | No | No | No | No |

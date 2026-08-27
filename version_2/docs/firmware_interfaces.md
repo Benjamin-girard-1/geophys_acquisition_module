@@ -110,6 +110,13 @@ from task context.
 - Reads and writes may block `task_communication` up to a configured timeout but can never block
   `task_acquisition`.
 - Partial reads and writes are normal and are handled by the transport/protocol boundary.
+- A read waits for its first byte, then returns the bytes already available without waiting to fill
+  the caller's buffer. A write returns the number of bytes accepted by the UART and the caller
+  continues from that offset.
+- The byte count remains valid when an operation times out, so progress is never ambiguous.
+- Baud rate is supplied during initialization and the platform reports the actual applied rate.
+  Changing rates requires stopping and reinitializing the transport; live switching is not part of
+  milestone 1.
 - Debug text is never inserted into the binary protocol stream.
 - Milestone-1 target is 921600 baud, subject to the board reliability test.
 
