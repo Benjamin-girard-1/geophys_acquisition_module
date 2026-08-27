@@ -51,7 +51,7 @@ GPIO46 and GPIO45 are not a concern.
 
 ## 2. Common types and ESP32-S3 platform services
 
-| ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
+| ID | Deliverable and acceptance condition | Complete |
 |---|---|:---:|
 | FW-06 | Define the common status/error categories without exposing `esp_err_t` outside the platform layer | [x] |
 | FW-07 | Implement monotonic microsecond time and the explicitly ISR-safe timestamp operation | [x] |
@@ -62,7 +62,7 @@ GPIO46 and GPIO45 are not a concern.
 
 ## 3. Shift register and Rev-1 safe board initialization
 
-| ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
+| ID | Deliverable and acceptance condition | Complete |
 |---|---|:---:|
 | FW-12 | Implement the portable 74HC595 driver with a complete 16-bit shadow image | [ ] |
 | FW-13 | Test bit order, latch behavior, unrelated-bit preservation, and invalid arguments with fake GPIO callbacks | [ ] |
