@@ -1,0 +1,136 @@
+#ifndef GEOPHYS_AD7779_H
+#define GEOPHYS_AD7779_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "fw_error.h"
+#include "fw_spi.h"
+
+/** @brief Driver lifecycle state. STOPPED means initialized and ready. */
+typedef enum {
+    AD7779_STATE_UNINITIALIZED = 0,
+    AD7779_STATE_INITIALIZING,
+    AD7779_STATE_STOPPED,
+    AD7779_STATE_RUNNING,
+    AD7779_STATE_FAULT,
+} ad7779_state_t;
+
+/** @brief Normalized device faults; these are not raw register values. */
+typedef enum {
+    AD7779_FAULT_NONE = 0,
+    AD7779_FAULT_MEMMAP_CRC = (1U << 0),
+    AD7779_FAULT_ROM_CRC = (1U << 1),
+    AD7779_FAULT_SPI_CLOCK_COUNT = (1U << 2),
+    AD7779_FAULT_SPI_INVALID_READ = (1U << 3),
+    AD7779_FAULT_SPI_INVALID_WRITE = (1U << 4),
+    AD7779_FAULT_SPI_CRC = (1U << 5),
+    AD7779_FAULT_EXTERNAL_MCLK = (1U << 6),
+    AD7779_FAULT_ALDO1 = (1U << 7),
+    AD7779_FAULT_ALDO2 = (1U << 8),
+    AD7779_FAULT_DLDO = (1U << 9),
+    AD7779_FAULT_CHANNEL_INPUT = (1U << 10),
+    AD7779_FAULT_CHANNEL_SATURATION = (1U << 11),
+    AD7779_FAULT_UNEXPECTED_RESET = (1U << 12),
+    AD7779_FAULT_UNKNOWN = (1U << 13),
+} ad7779_fault_t;
+
+typedef uint32_t ad7779_fault_flags_t;
+
+/** @brief Set or clear one logical AD7779 control through the board module. */
+typedef fw_status_t (*ad7779_set_control_callback_t)(
+    void *context,
+    bool enabled,
+    fw_error_context_t *error);
+
+/** @brief Task-context delay callback. */
+typedef void (*ad7779_delay_us_callback_t)(void *context,
+                                           uint32_t duration_us);
+
+/**
+ * @brief Portable configuration copied into driver-owned state.
+ *
+ * The board callbacks express logical behavior: set_mclk_enabled(true)
+ * enables MCLK; set_reset_asserted(true) asserts RESET; set_start_high(true)
+ * drives START High. The board remains responsible for physical polarities and
+ * shift-register positions.
+ */
+typedef struct {
+    fw_spi_interface_t spi;
+    ad7779_set_control_callback_t set_mclk_enabled;
+    ad7779_set_control_callback_t set_reset_asserted;
+    ad7779_set_control_callback_t set_start_high;
+    ad7779_delay_us_callback_t delay_us;
+    void *control_context;
+    void *delay_context;
+    uint32_t spi_timeout_us;
+    uint32_t mclk_settling_us;
+    uint32_t reset_assert_us;
+    uint32_t reset_release_us;
+    uint32_t soft_reset_settling_us;
+    uint32_t init_timeout_us;
+    uint32_t init_poll_interval_us;
+    uint32_t instance;
+} ad7779_config_t;
+
+/** @brief Last verified device status in normalized form. */
+typedef struct {
+    ad7779_state_t state;
+    ad7779_fault_flags_t faults;
+    bool init_complete;
+    bool reset_detected;
+} ad7779_status_t;
+
+/**
+ * @brief Caller-owned AD7779 state.
+ *
+ * Zero-initialize before the first call. Do not modify members directly. The
+ * owner serializes access; the driver creates no task, lock, or allocation.
+ */
+typedef struct {
+    ad7779_config_t config;
+    ad7779_status_t last_status;
+    ad7779_state_t state;
+    uint8_t general_user_config_3_shadow;
+    uint8_t channel_disable_shadow;
+    bool bound;
+} ad7779_t;
+
+/**
+ * @brief Bind callbacks, reset the device, verify it, and leave it stopped.
+ *
+ * Required supplies must already be stable. On success all eight channel
+ * clocks are disabled and the device is ready for later configuration.
+ */
+fw_status_t ad7779_initialize(ad7779_t *device,
+                              const ad7779_config_t *config,
+                              fw_error_context_t *error);
+
+/** @brief Repeat hardware/SPI reset and verification from a non-running state. */
+fw_status_t ad7779_reset(ad7779_t *device,
+                         fw_error_context_t *error);
+
+/** @brief Read and normalize current general device status. */
+fw_status_t ad7779_verify_status(ad7779_t *device,
+                                 ad7779_status_t *status,
+                                 fw_error_context_t *error);
+
+/**
+ * @brief Disable conversion readback and all channel clocks.
+ *
+ * Calling this operation repeatedly after initialization returns success.
+ * MCLK and supplies remain enabled so configuration can be applied later.
+ */
+fw_status_t ad7779_stop(ad7779_t *device,
+                        fw_error_context_t *error);
+
+/** @brief Stop, assert reset, disable MCLK, and clear the bound instance. */
+fw_status_t ad7779_deinitialize(ad7779_t *device,
+                                fw_error_context_t *error);
+
+/** @brief Return the last cached lifecycle and verification status. */
+fw_status_t ad7779_get_status(const ad7779_t *device,
+                              ad7779_status_t *status,
+                              fw_error_context_t *error);
+
+#endif /* GEOPHYS_AD7779_H */

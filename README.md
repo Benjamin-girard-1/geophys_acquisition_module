@@ -10,10 +10,11 @@ an AD7779 ADC, an LSM6DSV IMU, MAX-M10S GNSS, SD storage shared with a USB2641,
 
 ## Current status
 
-The Version 2 PCB and firmware directory structure are present. Firmware source
-files, public interfaces, protocol definitions, build configuration, and tests
-are still implementation scaffolds. The firmware is not yet buildable or
-hardware-tested.
+The Version 2 firmware builds with ESP-IDF 5.5. Board safe-state and power
+control, portable GPIO/SPI/UART mechanisms, the 74HC/HCT595 driver, and the
+AD7779 register/lifecycle foundation are implemented. Acquisition,
+configuration, frame handling, protocol, and host integration remain in
+progress, and hardware verification is being completed incrementally.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for module responsibilities, dependency
 rules, initialization order, and the detailed implementation-status table.

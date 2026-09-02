@@ -17,6 +17,7 @@ typedef enum {
     FW_ERROR_RESOURCE_TIMER,
     FW_ERROR_RESOURCE_MEMORY,
     FW_ERROR_RESOURCE_SYNCHRONIZATION,
+    FW_ERROR_RESOURCE_ADC,
 } fw_error_resource_t;
 
 /** @brief Portable operation that was in progress when a failure occurred. */

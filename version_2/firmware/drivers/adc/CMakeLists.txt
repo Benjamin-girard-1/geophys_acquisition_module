@@ -3,4 +3,6 @@ idf_component_register(
         "ad7779.c"
     INCLUDE_DIRS
         "."
+    REQUIRES
+        common
 )
