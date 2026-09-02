@@ -78,16 +78,16 @@ separate verification item.
 
 ## 4. AD7779 portable driver
 
-| ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
-|---|---|:---:|:---:|---|
-| FW-19 | Define private AD7779 registers, fields, commands, and supported limits from the datasheet | [ ] | [ ] | |
-| FW-20 | Implement lifecycle, reset, identity/status verification, and idempotent stop | [ ] | [ ] | |
-| FW-21 | Implement all-eight-channel default configuration and per-channel gains ×1, ×2, ×4, and ×8 | [ ] | [ ] | |
-| FW-22 | Implement configurable output rate through 16 kSPS and report requested versus actual rate | [ ] | [ ] | |
-| FW-23 | Decode one simultaneous frame into eight sign-extended `int32_t` samples | [ ] | [ ] | |
-| FW-24 | Validate enabled AD7779 header/CRC/status information and normalize driver faults | [ ] | [ ] | |
-| FW-25 | Run driver tests with fake SPI for transactions, timeouts, corrupt frames, and configuration readback | [ ] | [ ] | |
-| FW-26 | Verify stable AD7779 communication at a conservative SPI clock before raising the clock | [ ] | [ ] | |
+| ID | Deliverable and acceptance condition | Complete |
+|---|---|:---:|
+| FW-19 | Define private AD7779 registers, fields, commands, and supported limits from the datasheet | [x] |
+| FW-20 | Implement lifecycle, reset, identity/status verification, and idempotent stop | [ ] |
+| FW-21 | Implement all-eight-channel default configuration and per-channel gains ×1, ×2, ×4, and ×8 | [ ] |
+| FW-22 | Implement configurable output rate through 16 kSPS and report requested versus actual rate | [ ] |
+| FW-23 | Decode one simultaneous frame into eight sign-extended `int32_t` samples | [ ] |
+| FW-24 | Validate enabled AD7779 header/CRC/status information and normalize driver faults | [ ] |
+| FW-25 | Run driver tests with fake SPI for transactions, timeouts, corrupt frames, and configuration readback | [ ] |
+| FW-26 | Verify stable AD7779 communication at a conservative SPI clock before raising the clock | [ ] |
 
 ## 5. Card detection and magnetic-card integration
 
