@@ -12,9 +12,10 @@ an AD7779 ADC, an LSM6DSV IMU, MAX-M10S GNSS, SD storage shared with a USB2641,
 
 The Version 2 firmware builds with ESP-IDF 5.5. Board safe-state and power
 control, portable GPIO/SPI/UART mechanisms, the 74HC/HCT595 driver, and the
-AD7779 register/lifecycle foundation are implemented. Acquisition,
-configuration, frame handling, protocol, and host integration remain in
-progress, and hardware verification is being completed incrementally.
+AD7779 register, lifecycle, and channel-configuration foundations are
+implemented. Acquisition, rate configuration, frame handling, protocol, and
+host integration remain in progress, and hardware verification is being
+completed incrementally.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for module responsibilities, dependency
 rules, initialization order, and the detailed implementation-status table.
@@ -86,17 +87,16 @@ The current scaffolds cover:
 
 ## Building
 
-The ESP-IDF project files have not been created yet, so there is currently no
-valid firmware build command. The intended build root is `version_2/firmware/`.
-Once its top-level and component `CMakeLists.txt` files and `sdkconfig.defaults`
-exist, the normal workflow will be:
+Activate an ESP-IDF 5.5 environment, then build from `version_2/firmware/`:
 
 ```sh
 cd version_2/firmware
-idf.py set-target esp32s3
 idf.py build
 idf.py flash monitor
 ```
+
+Run `idf.py set-target esp32s3` first only when creating a fresh local build
+configuration or changing targets.
 
 Generated `build/`, `sdkconfig`, managed components, binaries, KiCad local state,
 editor files, and locally stored vendor datasheet PDFs are excluded by the root

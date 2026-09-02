@@ -7,6 +7,9 @@
 #include "fw_error.h"
 #include "fw_spi.h"
 
+#define AD7779_CHANNEL_COUNT 8U
+#define AD7779_CHANNEL_MASK_ALL UINT8_C(0xFF)
+
 /** @brief Driver lifecycle state. STOPPED means initialized and ready. */
 typedef enum {
     AD7779_STATE_UNINITIALIZED = 0,
@@ -36,6 +39,20 @@ typedef enum {
 } ad7779_fault_t;
 
 typedef uint32_t ad7779_fault_flags_t;
+
+/** @brief Supported analog front-end gain for one ADC channel. */
+typedef enum {
+    AD7779_GAIN_X1 = 1,
+    AD7779_GAIN_X2 = 2,
+    AD7779_GAIN_X4 = 4,
+    AD7779_GAIN_X8 = 8,
+} ad7779_gain_t;
+
+/** @brief Intended active-channel mask and independent gain for each channel. */
+typedef struct {
+    uint8_t enabled_mask;
+    ad7779_gain_t gains[AD7779_CHANNEL_COUNT];
+} ad7779_channel_config_t;
 
 /** @brief Set or clear one logical AD7779 control through the board module. */
 typedef fw_status_t (*ad7779_set_control_callback_t)(
@@ -90,9 +107,11 @@ typedef struct {
 typedef struct {
     ad7779_config_t config;
     ad7779_status_t last_status;
+    ad7779_channel_config_t applied_channel_config;
     ad7779_state_t state;
     uint8_t general_user_config_3_shadow;
     uint8_t channel_disable_shadow;
+    bool channel_configured;
     bool bound;
 } ad7779_t;
 
@@ -114,6 +133,27 @@ fw_status_t ad7779_reset(ad7779_t *device,
 fw_status_t ad7779_verify_status(ad7779_t *device,
                                  ad7779_status_t *status,
                                  fw_error_context_t *error);
+
+/** @brief Configure all eight selected by default, each at gain x1. */
+fw_status_t ad7779_configure_default_channels(ad7779_t *device,
+                                              fw_error_context_t *error);
+
+/**
+ * @brief Configure the intended channel mask and eight independent gains.
+ *
+ * The device must be stopped. Channel clocks stay disabled until a later start
+ * operation applies enabled_mask.
+ */
+fw_status_t ad7779_configure_channels(
+    ad7779_t *device,
+    const ad7779_channel_config_t *configuration,
+    fw_error_context_t *error);
+
+/** @brief Return the last completely applied channel configuration. */
+fw_status_t ad7779_get_channel_configuration(
+    const ad7779_t *device,
+    ad7779_channel_config_t *configuration,
+    fw_error_context_t *error);
 
 /**
  * @brief Disable conversion readback and all channel clocks.

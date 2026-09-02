@@ -272,6 +272,71 @@ static fw_status_t verify_reset_defaults(ad7779_t *device,
     return FW_STATUS_OK;
 }
 
+static bool encode_channel_gain(ad7779_gain_t gain, uint8_t *encoded)
+{
+    if (encoded == NULL) {
+        return false;
+    }
+
+    switch (gain) {
+    case AD7779_GAIN_X1:
+        *encoded = AD7779_CH_CONFIG_GAIN_1;
+        return true;
+    case AD7779_GAIN_X2:
+        *encoded = AD7779_CH_CONFIG_GAIN_2;
+        return true;
+    case AD7779_GAIN_X4:
+        *encoded = AD7779_CH_CONFIG_GAIN_4;
+        return true;
+    case AD7779_GAIN_X8:
+        *encoded = AD7779_CH_CONFIG_GAIN_8;
+        return true;
+    default:
+        return false;
+    }
+}
+
+static fw_status_t verify_register_value(ad7779_t *device,
+                                         uint8_t address,
+                                         uint8_t expected,
+                                         fw_error_context_t *error)
+{
+    uint8_t actual = 0U;
+    fw_status_t status = read_register(device, address, &actual, error);
+
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (actual != expected) {
+        uint32_t detail = ((uint32_t)address << 16) |
+                          ((uint32_t)expected << 8) | actual;
+        return set_error(error, FW_STATUS_INTEGRITY, FW_ERROR_OPERATION_READ,
+                         device->config.instance, detail);
+    }
+    return FW_STATUS_OK;
+}
+
+static fw_status_t fail_channel_configuration(ad7779_t *device,
+                                              fw_status_t failure_status,
+                                              fw_error_context_t *error)
+{
+    fw_error_context_t original_error;
+    fw_error_context_t ignored_error;
+
+    if (error != NULL) {
+        original_error = *error;
+    }
+    clear_error(&ignored_error);
+    (void)write_register(device, AD7779_REG_CH_DISABLE,
+                         AD7779_ALL_CHANNELS_MASK, &ignored_error);
+    device->channel_configured = false;
+    set_fault_state(device);
+    if (error != NULL) {
+        *error = original_error;
+    }
+    return failure_status;
+}
+
 static ad7779_fault_flags_t normalize_general_faults(uint8_t error_1,
                                                       uint8_t error_2)
 {
@@ -439,6 +504,9 @@ static fw_status_t perform_reset(ad7779_t *device,
 {
     fw_status_t status;
 
+    memset(&device->applied_channel_config, 0,
+           sizeof(device->applied_channel_config));
+    device->channel_configured = false;
     device->state = AD7779_STATE_INITIALIZING;
     memset(&device->last_status, 0, sizeof(device->last_status));
     device->last_status.state = AD7779_STATE_INITIALIZING;
@@ -579,10 +647,127 @@ fw_status_t ad7779_verify_status(ad7779_t *device,
 
     result = collect_status(device, false, status, error);
     if (result != FW_STATUS_OK) {
+        if (!status->init_complete ||
+            (status->faults & AD7779_FAULT_UNEXPECTED_RESET) != 0U) {
+            device->channel_configured = false;
+        }
         set_fault_state(device);
         status->state = AD7779_STATE_FAULT;
     }
     return result;
+}
+
+fw_status_t ad7779_configure_default_channels(ad7779_t *device,
+                                              fw_error_context_t *error)
+{
+    ad7779_channel_config_t configuration = {
+        .enabled_mask = AD7779_CHANNEL_MASK_ALL,
+        .gains = {
+            AD7779_GAIN_X1,
+            AD7779_GAIN_X1,
+            AD7779_GAIN_X1,
+            AD7779_GAIN_X1,
+            AD7779_GAIN_X1,
+            AD7779_GAIN_X1,
+            AD7779_GAIN_X1,
+            AD7779_GAIN_X1,
+        },
+    };
+
+    return ad7779_configure_channels(device, &configuration, error);
+}
+
+fw_status_t ad7779_configure_channels(
+    ad7779_t *device,
+    const ad7779_channel_config_t *configuration,
+    fw_error_context_t *error)
+{
+    uint8_t encoded_gains[AD7779_CHANNEL_COUNT];
+    fw_status_t status;
+    size_t channel;
+
+    clear_error(error);
+    status = require_bound(device, FW_ERROR_OPERATION_CONFIGURE, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (configuration == NULL) {
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_CONFIGURE,
+                         device->config.instance, 0U);
+    }
+    if (device->state != AD7779_STATE_STOPPED) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_CONFIGURE,
+                         device->config.instance, device->state);
+    }
+
+    for (channel = 0U; channel < AD7779_CHANNEL_COUNT; ++channel) {
+        if (!encode_channel_gain(configuration->gains[channel],
+                                 &encoded_gains[channel])) {
+            return set_error(
+                error, FW_STATUS_INVALID_ARGUMENT,
+                FW_ERROR_OPERATION_CONFIGURE, device->config.instance,
+                ((uint32_t)channel << 16) |
+                    (uint32_t)configuration->gains[channel]);
+        }
+    }
+
+    status = write_register(device, AD7779_REG_CH_DISABLE,
+                            AD7779_ALL_CHANNELS_MASK, error);
+    if (status != FW_STATUS_OK) {
+        return fail_channel_configuration(device, status, error);
+    }
+    status = verify_register_value(device, AD7779_REG_CH_DISABLE,
+                                   AD7779_ALL_CHANNELS_MASK, error);
+    if (status != FW_STATUS_OK) {
+        return fail_channel_configuration(device, status, error);
+    }
+
+    for (channel = 0U; channel < AD7779_CHANNEL_COUNT; ++channel) {
+        uint8_t address = AD7779_REG_CH_CONFIG((uint8_t)channel);
+
+        status = write_register(device, address, encoded_gains[channel], error);
+        if (status != FW_STATUS_OK) {
+            return fail_channel_configuration(device, status, error);
+        }
+        status = verify_register_value(device, address,
+                                       encoded_gains[channel], error);
+        if (status != FW_STATUS_OK) {
+            return fail_channel_configuration(device, status, error);
+        }
+    }
+
+    device->applied_channel_config = *configuration;
+    device->channel_configured = true;
+    return FW_STATUS_OK;
+}
+
+fw_status_t ad7779_get_channel_configuration(
+    const ad7779_t *device,
+    ad7779_channel_config_t *configuration,
+    fw_error_context_t *error)
+{
+    fw_status_t status;
+
+    clear_error(error);
+    status = require_bound(device, FW_ERROR_OPERATION_READ, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (configuration == NULL) {
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_READ,
+                         device->config.instance, 0U);
+    }
+    if (!device->channel_configured) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_READ,
+                         device->config.instance, device->state);
+    }
+
+    *configuration = device->applied_channel_config;
+    return FW_STATUS_OK;
 }
 
 fw_status_t ad7779_stop(ad7779_t *device,
