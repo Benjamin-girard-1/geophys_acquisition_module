@@ -35,9 +35,13 @@ evidence is recorded.
 | HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [x] |
 | HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [x] |
 | HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [x] |
-| HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [x] |
+| HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [ ] |
 
-GPIO46 and GPIO45 are not a concern.
+GPIO46 is a confirmed Rev-1 concern. The LSM6DSV `CS` input has an internal 30-50 kOhm pull-up
+that opposes the ESP32-S3 GPIO46 weak pull-down during reset, so firmware download is unreliable
+unless GPIO46 is held Low while the boot straps are sampled. This happens before firmware runs and
+cannot be corrected in software. GPIO45 was not implicated in this observed failure and remains a
+separate verification item.
 
 ## 1. ESP-IDF project scaffold
 

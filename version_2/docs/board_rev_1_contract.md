@@ -8,7 +8,7 @@
   `version_2/hardware/pcb/rev_1/mainboard_v2_r1/`
 - Compute platform: ESP32-S3 DevKitC
 - Schematic revision/date: 2026-07-23
-- Last updated: 2026-08-27
+- Last updated: 2026-09-02
 
 ## 1. ESP32 peripheral assignments
 
@@ -92,7 +92,10 @@ ADC oscillator is enabled until the safe image is latched and the 74HC595 output
   strapping state. Verify the voltage on GPIO45 through power-up and reset while the GNSS board
   is connected and powered.
 - GPIO46 is the LSM6DSV chip-select output and participates in boot/download-mode selection.
-  Verify that its external state does not prevent firmware download.
+  The LSM6DSV `CS` input has an internal 30-50 kOhm pull-up that opposes the ESP32-S3 weak
+  pull-down during reset. Rev-1 bench testing confirmed unreliable firmware download as a result.
+  The Rev-1 workaround is to hold GPIO46 Low while the boot straps are sampled; firmware cannot
+  correct this because it starts afterward.
 - GPIO19 and GPIO20 are used for shift-register clock/latch, so the ESP32 USB Serial/JTAG
   function is unavailable once these pins are claimed by firmware.
 - GPIO39 through GPIO42 overlap the default JTAG pins. Card-slot signals and supercapacitor
@@ -101,6 +104,8 @@ ADC oscillator is enabled until the safe image is latched and the 74HC595 output
   targets approximately 5 ms or better inter-device alignment, and requires bench verification.
   Sub-millisecond synchronization is not guaranteed. A dedicated non-strapping TIMEPULSE GPIO
   is reserved as a Rev-2 improvement.
+- Rev-2 must move `CS_LSM` from GPIO46 to a non-strapping GPIO. A permanent strong pull-down on
+  GPIO46 is only a Rev-1 rework option, not the preferred Rev-2 correction.
 
 ## 5. Verification terminology
 
@@ -316,7 +321,7 @@ logical requests into shift-register changes. `analog_cards/acc_geoph` has no SE
 | Question | Responsible person | Source | Status |
 |---|---|---|---|
 | Does the MAX-M10S TX level on GPIO45 preserve the required ESP32 `VDD_SPI` strap during every reset condition? | Hardware | Schematic + oscilloscope | Open |
-| Does the GPIO46/LSM6DSV CS state allow normal boot and firmware download? | Hardware/firmware | Schematic + boot test | Open |
+| GPIO46/LSM6DSV CS pull-up prevents reliable firmware download without holding GPIO46 Low during strap sampling | Hardware/firmware | Schematic + LSM6DSV datasheet + boot test | Confirmed Rev-1 issue; move `CS_LSM` to a non-strapping GPIO in Rev-2 |
 | Do the no-card, 20 kΩ, 10 kΩ, and 5 kΩ slot-1 detection states preserve the required GPIO3 strap behavior? | Hardware/firmware | Repeated cold boot and download test | Open |
 | Do the assembled-board SH1/SH2 boot and safe levels match the schematic/datasheet-derived contract, especially floating `EN_INV_-5V`? | Hardware | Oscilloscope/logic analyzer | Open |
 | Do the assembled-card divider voltages fall inside the initial identification windows with adequate margin? | Hardware | Calibrated ESP32 ADC + multimeter | Open |
