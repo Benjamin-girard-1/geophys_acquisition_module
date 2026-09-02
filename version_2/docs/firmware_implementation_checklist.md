@@ -67,9 +67,9 @@ GPIO46 and GPIO45 are not a concern.
 | FW-12 | Implement the portable 74HC595 driver with a complete 16-bit shadow image | [x] |
 | FW-13 | Test bit order, latch behavior, unrelated-bit preservation, and invalid arguments with fake GPIO callbacks | [x] |
 | FW-14 | Encode all Rev-1 pins, active levels, bus limits, and safe values only in `boards/rev_1` | [x] |
-| FW-15 | Implement `board_init()`: safe direct GPIOs, outputs disabled, safe image latched, then outputs enabled | [ ] |
-| FW-16 | Implement idempotent `board_enter_safe_state()` for startup and fatal failures | [ ] |
-| FW-17 | Keep the SD mux fixed to the ESP32 and the USB2641 reset/isolated for the entire runtime | [ ] |
+| FW-15 | Implement `board_init()`: safe direct GPIOs, outputs disabled, safe image latched, then outputs enabled | [x] |
+| FW-16 | Implement idempotent `board_enter_safe_state()` for startup and fatal failures | [x] |
+| FW-17 | Keep the SD mux fixed to the ESP32 and the USB2641 reset/isolated for the entire runtime | [x] |
 | FW-18 | Verify every power enable and pulse output during cold boot, reset, firmware download, and safe shutdown | [ ] |
 
 ## 4. AD7779 portable driver
