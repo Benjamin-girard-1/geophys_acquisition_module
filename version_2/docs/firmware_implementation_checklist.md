@@ -65,7 +65,7 @@ GPIO46 and GPIO45 are not a concern.
 | ID | Deliverable and acceptance condition | Complete |
 |---|---|:---:|
 | FW-12 | Implement the portable 74HC595 driver with a complete 16-bit shadow image | [x] |
-| FW-13 | Test bit order, latch behavior, unrelated-bit preservation, and invalid arguments with fake GPIO callbacks | [ ] |
+| FW-13 | Test bit order, latch behavior, unrelated-bit preservation, and invalid arguments with fake GPIO callbacks | [x] |
 | FW-14 | Encode all Rev-1 pins, active levels, bus limits, and safe values only in `boards/rev_1` | [ ] |
 | FW-15 | Implement `board_init()`: safe direct GPIOs, outputs disabled, safe image latched, then outputs enabled | [ ] |
 | FW-16 | Implement idempotent `board_enter_safe_state()` for startup and fatal failures | [ ] |
