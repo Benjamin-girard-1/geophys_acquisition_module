@@ -7,4 +7,5 @@ idf_component_register(
         app
         rev_1
         esp32s3_devkit
+        freertos
 )
