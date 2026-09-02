@@ -16,6 +16,7 @@
 |---|---|---|---:|---|---|---|
 | AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Initial: 8 MHz, mode 0; reads ≤20 MHz; writes ≤30 MHz | Yes | `task_acquisition` | Schematic + datasheet + working V1 reference; Rev-1 bench open |
 | AD7779 control | 74HC595 #2 | RESET:SH2_C, START:SH2_D, MCLK_EN:SH2_E, CONVST_SAR:SH2_F | - | No | `task_acquisition` through `board` | Schematic |
+| 74HC595 chain | GPIO bit-bang | SHCP:GPIO19, STCP:GPIO20, DS:GPIO47, OE_N:GPIO21 | Initial 1 us between driver transitions; conservative limit ≤4 MHz | No | `board` | Schematic + Nexperia 74HC595 Rev. 12 datasheet |
 | LSM6DSV SPI | SPI3 | SCLK:GPIO17, MOSI:GPIO18, CS:GPIO46, MISO:GPIO9 | ≤10 MHz | No | `task_imu` | Schematic + datasheet |
 | MAX-M10S UART | UART1 | ESP32 RX:GPIO45, ESP32 TX:GPIO48 | Target: 921600 baud | No | `task_gnss` | Schematic; bench open |
 | Card-slot 1 I²C / GPIO | I2C0 or GPIO | GPIO40, GPIO41 | [TBD] | No | `card_detect` / selected card driver | Schematic |
