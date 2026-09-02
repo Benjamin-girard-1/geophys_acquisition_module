@@ -81,8 +81,8 @@ separate verification item.
 | ID | Deliverable and acceptance condition | Complete |
 |---|---|:---:|
 | FW-19 | Define private AD7779 registers, fields, commands, and supported limits from the datasheet | [x] |
-| FW-20 | Implement lifecycle, reset, identity/status verification, and idempotent stop | [ ] |
-| FW-21 | Implement all-eight-channel default configuration and per-channel gains ×1, ×2, ×4, and ×8 | [ ] |
+| FW-20 | Implement lifecycle, reset, identity/status verification, and idempotent stop | [x] |
+| FW-21 | Implement all-eight-channel default configuration and per-channel gains ×1, ×2, ×4, and ×8 | [x] |
 | FW-22 | Implement configurable output rate through 16 kSPS and report requested versus actual rate | [ ] |
 | FW-23 | Decode one simultaneous frame into eight sign-extended `int32_t` samples | [ ] |
 | FW-24 | Validate enabled AD7779 header/CRC/status information and normalize driver faults | [ ] |
