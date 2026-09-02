@@ -70,7 +70,7 @@ GPIO46 and GPIO45 are not a concern.
 | FW-15 | Implement `board_init()`: safe direct GPIOs, outputs disabled, safe image latched, then outputs enabled | [x] |
 | FW-16 | Implement idempotent `board_enter_safe_state()` for startup and fatal failures | [x] |
 | FW-17 | Keep the SD mux fixed to the ESP32 and the USB2641 reset/isolated for the entire runtime | [x] |
-| FW-18 | Verify every power enable and pulse output during cold boot, reset, firmware download, and safe shutdown | [ ] |
+| FW-18 | Verify every power enable and pulse output during cold boot, reset, firmware download, and safe shutdown | [x] |
 
 ## 4. AD7779 portable driver
 
