@@ -88,7 +88,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-23 | Decode one simultaneous frame into eight sign-extended `int32_t` samples | [x] |
 | FW-24 | Validate enabled AD7779 header/CRC/status information and normalize driver faults | [x] |
 | FW-25 | Run driver tests with fake SPI for transactions, timeouts, corrupt frames, and configuration readback | [x] |
-| FW-26 | Verify stable AD7779 communication at a conservative SPI clock before raising the clock | [ ] |
+| FW-26 | Verify stable AD7779 communication at a conservative SPI clock before raising the clock | [x] |
 
 ## 5. Card detection and magnetic-card integration
 
