@@ -86,7 +86,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-21 | Implement all-eight-channel default configuration and per-channel gains ×1, ×2, ×4, and ×8 | [x] |
 | FW-22 | Implement configurable output rate through 16 kSPS and report requested versus actual rate | [x] |
 | FW-23 | Decode one simultaneous frame into eight sign-extended `int32_t` samples | [x] |
-| FW-24 | Validate enabled AD7779 header/CRC/status information and normalize driver faults | [ ] |
+| FW-24 | Validate enabled AD7779 header/CRC/status information and normalize driver faults | [x] |
 | FW-25 | Run driver tests with fake SPI for transactions, timeouts, corrupt frames, and configuration readback | [ ] |
 | FW-26 | Verify stable AD7779 communication at a conservative SPI clock before raising the clock | [ ] |
 
