@@ -84,7 +84,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-19 | Define private AD7779 registers, fields, commands, and supported limits from the datasheet | [x] |
 | FW-20 | Implement lifecycle, reset, identity/status verification, and idempotent stop | [x] |
 | FW-21 | Implement all-eight-channel default configuration and per-channel gains ×1, ×2, ×4, and ×8 | [x] |
-| FW-22 | Implement configurable output rate through 16 kSPS and report requested versus actual rate | [x] |
+| FW-22 | Implement the supported high-resolution presets 500, 1000, 2000, 4000, 8000, and 16000 SPS and report the selected applied preset | [x] |
 | FW-23 | Decode one simultaneous frame into eight sign-extended `int32_t` samples | [x] |
 | FW-24 | Validate enabled AD7779 header/CRC/status information and normalize driver faults | [x] |
 | FW-25 | Run driver tests with fake SPI for transactions, timeouts, corrupt frames, and configuration readback | [x] |
