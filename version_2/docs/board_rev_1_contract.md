@@ -14,7 +14,7 @@
 
 | Function | ESP32 peripheral | Pins | Frequency/baud | DMA | Owner | Verification |
 |---|---|---|---:|---|---|---|
-| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Initial: 8 MHz, mode 0; reads ≤20 MHz; writes ≤30 MHz | Yes | `task_acquisition` | Schematic + datasheet + working V1 reference; Rev-1 bench open |
+| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Initial: 8 MHz, mode 0; reads ≤20 MHz; writes ≤30 MHz; external MCLK: 8.192 MHz | Yes | `task_acquisition` | Schematic + datasheet + working V1 reference; Rev-1 bench open |
 | AD7779 control | 74HC595 #2 | RESET:SH2_C, START:SH2_D, MCLK_EN:SH2_E, CONVST_SAR:SH2_F | - | No | `task_acquisition` through `board` | Schematic |
 | 74HC595 chain | GPIO bit-bang | SHCP:GPIO19, STCP:GPIO20, DS:GPIO47, OE_N:GPIO21 | Initial 1 us between driver transitions; conservative limit ≤4 MHz | No | `board` | Schematic + Nexperia 74HC595 Rev. 12 datasheet |
 | LSM6DSV SPI | SPI3 | SCLK:GPIO17, MOSI:GPIO18, CS:GPIO46, MISO:GPIO9 | ≤10 MHz | No | `task_imu` | Schematic + datasheet |
@@ -180,6 +180,7 @@ The first Rev-1 implementation uses the electrically proven V1 settings as a con
 | CS timing margin | 1 µs after asserting CS and 1 µs before releasing CS |
 | Transfer context | Synchronous DMA-backed transfer from `task_acquisition`; never busy-polled or called from the DRDY ISR |
 | Master clock | Set `ADC_MCLK_EN` High, then wait at least 5 ms |
+| ADC power mode | High-resolution mode only |
 | Hardware reset | Hold `ADC_RESET` Low for 2 ms, release High, then wait at least 10 ms |
 | START | Hold Low through clock/reset startup, then drive High and leave High when inactive |
 | CONVST_SAR | Keep Low because milestone 1 does not use the SAR ADC |

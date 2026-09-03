@@ -80,7 +80,8 @@ static bool config_is_valid(const ad7779_config_t *config)
            config->set_mclk_enabled != NULL &&
            config->set_reset_asserted != NULL &&
            config->set_start_high != NULL && config->delay_us != NULL &&
-           config->spi_timeout_us != 0U && config->mclk_settling_us != 0U &&
+           config->spi_timeout_us != 0U && config->mclk_hz != 0U &&
+           config->mclk_settling_us != 0U &&
            config->reset_assert_us != 0U && config->reset_release_us != 0U &&
            config->soft_reset_settling_us != 0U &&
            config->init_timeout_us != 0U &&
@@ -296,6 +297,63 @@ static bool encode_channel_gain(ad7779_gain_t gain, uint8_t *encoded)
     }
 }
 
+static bool output_rate_is_supported(ad7779_output_rate_t output_rate)
+{
+    switch (output_rate) {
+    case AD7779_OUTPUT_RATE_500_SPS:
+    case AD7779_OUTPUT_RATE_1000_SPS:
+    case AD7779_OUTPUT_RATE_2000_SPS:
+    case AD7779_OUTPUT_RATE_4000_SPS:
+    case AD7779_OUTPUT_RATE_8000_SPS:
+    case AD7779_OUTPUT_RATE_16000_SPS:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool calculate_src_registers(uint32_t mclk_hz,
+                                    ad7779_output_rate_t output_rate,
+                                    uint16_t *src_n,
+                                    uint16_t *src_if)
+{
+    const uint64_t maximum_scaled_decimation =
+        ((uint64_t)AD7779_SRC_N_MAX * AD7779_SRC_FRACTION_SCALE) +
+        AD7779_SRC_IF_MAX;
+    const uint64_t minimum_scaled_decimation =
+        (uint64_t)AD7779_HR_SRC_N_MIN * AD7779_SRC_FRACTION_SCALE;
+    uint64_t denominator;
+    uint64_t scaled_decimation;
+
+    if (mclk_hz == 0U || src_n == NULL || src_if == NULL ||
+        !output_rate_is_supported(output_rate)) {
+        return false;
+    }
+
+    denominator = (uint64_t)AD7779_HR_MCLK_DIV * (uint32_t)output_rate;
+    scaled_decimation =
+        (((uint64_t)mclk_hz * AD7779_SRC_FRACTION_SCALE) +
+         (denominator / 2U)) /
+        denominator;
+
+    /*
+     * With the Rev-1 8.192 MHz MCLK, 500 SPS requests a decimation of
+     * exactly 4096. The AD7779 maximum is one fractional LSB lower, which
+     * produces approximately 500 SPS. Reject larger out-of-range requests.
+     */
+    if (scaled_decimation == maximum_scaled_decimation + 1U) {
+        scaled_decimation = maximum_scaled_decimation;
+    }
+    if (scaled_decimation < minimum_scaled_decimation ||
+        scaled_decimation > maximum_scaled_decimation) {
+        return false;
+    }
+
+    *src_n = (uint16_t)(scaled_decimation / AD7779_SRC_FRACTION_SCALE);
+    *src_if = (uint16_t)(scaled_decimation % AD7779_SRC_FRACTION_SCALE);
+    return true;
+}
+
 static fw_status_t verify_register_value(ad7779_t *device,
                                          uint8_t address,
                                          uint8_t expected,
@@ -334,6 +392,15 @@ static fw_status_t fail_channel_configuration(ad7779_t *device,
     if (error != NULL) {
         *error = original_error;
     }
+    return failure_status;
+}
+
+static fw_status_t fail_output_rate_configuration(
+    ad7779_t *device,
+    fw_status_t failure_status)
+{
+    device->output_rate_configured = false;
+    set_fault_state(device);
     return failure_status;
 }
 
@@ -507,6 +574,8 @@ static fw_status_t perform_reset(ad7779_t *device,
     memset(&device->applied_channel_config, 0,
            sizeof(device->applied_channel_config));
     device->channel_configured = false;
+    device->applied_output_rate = 0;
+    device->output_rate_configured = false;
     device->state = AD7779_STATE_INITIALIZING;
     memset(&device->last_status, 0, sizeof(device->last_status));
     device->last_status.state = AD7779_STATE_INITIALIZING;
@@ -650,6 +719,7 @@ fw_status_t ad7779_verify_status(ad7779_t *device,
         if (!status->init_complete ||
             (status->faults & AD7779_FAULT_UNEXPECTED_RESET) != 0U) {
             device->channel_configured = false;
+            device->output_rate_configured = false;
         }
         set_fault_state(device);
         status->state = AD7779_STATE_FAULT;
@@ -767,6 +837,159 @@ fw_status_t ad7779_get_channel_configuration(
     }
 
     *configuration = device->applied_channel_config;
+    return FW_STATUS_OK;
+}
+
+fw_status_t ad7779_configure_output_rate(
+    ad7779_t *device,
+    ad7779_output_rate_t output_rate,
+    fw_error_context_t *error)
+{
+    uint16_t src_n = 0U;
+    uint16_t src_if = 0U;
+    uint8_t general_user_config_1 = 0U;
+    uint32_t update_hold_us;
+    fw_status_t status;
+
+    clear_error(error);
+    status = require_bound(device, FW_ERROR_OPERATION_CONFIGURE, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (!output_rate_is_supported(output_rate)) {
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_CONFIGURE,
+                         device->config.instance, (uint32_t)output_rate);
+    }
+    if (device->state != AD7779_STATE_STOPPED) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_CONFIGURE,
+                         device->config.instance, device->state);
+    }
+    if (!calculate_src_registers(device->config.mclk_hz, output_rate,
+                                 &src_n, &src_if)) {
+        return set_error(error, FW_STATUS_UNSUPPORTED,
+                         FW_ERROR_OPERATION_CONFIGURE,
+                         device->config.instance, (uint32_t)output_rate);
+    }
+
+    status = read_register(device, AD7779_REG_GENERAL_USER_CONFIG_1,
+                           &general_user_config_1, error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    general_user_config_1 |= AD7779_GUC1_HR_MODE;
+    status = write_register(device, AD7779_REG_GENERAL_USER_CONFIG_1,
+                            general_user_config_1, error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = verify_register_value(device, AD7779_REG_GENERAL_USER_CONFIG_1,
+                                   general_user_config_1, error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+
+    status = write_register(device, AD7779_REG_SRC_N_MSB,
+                            (uint8_t)((src_n >> 8) & AD7779_SRC_N_MSB_MSK),
+                            error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = verify_register_value(
+        device, AD7779_REG_SRC_N_MSB,
+        (uint8_t)((src_n >> 8) & AD7779_SRC_N_MSB_MSK), error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = write_register(device, AD7779_REG_SRC_N_LSB,
+                            (uint8_t)(src_n & UINT16_C(0x00FF)), error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = verify_register_value(device, AD7779_REG_SRC_N_LSB,
+                                   (uint8_t)(src_n & UINT16_C(0x00FF)), error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = write_register(device, AD7779_REG_SRC_IF_MSB,
+                            (uint8_t)(src_if >> 8), error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = verify_register_value(device, AD7779_REG_SRC_IF_MSB,
+                                   (uint8_t)(src_if >> 8), error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = write_register(device, AD7779_REG_SRC_IF_LSB,
+                            (uint8_t)(src_if & UINT16_C(0x00FF)), error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = verify_register_value(
+        device, AD7779_REG_SRC_IF_LSB,
+        (uint8_t)(src_if & UINT16_C(0x00FF)), error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+
+    status = write_register(device, AD7779_REG_SRC_UPDATE,
+                            AD7779_SRC_LOAD_UPDATE, error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = verify_register_value(device, AD7779_REG_SRC_UPDATE,
+                                   AD7779_SRC_LOAD_UPDATE, error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+
+    update_hold_us =
+        (uint32_t)((((uint64_t)AD7779_SRC_UPDATE_MIN_MCLK_CYCLES *
+                     UINT64_C(1000000)) +
+                    device->config.mclk_hz - 1U) /
+                   device->config.mclk_hz);
+    device->config.delay_us(device->config.delay_context, update_hold_us);
+
+    status = write_register(device, AD7779_REG_SRC_UPDATE, 0U, error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+    status = verify_register_value(device, AD7779_REG_SRC_UPDATE, 0U, error);
+    if (status != FW_STATUS_OK) {
+        return fail_output_rate_configuration(device, status);
+    }
+
+    device->applied_output_rate = output_rate;
+    device->output_rate_configured = true;
+    return FW_STATUS_OK;
+}
+
+fw_status_t ad7779_get_output_rate(
+    const ad7779_t *device,
+    ad7779_output_rate_t *output_rate,
+    fw_error_context_t *error)
+{
+    fw_status_t status;
+
+    clear_error(error);
+    status = require_bound(device, FW_ERROR_OPERATION_READ, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (output_rate == NULL) {
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_READ,
+                         device->config.instance, 0U);
+    }
+    if (!device->output_rate_configured) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_READ,
+                         device->config.instance, device->state);
+    }
+
+    *output_rate = device->applied_output_rate;
     return FW_STATUS_OK;
 }
 

@@ -1,0 +1,15 @@
+28-byte header
+480-byte sample array
+4-byte CRC-32C
+----------------
+512 bytes
+Proposed header:
+Field	Size
+Magic/synchronization value	4 bytes
+Channel mask	1 byte
+Number of conversions: 20 or 40	1 byte
+Bits per sample: 24	1 byte
+Status flags	1 byte
+Sample rate in SPS	4 bytes
+First conversion sequence	8 bytes
+First conversion timestamp	8 bytes

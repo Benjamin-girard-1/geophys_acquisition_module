@@ -27,6 +27,8 @@
 #define AD7779_HR_MAX_ODR_HZ                  UINT32_C(16000)
 #define AD7779_LP_MAX_ODR_HZ                  UINT32_C(8000)
 #define AD7779_LP_SPECIFIED_MAX_ODR_HZ        UINT32_C(4000)
+#define AD7779_HR_MCLK_DIV                     UINT8_C(4)
+#define AD7779_HR_SRC_N_MIN                    UINT16_C(128)
 
 /* SPI register transactions and commands. */
 #define AD7779_SPI_ADDRESS_MASK               UINT8_C(0x7F)
@@ -251,9 +253,11 @@
 #define AD7779_REG_SRC_IF_LSB                 UINT8_C(0x63)
 #define AD7779_SRC_IF_BITS                    UINT8_C(16)
 #define AD7779_SRC_IF_MAX                     UINT16_C(0xFFFF)
+#define AD7779_SRC_FRACTION_SCALE             UINT32_C(65536)
 #define AD7779_REG_SRC_UPDATE                 UINT8_C(0x64)
 #define AD7779_SRC_LOAD_SOURCE                (UINT8_C(1) << 7)
 #define AD7779_SRC_LOAD_UPDATE                (UINT8_C(1) << 0)
+#define AD7779_SRC_UPDATE_MIN_MCLK_CYCLES     UINT8_C(2)
 
 /* One simultaneous sample: 8-bit header followed by signed 24-bit data. */
 #define AD7779_FRAME_HEADER_BYTES             UINT8_C(1)

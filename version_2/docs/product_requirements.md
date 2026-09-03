@@ -46,7 +46,8 @@ USB mass-storage access.
 - ADC: AD7779.
 - Resolution: signed 24-bit.
 - Default output data rate: 1 kSPS per channel.
-- Maximum configurable ADC rate required: 16 kSPS per channel.
+- Supported high-resolution output-rate presets: approximately 500 SPS, 1 kSPS, 2 kSPS, 4 kSPS,
+  8 kSPS, and 16 kSPS per channel. Other rates and low-power mode are unsupported.
 - Default active-channel mask: all eight channels.
 - Channel assignment:
   - Channel 0: magnetic card 1, X axis.
@@ -65,7 +66,7 @@ USB mass-storage access.
 - A frame may be rejected or marked invalid, but it must never disappear silently.
 - ADC overrun and queue overflow counters are required.
 - AD7779 status/header and CRC validation are required when enabled by the selected interface mode.
-- Requested and actual applied sample rates must both be reported.
+- The selected applied sample-rate preset must be reported.
 
 The 16 kSPS requirement applies to ADC acquisition capability. The wired host interface is only
 required to stream all eight raw 24-bit channels continuously at the default 1 kSPS rate. At higher
@@ -245,8 +246,8 @@ Errors are never reported by silently corrupting, reordering, or omitting the AD
 - [ ] AD7779 initializes and reports its configuration successfully.
 - [ ] All eight channels acquire synchronously at the default 1 kSPS rate.
 - [ ] Each frame has one monotonic timestamp, sequence number, validity flags, and AD7779 status.
-- [ ] The ADC can be configured through the required rate range and reports the requested and actual
-      applied rate.
+- [ ] The ADC can be configured for each supported preset through 16 kSPS and reports the selected
+      applied preset.
 - [ ] All eight channels stream continuously to the host at 1 kSPS for eight hours with no unexplained
       gaps or silent frame loss.
 - [ ] Intentional errors, CRC failures, and overruns are visible through counters or protocol events.

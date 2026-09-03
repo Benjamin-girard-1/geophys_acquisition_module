@@ -343,7 +343,7 @@ Interface-level decisions:
 |---|---|---|
 | `HELLO/DEVICE_INFO` | Both | Negotiate protocol and report firmware/hardware identity |
 | `CAPABILITIES` | Device → host | Report cards, channels, gains, rates, and enabled features |
-| `GET_CONFIG` | Host → device | Read requested and actual acquisition configuration |
+| `GET_CONFIG` | Host → device | Read the selected applied acquisition configuration |
 | `SET_CONFIG` | Host → device | Set stopped-state rate, channel mask, and gains |
 | `START_ACQUISITION` | Host → device | Start ADC and streaming |
 | `STOP_ACQUISITION` | Host → device | Stop streaming and return ADC to ready state |

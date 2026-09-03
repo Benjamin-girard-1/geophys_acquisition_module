@@ -48,6 +48,18 @@ typedef enum {
     AD7779_GAIN_X8 = 8,
 } ad7779_gain_t;
 
+/** @brief Supported high-resolution output-rate presets, in samples/second. */
+typedef enum {
+    AD7779_OUTPUT_RATE_500_SPS = 500,
+    AD7779_OUTPUT_RATE_1000_SPS = 1000,
+    AD7779_OUTPUT_RATE_2000_SPS = 2000,
+    AD7779_OUTPUT_RATE_4000_SPS = 4000,
+    AD7779_OUTPUT_RATE_8000_SPS = 8000,
+    AD7779_OUTPUT_RATE_16000_SPS = 16000,
+} ad7779_output_rate_t;
+
+#define AD7779_DEFAULT_OUTPUT_RATE AD7779_OUTPUT_RATE_1000_SPS
+
 /** @brief Intended active-channel mask and independent gain for each channel. */
 typedef struct {
     uint8_t enabled_mask;
@@ -81,6 +93,7 @@ typedef struct {
     void *control_context;
     void *delay_context;
     uint32_t spi_timeout_us;
+    uint32_t mclk_hz;
     uint32_t mclk_settling_us;
     uint32_t reset_assert_us;
     uint32_t reset_release_us;
@@ -108,10 +121,12 @@ typedef struct {
     ad7779_config_t config;
     ad7779_status_t last_status;
     ad7779_channel_config_t applied_channel_config;
+    ad7779_output_rate_t applied_output_rate;
     ad7779_state_t state;
     uint8_t general_user_config_3_shadow;
     uint8_t channel_disable_shadow;
     bool channel_configured;
+    bool output_rate_configured;
     bool bound;
 } ad7779_t;
 
@@ -153,6 +168,24 @@ fw_status_t ad7779_configure_channels(
 fw_status_t ad7779_get_channel_configuration(
     const ad7779_t *device,
     ad7779_channel_config_t *configuration,
+    fw_error_context_t *error);
+
+/**
+ * @brief Configure one supported output-rate preset in high-resolution mode.
+ *
+ * The device must be stopped. The configured MCLK frequency is used to encode
+ * the SRC registers, and the new setting is cached only after register
+ * readback and the software SRC update complete successfully.
+ */
+fw_status_t ad7779_configure_output_rate(
+    ad7779_t *device,
+    ad7779_output_rate_t output_rate,
+    fw_error_context_t *error);
+
+/** @brief Return the last completely applied output-rate preset. */
+fw_status_t ad7779_get_output_rate(
+    const ad7779_t *device,
+    ad7779_output_rate_t *output_rate,
     fw_error_context_t *error);
 
 /**
