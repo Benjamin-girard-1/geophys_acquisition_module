@@ -102,16 +102,16 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 
 ## 6. Acquisition task and bounded data pipeline
 
-| ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
-|---|---|:---:|:---:|---|
-| FW-32 | Define ADC frame, block, status, flags, pulse request/result, and counter types from the interface contract | [ ] | [ ] | |
-| FW-33 | Implement the 64-entry DRDY timestamp ring and minimal falling-edge ISR | [ ] | [ ] | |
-| FW-34 | Implement eight fixed 32-frame blocks with free and ready queues; allocate everything before streaming | [ ] | [ ] | |
-| FW-35 | Make `task_acquisition` the sole owner of ADC configuration, streaming, and pulse timing | [ ] | [ ] | |
-| FW-36 | Assign one timestamp and monotonically increasing sequence to each simultaneous conversion frame | [ ] | [ ] | |
-| FW-37 | Preserve invalid frames, dropped counts, sequence gaps, ISR overflow, and pool exhaustion visibly | [ ] | [ ] | |
-| FW-38 | Accept gain, rate, and channel-mask changes only while acquisition is stopped and apply them atomically | [ ] | [ ] | |
-| FW-39 | Demonstrate that acquisition continues servicing DRDY while UART output is blocked or disconnected | [ ] | [ ] | |
+| ID | Deliverable and acceptance condition | Complete |
+|---|---|:---:|
+| FW-32 | Define ADC frame, block, status, flags, pulse request/result, and counter types from the interface contract | [ ] |
+| FW-33 | Implement the 64-entry DRDY timestamp ring and minimal falling-edge ISR | [ ] |
+| FW-34 | Implement eight fixed 32-frame blocks with free and ready queues; allocate everything before streaming | [ ] |
+| FW-35 | Make `task_acquisition` the sole owner of ADC configuration, streaming, and pulse timing | [ ] |
+| FW-36 | Assign one timestamp and monotonically increasing sequence to each simultaneous conversion frame | [ ] |
+| FW-37 | Preserve invalid frames, dropped counts, sequence gaps, ISR overflow, and pool exhaustion visibly | [ ] |
+| FW-38 | Accept gain, rate, and channel-mask changes only while acquisition is stopped and apply them atomically | [ ] |
+| FW-39 | Demonstrate that acquisition continues servicing DRDY while UART output is blocked or disconnected | [ ] |
 
 ## 7. V2 protocol
 
