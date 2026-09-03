@@ -35,13 +35,14 @@ evidence is recorded.
 | HW-04 | Resolve AD7779 reset, master-clock, START, and initial SPI timing | [x] |
 | HW-05 | Define no-card and magnetic-card detection voltage windows and sampling policy | [x] |
 | HW-06 | Define initial SET/RESET control width, recharge/dead time, and settling limits | [x] |
-| HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [ ] |
+| HW-07 | Verify GPIO45/GPIO46 strapping does not prevent reliable boot or download | [x] |
 
 GPIO46 is a confirmed Rev-1 concern. The LSM6DSV `CS` input has an internal 30-50 kOhm pull-up
 that opposes the ESP32-S3 GPIO46 weak pull-down during reset, so firmware download is unreliable
 unless GPIO46 is held Low while the boot straps are sampled. This happens before firmware runs and
 cannot be corrected in software. GPIO45 was not implicated in this observed failure and remains a
 separate verification item.
+GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 
 ## 1. ESP-IDF project scaffold
 
@@ -84,7 +85,7 @@ separate verification item.
 | FW-20 | Implement lifecycle, reset, identity/status verification, and idempotent stop | [x] |
 | FW-21 | Implement all-eight-channel default configuration and per-channel gains ×1, ×2, ×4, and ×8 | [x] |
 | FW-22 | Implement configurable output rate through 16 kSPS and report requested versus actual rate | [x] |
-| FW-23 | Decode one simultaneous frame into eight sign-extended `int32_t` samples | [ ] |
+| FW-23 | Decode one simultaneous frame into eight sign-extended `int32_t` samples | [x] |
 | FW-24 | Validate enabled AD7779 header/CRC/status information and normalize driver faults | [ ] |
 | FW-25 | Run driver tests with fake SPI for transactions, timeouts, corrupt frames, and configuration readback | [ ] |
 | FW-26 | Verify stable AD7779 communication at a conservative SPI clock before raising the clock | [ ] |
