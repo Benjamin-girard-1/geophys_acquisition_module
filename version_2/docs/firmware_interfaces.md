@@ -237,6 +237,13 @@ Rules:
 
 - One frame represents one simultaneous AD7779 conversion.
 - All eight sample positions remain stable in RAM; masks determine which values are meaningful.
+- The AD7779 driver always validates the channel ID in each conversion header. In status-header
+  mode it normalizes reset, modulator/filter saturation, analog-input, and device-alert indications;
+  in CRC-header mode it validates the four even/odd channel-pair CRC values.
+- Channel-ID or ADC data-CRC failures return `INTEGRITY`. Valid status indications and unresolved
+  device alerts return `HARDWARE_FAULT`, with normalized fault flags and an affected-channel mask;
+  the acquisition owner decides whether to invalidate, count, or stop after reading full device
+  status when needed.
 - Sequence increments for every expected conversion, including invalid or dropped conversions.
 - No floating-point work occurs in `task_acquisition`.
 - Conversion to volts, temperature, or calibrated magnetic units occurs on the host in milestone 1.

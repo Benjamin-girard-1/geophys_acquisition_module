@@ -6,9 +6,13 @@
 #include "74hc_hct595.h"
 #include "board_config.h"
 #include "platform_gpio.h"
+#include "platform_spi.h"
 #include "platform_time.h"
 
 static hc595_t s_shift_register;
+static platform_spi_bus_t *s_adc_spi_bus;
+static platform_spi_device_t *s_adc_spi_device;
+static ad7779_t *s_adc_owner;
 static bool s_shift_gpio_configured;
 static bool s_board_initialized;
 
@@ -296,4 +300,211 @@ fw_status_t board_set_power_rail(board_power_rail_t rail,
 
     return hc595_set_output(
         &s_shift_register, (uint8_t)output, enabled, error);
+}
+
+static fw_status_t set_adc_shift_output(board_rev1_shift_output_t output,
+                                        bool high,
+                                        fw_error_context_t *error)
+{
+    if (!s_board_initialized) {
+        return set_board_error(error, FW_STATUS_NOT_INITIALIZED,
+                               FW_ERROR_OPERATION_WRITE,
+                               (uint32_t)output);
+    }
+    return hc595_set_output(&s_shift_register, (uint8_t)output, high, error);
+}
+
+static fw_status_t set_adc_mclk_enabled(void *context,
+                                        bool enabled,
+                                        fw_error_context_t *error)
+{
+    (void)context;
+    const bool high = enabled ? BOARD_REV1_ADC_MCLK_ENABLE_ACTIVE_LEVEL
+                              : BOARD_REV1_ADC_MCLK_ENABLE_SAFE_LEVEL;
+    return set_adc_shift_output(BOARD_REV1_SHIFT_ADC_MCLK_ENABLE, high,
+                                error);
+}
+
+static fw_status_t set_adc_reset_asserted(void *context,
+                                          bool asserted,
+                                          fw_error_context_t *error)
+{
+    (void)context;
+    const bool high = asserted ? BOARD_REV1_ADC_RESET_ACTIVE_LEVEL
+                               : !BOARD_REV1_ADC_RESET_ACTIVE_LEVEL;
+    return set_adc_shift_output(BOARD_REV1_SHIFT_ADC_RESET, high, error);
+}
+
+static fw_status_t set_adc_start_high(void *context,
+                                      bool high,
+                                      fw_error_context_t *error)
+{
+    (void)context;
+    return set_adc_shift_output(BOARD_REV1_SHIFT_ADC_START, high, error);
+}
+
+static void delay_adc_control(void *context, uint32_t duration_us)
+{
+    (void)context;
+    platform_delay_us(duration_us);
+}
+
+static void release_adc_spi_best_effort(void)
+{
+    if (s_adc_spi_device != NULL) {
+        (void)platform_spi_device_remove(
+            s_adc_spi_device, BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US, NULL);
+        s_adc_spi_device = NULL;
+    }
+    if (s_adc_spi_bus != NULL) {
+        (void)platform_spi_bus_deinitialize(
+            s_adc_spi_bus, BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US, NULL);
+        s_adc_spi_bus = NULL;
+    }
+    s_adc_owner = NULL;
+}
+
+fw_status_t board_adc_initialize(ad7779_t *adc,
+                                 fw_error_context_t *error)
+{
+    clear_error(error);
+    if (!s_board_initialized) {
+        return set_board_error(error, FW_STATUS_NOT_INITIALIZED,
+                               FW_ERROR_OPERATION_INITIALIZE,
+                               BOARD_REV1_ADC_INSTANCE);
+    }
+    if (adc == NULL) {
+        return set_board_error(error, FW_STATUS_INVALID_ARGUMENT,
+                               FW_ERROR_OPERATION_INITIALIZE,
+                               BOARD_REV1_ADC_INSTANCE);
+    }
+    if (s_adc_spi_bus != NULL || s_adc_spi_device != NULL ||
+        s_adc_owner != NULL) {
+        return set_board_error(error, FW_STATUS_INVALID_STATE,
+                               FW_ERROR_OPERATION_INITIALIZE,
+                               BOARD_REV1_ADC_INSTANCE);
+    }
+
+    const platform_spi_bus_config_t bus_config = {
+        .host = BOARD_REV1_ADC_SPI_HOST,
+        .clock_pin = BOARD_REV1_GPIO_ADC_SCLK,
+        .mosi_pin = BOARD_REV1_GPIO_ADC_MOSI,
+        .miso_pin = BOARD_REV1_GPIO_ADC_MISO,
+        .maximum_transfer_size_bytes =
+            BOARD_REV1_ADC_SPI_MAX_TRANSFER_BYTES,
+        .dma_enabled = BOARD_REV1_ADC_SPI_DMA_ENABLED,
+    };
+    fw_status_t status = platform_spi_bus_initialize(
+        &bus_config, &s_adc_spi_bus, error);
+    if (status != FW_STATUS_OK) {
+        release_adc_spi_best_effort();
+        return status;
+    }
+
+    const platform_spi_device_config_t device_config = {
+        .chip_select_pin = BOARD_REV1_GPIO_ADC_CS,
+        .chip_select_polarity = PLATFORM_SPI_CS_ACTIVE_LOW,
+        .bit_order = BOARD_REV1_ADC_SPI_BIT_ORDER,
+        .mode = BOARD_REV1_ADC_SPI_MODE,
+        .filler_byte = UINT8_C(0),
+        .initial_clock_hz = BOARD_REV1_ADC_SPI_INITIAL_CLOCK_HZ,
+        .maximum_clock_hz = BOARD_REV1_ADC_SPI_MAX_READ_CLOCK_HZ,
+        .input_delay_ns = 0U,
+        .chip_select_setup_us = BOARD_REV1_ADC_SPI_CS_SETUP_US,
+        .chip_select_hold_us = BOARD_REV1_ADC_SPI_CS_HOLD_US,
+        .maximum_transfer_size_bytes =
+            BOARD_REV1_ADC_SPI_MAX_TRANSFER_BYTES,
+    };
+    status = platform_spi_device_add(s_adc_spi_bus, &device_config,
+                                     &s_adc_spi_device, error);
+    if (status != FW_STATUS_OK) {
+        release_adc_spi_best_effort();
+        return status;
+    }
+
+    const ad7779_config_t adc_config = {
+        .spi = platform_spi_device_interface(s_adc_spi_device),
+        .set_mclk_enabled = set_adc_mclk_enabled,
+        .set_reset_asserted = set_adc_reset_asserted,
+        .set_start_high = set_adc_start_high,
+        .delay_us = delay_adc_control,
+        .control_context = NULL,
+        .delay_context = NULL,
+        .spi_timeout_us = BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US,
+        .mclk_hz = BOARD_REV1_ADC_MCLK_HZ,
+        .mclk_settling_us = BOARD_REV1_ADC_MCLK_SETTLING_US,
+        .reset_assert_us = BOARD_REV1_ADC_RESET_ASSERT_US,
+        .reset_release_us = BOARD_REV1_ADC_RESET_RELEASE_US,
+        .init_timeout_us = BOARD_REV1_ADC_INIT_TIMEOUT_US,
+        .init_poll_interval_us = BOARD_REV1_ADC_INIT_POLL_INTERVAL_US,
+        .instance = BOARD_REV1_ADC_INSTANCE,
+    };
+    status = ad7779_initialize(adc, &adc_config, error);
+    if (status != FW_STATUS_OK) {
+        fw_error_context_t original_error;
+
+        if (error != NULL) {
+            original_error = *error;
+        }
+        (void)ad7779_deinitialize(adc, NULL);
+        release_adc_spi_best_effort();
+        if (error != NULL) {
+            *error = original_error;
+        }
+        return status;
+    }
+
+    s_adc_owner = adc;
+    return FW_STATUS_OK;
+}
+
+fw_status_t board_adc_get_spi_clock(uint32_t *requested_clock_hz,
+                                    uint32_t *actual_clock_hz,
+                                    fw_error_context_t *error)
+{
+    clear_error(error);
+    if (s_adc_spi_device == NULL || s_adc_owner == NULL) {
+        return set_board_error(error, FW_STATUS_NOT_INITIALIZED,
+                               FW_ERROR_OPERATION_GET_CLOCK,
+                               BOARD_REV1_ADC_INSTANCE);
+    }
+    return platform_spi_device_get_clock(s_adc_spi_device,
+                                         requested_clock_hz,
+                                         actual_clock_hz, error);
+}
+
+fw_status_t board_adc_deinitialize(ad7779_t *adc,
+                                   fw_error_context_t *error)
+{
+    clear_error(error);
+    if (adc == NULL) {
+        return set_board_error(error, FW_STATUS_INVALID_ARGUMENT,
+                               FW_ERROR_OPERATION_DEINITIALIZE,
+                               BOARD_REV1_ADC_INSTANCE);
+    }
+    if (s_adc_owner != adc || s_adc_spi_device == NULL ||
+        s_adc_spi_bus == NULL) {
+        return set_board_error(error, FW_STATUS_NOT_INITIALIZED,
+                               FW_ERROR_OPERATION_DEINITIALIZE,
+                               BOARD_REV1_ADC_INSTANCE);
+    }
+
+    fw_status_t status = ad7779_deinitialize(adc, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    status = platform_spi_device_remove(
+        s_adc_spi_device, BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    s_adc_spi_device = NULL;
+    status = platform_spi_bus_deinitialize(
+        s_adc_spi_bus, BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    s_adc_spi_bus = NULL;
+    s_adc_owner = NULL;
+    return FW_STATUS_OK;
 }

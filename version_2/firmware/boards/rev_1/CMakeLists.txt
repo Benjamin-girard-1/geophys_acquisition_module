@@ -3,8 +3,9 @@ idf_component_register(
         "board.c"
     INCLUDE_DIRS
         "."
-    PRIV_REQUIRES
+    REQUIRES
         adc
+    PRIV_REQUIRES
         analog_cards
         magnetic
         acc_geoph

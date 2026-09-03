@@ -12,6 +12,9 @@ typedef struct {
     uint8_t expected;
 } ad7779_reset_register_t;
 
+_Static_assert(AD7779_RAW_FRAME_BYTES == AD7779_FRAME_BYTES_TOTAL,
+               "public and private AD7779 frame sizes must agree");
+
 static const ad7779_reset_register_t s_reset_registers[] = {
     {AD7779_REG_CH_DISABLE, AD7779_CH_DISABLE_RESET_VALUE},
     {AD7779_REG_GENERAL_USER_CONFIG_1, AD7779_GUC1_RESET_VALUE},
@@ -83,7 +86,6 @@ static bool config_is_valid(const ad7779_config_t *config)
            config->spi_timeout_us != 0U && config->mclk_hz != 0U &&
            config->mclk_settling_us != 0U &&
            config->reset_assert_us != 0U && config->reset_release_us != 0U &&
-           config->soft_reset_settling_us != 0U &&
            config->init_timeout_us != 0U &&
            config->init_poll_interval_us != 0U;
 }
@@ -205,15 +207,6 @@ static void enter_reset_safe_state_best_effort(ad7779_t *device)
     (void)set_control(device, device->config.set_mclk_enabled, false,
                       FW_ERROR_OPERATION_DISABLE, &ignored_error);
     set_fault_state(device);
-}
-
-static fw_status_t software_reset(ad7779_t *device,
-                                  fw_error_context_t *error)
-{
-    uint8_t tx_data[AD7779_SPI_SOFT_RESET_BYTES];
-
-    memset(tx_data, AD7779_SPI_SOFT_RESET_BYTE, sizeof(tx_data));
-    return spi_transfer(device, tx_data, NULL, sizeof(tx_data), error);
 }
 
 static fw_status_t poll_init_complete(ad7779_t *device,
@@ -593,6 +586,14 @@ static fw_status_t perform_reset(ad7779_t *device,
     device->config.delay_us(device->config.delay_context,
                             device->config.mclk_settling_us);
 
+    /* Safe state holds RESET low. Release it before generating a new pulse. */
+    status = set_control(device, device->config.set_reset_asserted, false,
+                         FW_ERROR_OPERATION_DISABLE, error);
+    if (status != FW_STATUS_OK) {
+        goto failure;
+    }
+    device->config.delay_us(device->config.delay_context,
+                            device->config.reset_release_us);
     status = set_control(device, device->config.set_reset_asserted, true,
                          FW_ERROR_OPERATION_ENABLE, error);
     if (status != FW_STATUS_OK) {
@@ -613,13 +614,6 @@ static fw_status_t perform_reset(ad7779_t *device,
         goto failure;
     }
 
-    status = software_reset(device, error);
-    if (status != FW_STATUS_OK) {
-        goto failure;
-    }
-    device->config.delay_us(device->config.delay_context,
-                            device->config.soft_reset_settling_us);
-
     status = poll_init_complete(device, error);
     if (status != FW_STATUS_OK) {
         goto failure;
@@ -631,7 +625,7 @@ static fw_status_t perform_reset(ad7779_t *device,
 
     device->general_user_config_3_shadow = AD7779_GUC3_RESET_VALUE;
     device->channel_disable_shadow = AD7779_CH_DISABLE_RESET_VALUE;
-    status = collect_status(device, true, NULL, error);
+    status = collect_status(device, false, NULL, error);
     if (status != FW_STATUS_OK) {
         goto failure;
     }
@@ -990,6 +984,202 @@ fw_status_t ad7779_get_output_rate(
     }
 
     *output_rate = device->applied_output_rate;
+    return FW_STATUS_OK;
+}
+
+fw_status_t ad7779_decode_frame(
+    const uint8_t *raw_frame,
+    size_t raw_frame_size,
+    int32_t samples[AD7779_CHANNEL_COUNT],
+    fw_error_context_t *error)
+{
+    int32_t decoded_samples[AD7779_CHANNEL_COUNT];
+    size_t channel;
+
+    clear_error(error);
+    if (raw_frame == NULL || samples == NULL ||
+        raw_frame_size != AD7779_RAW_FRAME_BYTES) {
+        uint32_t detail = raw_frame_size > UINT32_MAX
+                              ? UINT32_MAX
+                              : (uint32_t)raw_frame_size;
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_READ, FW_ERROR_INSTANCE_NONE,
+                         detail);
+    }
+
+    for (channel = 0U; channel < AD7779_CHANNEL_COUNT; ++channel) {
+        size_t sample_offset =
+            (channel * AD7779_RAW_BYTES_PER_CHANNEL) +
+            AD7779_FRAME_HEADER_BYTES;
+        uint32_t raw_sample =
+            ((uint32_t)raw_frame[sample_offset] << 16) |
+            ((uint32_t)raw_frame[sample_offset + 1U] << 8) |
+            (uint32_t)raw_frame[sample_offset + 2U];
+        int32_t signed_sample = (int32_t)raw_sample;
+
+        if ((raw_sample & AD7779_SAMPLE_SIGN_BIT) != 0U) {
+            signed_sample -= (int32_t)AD7779_SAMPLE_MODULUS;
+        }
+        decoded_samples[channel] = signed_sample;
+    }
+
+    memcpy(samples, decoded_samples, sizeof(decoded_samples));
+    return FW_STATUS_OK;
+}
+
+static uint8_t crc8(const uint8_t *data, size_t length)
+{
+    uint8_t crc = AD7779_CRC_INITIAL_VALUE;
+    size_t byte_index;
+
+    for (byte_index = 0U; byte_index < length; ++byte_index) {
+        uint8_t bit;
+
+        crc ^= data[byte_index];
+        for (bit = 0U; bit < 8U; ++bit) {
+            crc = (crc & UINT8_C(0x80)) != 0U
+                      ? (uint8_t)((uint8_t)(crc << 1) ^
+                                  AD7779_CRC_POLYNOMIAL)
+                      : (uint8_t)(crc << 1);
+        }
+    }
+    return crc;
+}
+
+static uint8_t frame_pair_crc(const uint8_t *even_channel_frame,
+                              const uint8_t *odd_channel_frame)
+{
+    uint8_t input[AD7779_FRAME_CRC_INPUT_BYTES_PER_PAIR];
+
+    /* The CRC covers header bits [7:4] and 24 data bits for each channel. */
+    input[0] = (uint8_t)((even_channel_frame[0] & UINT8_C(0xF0)) |
+                         (even_channel_frame[1] >> 4));
+    input[1] = (uint8_t)((uint8_t)(even_channel_frame[1] << 4) |
+                         (even_channel_frame[2] >> 4));
+    input[2] = (uint8_t)((uint8_t)(even_channel_frame[2] << 4) |
+                         (even_channel_frame[3] >> 4));
+    input[3] = (uint8_t)((uint8_t)(even_channel_frame[3] << 4) |
+                         (odd_channel_frame[0] >> 4));
+    input[4] = odd_channel_frame[1];
+    input[5] = odd_channel_frame[2];
+    input[6] = odd_channel_frame[3];
+
+    return crc8(input, sizeof(input));
+}
+
+static void validate_status_header(uint8_t header,
+                                   size_t channel,
+                                   ad7779_frame_validation_t *validation)
+{
+    uint8_t status = header & AD7779_FRAME_HEADER_LOW_NIBBLE_MSK;
+    uint8_t channel_bit = (uint8_t)(UINT8_C(1) << channel);
+
+    if ((status & AD7779_FRAME_STATUS_RESET_DETECTED) != 0U) {
+        validation->faults |= AD7779_FAULT_UNEXPECTED_RESET;
+        validation->affected_channel_mask |= AD7779_CHANNEL_MASK_ALL;
+    }
+    if ((status & (AD7779_FRAME_STATUS_MODULATOR_SAT |
+                   AD7779_FRAME_STATUS_FILTER_SAT)) != 0U) {
+        validation->faults |= AD7779_FAULT_CHANNEL_SATURATION;
+        validation->affected_channel_mask |= channel_bit;
+    }
+    if ((status & AD7779_FRAME_STATUS_AIN_OV_UV) != 0U) {
+        validation->faults |= AD7779_FAULT_CHANNEL_INPUT;
+        validation->affected_channel_mask |= channel_bit;
+    }
+}
+
+fw_status_t ad7779_validate_frame(
+    const uint8_t *raw_frame,
+    size_t raw_frame_size,
+    ad7779_frame_header_mode_t header_mode,
+    ad7779_frame_validation_t *validation,
+    fw_error_context_t *error)
+{
+    ad7779_frame_validation_t result = {0U, 0U, false};
+    ad7779_fault_flags_t integrity_faults = AD7779_FAULT_NONE;
+    size_t channel;
+
+    clear_error(error);
+    if (raw_frame == NULL || validation == NULL ||
+        raw_frame_size != AD7779_RAW_FRAME_BYTES ||
+        (header_mode != AD7779_FRAME_HEADER_STATUS &&
+         header_mode != AD7779_FRAME_HEADER_CRC)) {
+        uint32_t detail = raw_frame_size > UINT32_MAX
+                              ? UINT32_MAX
+                              : (uint32_t)raw_frame_size;
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_READ, FW_ERROR_INSTANCE_NONE,
+                         detail);
+    }
+
+    for (channel = 0U; channel < AD7779_CHANNEL_COUNT; ++channel) {
+        size_t offset = channel * AD7779_RAW_BYTES_PER_CHANNEL;
+        uint8_t header = raw_frame[offset];
+        uint8_t reported_channel =
+            (uint8_t)((header & AD7779_FRAME_HEADER_CHANNEL_MSK) >>
+                      AD7779_FRAME_HEADER_CHANNEL_POS);
+
+        if (reported_channel != (uint8_t)channel) {
+            uint8_t channel_bit = (uint8_t)(UINT8_C(1) << channel);
+
+            result.faults |= AD7779_FAULT_CHANNEL_ID;
+            integrity_faults |= AD7779_FAULT_CHANNEL_ID;
+            result.affected_channel_mask |= channel_bit;
+        }
+        if ((header & AD7779_FRAME_HEADER_ALERT) != 0U) {
+            result.device_alert = true;
+        }
+        if (header_mode == AD7779_FRAME_HEADER_STATUS) {
+            validate_status_header(header, channel, &result);
+        }
+    }
+
+    if (header_mode == AD7779_FRAME_HEADER_CRC) {
+        size_t pair;
+
+        for (pair = 0U; pair < AD7779_FRAME_CHANNEL_PAIR_COUNT; ++pair) {
+            size_t even_channel = pair * 2U;
+            size_t even_offset =
+                even_channel * AD7779_RAW_BYTES_PER_CHANNEL;
+            size_t odd_offset =
+                (even_channel + 1U) * AD7779_RAW_BYTES_PER_CHANNEL;
+            uint8_t expected_crc = frame_pair_crc(&raw_frame[even_offset],
+                                                   &raw_frame[odd_offset]);
+            uint8_t reported_crc = (uint8_t)(
+                (uint8_t)((raw_frame[even_offset] &
+                           AD7779_FRAME_HEADER_LOW_NIBBLE_MSK)
+                          << 4) |
+                (raw_frame[odd_offset] &
+                 AD7779_FRAME_HEADER_LOW_NIBBLE_MSK));
+
+            if (reported_crc != expected_crc) {
+                uint8_t pair_mask =
+                    (uint8_t)(UINT8_C(0x03) << even_channel);
+
+                result.faults |= AD7779_FAULT_DATA_CRC;
+                integrity_faults |= AD7779_FAULT_DATA_CRC;
+                result.affected_channel_mask |= pair_mask;
+            }
+        }
+    }
+
+    if (result.device_alert && result.faults == AD7779_FAULT_NONE) {
+        result.faults |= AD7779_FAULT_UNKNOWN;
+        result.affected_channel_mask |= AD7779_CHANNEL_MASK_ALL;
+    }
+    *validation = result;
+
+    if (integrity_faults != AD7779_FAULT_NONE) {
+        return set_error(error, FW_STATUS_INTEGRITY,
+                         FW_ERROR_OPERATION_READ, FW_ERROR_INSTANCE_NONE,
+                         integrity_faults);
+    }
+    if (result.device_alert || result.faults != AD7779_FAULT_NONE) {
+        return set_error(error, FW_STATUS_HARDWARE_FAULT,
+                         FW_ERROR_OPERATION_READ, FW_ERROR_INSTANCE_NONE,
+                         result.faults);
+    }
     return FW_STATUS_OK;
 }
 

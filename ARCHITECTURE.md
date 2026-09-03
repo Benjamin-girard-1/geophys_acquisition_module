@@ -569,7 +569,7 @@ or implementation.
 | Storage task and fixed SD ownership | Partial | No | No | No |
 | Communication task | Yes | No | No | No |
 | Bluetooth task | Yes | No | No | No |
-| AD7779 driver | Yes | Partial | Partial: register map, lifecycle, channel/gain, and fixed output-rate configuration | No |
+| AD7779 driver | Yes | Partial | Partial: register map, lifecycle, channel/gain, fixed output-rate configuration, signed frame decoding, and header/status/pair-CRC validation | No |
 | LSM6DSV driver | Yes | No | No | No |
 | MAX-M10S driver | Yes | No | No | No |
 | 74HC/HCT595 driver | Yes | Yes | Yes | No |

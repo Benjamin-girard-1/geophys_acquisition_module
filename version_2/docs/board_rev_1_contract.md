@@ -14,7 +14,7 @@
 
 | Function | ESP32 peripheral | Pins | Frequency/baud | DMA | Owner | Verification |
 |---|---|---|---:|---|---|---|
-| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Initial: 8 MHz, mode 0; reads ≤20 MHz; writes ≤30 MHz; external MCLK: 8.192 MHz | Yes | `task_acquisition` | Schematic + datasheet + working V1 reference; Rev-1 bench open |
+| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Initial: 8 MHz, mode 0; reads ≤20 MHz; writes ≤30 MHz; external MCLK: 8.192 MHz | Yes | `task_acquisition` | Schematic + datasheet + working V1 reference; Rev-1 bench verified at 8 MHz |
 | AD7779 control | 74HC595 #2 | RESET:SH2_C, START:SH2_D, MCLK_EN:SH2_E, CONVST_SAR:SH2_F | - | No | `task_acquisition` through `board` | Schematic |
 | 74HC595 chain | GPIO bit-bang | SHCP:GPIO19, STCP:GPIO20, DS:GPIO47, OE_N:GPIO21 | Initial 1 us between driver transitions; conservative limit ≤4 MHz | No | `board` | Schematic + Nexperia 74HC595 Rev. 12 datasheet |
 | LSM6DSV SPI | SPI3 | SCLK:GPIO17, MOSI:GPIO18, CS:GPIO46, MISO:GPIO9 | ≤10 MHz | No | `task_imu` | Schematic + datasheet |
@@ -184,7 +184,7 @@ The first Rev-1 implementation uses the electrically proven V1 settings as a con
 | Hardware reset | Hold `ADC_RESET` Low for 2 ms, release High, then wait at least 10 ms |
 | START | Hold Low through clock/reset startup, then drive High and leave High when inactive |
 | CONVST_SAR | Keep Low because milestone 1 does not use the SAR ADC |
-| SPI soft reset | Hold SDI High for 64 SCLK cycles, then wait at least 5 ms |
+| Reset method | Hardware `ADC_RESET` pulse; do not issue an additional SPI soft reset during initialization |
 | Initialization check | Poll `INIT_COMPLETE`; initial timeout 500 ms |
 
 The V1 AD7779 register definitions, CRC handling, configuration sequence, and frame decoding are
@@ -329,7 +329,7 @@ logical requests into shift-register changes. `analog_cards/acc_geoph` has no SE
 | Does the initial 200 us SET/RESET pulse provide the required current and duration, and what minimum request interval and post-pulse analog settling time are safe? | Hardware | V1 reference + magnetic-card design + oscilloscope/ADC data | Open |
 | What startup settling delay, if any, is required before milestone-2 SDMMC initialization? | Hardware | Mux datasheet + logic analyzer | Open |
 | What is the safe boot level and policy for `EN_SUPERCAP_CHARGE`? | Hardware | Schematic + power test | Open |
-| Does the initial 8 MHz, mode-0, manual-CS AD7779 SPI baseline operate reliably on the assembled Rev-1 board? | Firmware/hardware | Logic analyzer + ADC test | Open |
+| Does the initial 8 MHz, mode-0, manual-CS AD7779 SPI baseline operate reliably on the assembled Rev-1 board? | Firmware/hardware | ADC register test | Confirmed at 8 MHz with configuration readback, reset-default readback, and 50,000 consecutive status-register reads |
 
 ## 13. Verification record
 

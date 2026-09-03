@@ -2,6 +2,7 @@
 #define GEOPHYS_AD7779_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "fw_error.h"
@@ -9,6 +10,9 @@
 
 #define AD7779_CHANNEL_COUNT 8U
 #define AD7779_CHANNEL_MASK_ALL UINT8_C(0xFF)
+#define AD7779_RAW_BYTES_PER_CHANNEL 4U
+#define AD7779_RAW_FRAME_BYTES \
+    (AD7779_CHANNEL_COUNT * AD7779_RAW_BYTES_PER_CHANNEL)
 
 /** @brief Driver lifecycle state. STOPPED means initialized and ready. */
 typedef enum {
@@ -36,6 +40,8 @@ typedef enum {
     AD7779_FAULT_CHANNEL_SATURATION = (1U << 11),
     AD7779_FAULT_UNEXPECTED_RESET = (1U << 12),
     AD7779_FAULT_UNKNOWN = (1U << 13),
+    AD7779_FAULT_DATA_CRC = (1U << 14),
+    AD7779_FAULT_CHANNEL_ID = (1U << 15),
 } ad7779_fault_t;
 
 typedef uint32_t ad7779_fault_flags_t;
@@ -97,7 +103,6 @@ typedef struct {
     uint32_t mclk_settling_us;
     uint32_t reset_assert_us;
     uint32_t reset_release_us;
-    uint32_t soft_reset_settling_us;
     uint32_t init_timeout_us;
     uint32_t init_poll_interval_us;
     uint32_t instance;
@@ -110,6 +115,19 @@ typedef struct {
     bool init_complete;
     bool reset_detected;
 } ad7779_status_t;
+
+/** @brief Meaning of the low nibble in each conversion-frame header. */
+typedef enum {
+    AD7779_FRAME_HEADER_STATUS = 0,
+    AD7779_FRAME_HEADER_CRC,
+} ad7779_frame_header_mode_t;
+
+/** @brief Normalized result of validating one simultaneous ADC frame. */
+typedef struct {
+    ad7779_fault_flags_t faults;
+    uint8_t affected_channel_mask;
+    bool device_alert;
+} ad7779_frame_validation_t;
 
 /**
  * @brief Caller-owned AD7779 state.
@@ -140,7 +158,7 @@ fw_status_t ad7779_initialize(ad7779_t *device,
                               const ad7779_config_t *config,
                               fw_error_context_t *error);
 
-/** @brief Repeat hardware/SPI reset and verification from a non-running state. */
+/** @brief Repeat hardware reset and verification from a non-running state. */
 fw_status_t ad7779_reset(ad7779_t *device,
                          fw_error_context_t *error);
 
@@ -186,6 +204,36 @@ fw_status_t ad7779_configure_output_rate(
 fw_status_t ad7779_get_output_rate(
     const ad7779_t *device,
     ad7779_output_rate_t *output_rate,
+    fw_error_context_t *error);
+
+/**
+ * @brief Decode one simultaneous eight-channel conversion frame.
+ *
+ * raw_frame must contain exactly 32 bytes in AD7779 SPI output order: one
+ * header byte followed by one MSB-first signed 24-bit sample for each channel.
+ * This operation sign-extends the samples only. Header, status, and CRC
+ * validation are separate operations.
+ */
+fw_status_t ad7779_decode_frame(
+    const uint8_t *raw_frame,
+    size_t raw_frame_size,
+    int32_t samples[AD7779_CHANNEL_COUNT],
+    fw_error_context_t *error);
+
+/**
+ * @brief Validate channel IDs and the selected header information.
+ *
+ * Channel IDs are always checked. Status mode normalizes reset, saturation,
+ * analog-input, and ALERT indications. CRC mode checks the four channel-pair
+ * CRC values and preserves ALERT as a normalized hardware fault. For a
+ * correctly sized frame, validation is populated even when the return status
+ * reports INTEGRITY or HARDWARE_FAULT.
+ */
+fw_status_t ad7779_validate_frame(
+    const uint8_t *raw_frame,
+    size_t raw_frame_size,
+    ad7779_frame_header_mode_t header_mode,
+    ad7779_frame_validation_t *validation,
     fw_error_context_t *error);
 
 /**
