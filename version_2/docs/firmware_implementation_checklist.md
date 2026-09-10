@@ -93,12 +93,12 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 ## 5. Card detection and magnetic-card integration
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
-|---|---|:---:|:---:|---|
-| FW-27 | Implement averaged analog-ID measurement without exposing ESP32 ADC details to card modules | [x] | [x] | Host fake-callback tests and ESP-IDF 5.5 build passed. Rev-1 slot 1 magnetic card: 200 samples, average/median 2184 mV, range 2180–2186 mV (2026-09-10). |
-| FW-28 | Classify no-card, magnetic-card, and unknown/ambiguous voltage safely in either slot | [ ] | [ ] | |
-| FW-29 | Expose stable slot/type/confidence and channel mappings through the board status API | [ ] | [ ] | |
-| FW-30 | Keep pulse controls disabled for absent, unknown, or removed cards | [ ] | [ ] | |
-| FW-31 | Verify both magnetic cards independently and simultaneously in both physical slots | [ ] | [ ] | |
+|---|---|:---:|
+| FW-27 | Implement averaged analog-ID measurement without exposing ESP32 ADC details to card modules | [x] |
+| FW-28 | Classify no-card, magnetic-card, and unknown/ambiguous voltage safely in either slot | [ ] |
+| FW-29 | Expose stable slot/type/confidence and channel mappings through the board status API | [ ] |
+| FW-30 | Keep pulse controls disabled for absent, unknown, or removed cards | [ ] |
+| FW-31 | Verify both magnetic cards independently and simultaneously in both physical slots | [ ] |
 
 ## 6. Acquisition task and bounded data pipeline
 
