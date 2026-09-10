@@ -92,7 +92,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 
 ## 5. Card detection and magnetic-card integration
 
-| ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
+| ID | Deliverable and acceptance condition | Complete |
 |---|---|:---:|
 | FW-27 | Implement averaged analog-ID measurement without exposing ESP32 ADC details to card modules | [x] |
 | FW-28 | Classify no-card, magnetic-card, and unknown/ambiguous voltage safely in either slot | [ ] |
