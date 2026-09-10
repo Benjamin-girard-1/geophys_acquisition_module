@@ -6,7 +6,7 @@
 - Hardware target: V2-Rev-1 with ESP32-S3 DevKitC
 - Scope: laboratory acquisition and validation
 - Status: Active planning checklist
-- Last updated: 2026-08-25
+- Last updated: 2026-09-10
 
 ## How to use this checklist
 
@@ -94,7 +94,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
-| FW-27 | Implement averaged analog-ID measurement without exposing ESP32 ADC details to card modules | [ ] | [ ] | |
+| FW-27 | Implement averaged analog-ID measurement without exposing ESP32 ADC details to card modules | [x] | [x] | Host fake-callback tests and ESP-IDF 5.5 build passed. Rev-1 slot 1 magnetic card: 200 samples, average/median 2184 mV, range 2180–2186 mV (2026-09-10). |
 | FW-28 | Classify no-card, magnetic-card, and unknown/ambiguous voltage safely in either slot | [ ] | [ ] | |
 | FW-29 | Expose stable slot/type/confidence and channel mappings through the board status API | [ ] | [ ] | |
 | FW-30 | Keep pulse controls disabled for absent, unknown, or removed cards | [ ] | [ ] | |

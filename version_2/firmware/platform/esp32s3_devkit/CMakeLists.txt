@@ -1,5 +1,6 @@
 idf_component_register(
     SRCS
+        "src/platform_analog_input.c"
         "src/platform_error.c"
         "src/platform_gpio.c"
         "src/platform_spi.c"
@@ -10,6 +11,7 @@ idf_component_register(
     REQUIRES
         common
     PRIV_REQUIRES
+        esp_adc
         esp_driver_gpio
         esp_driver_spi
         esp_driver_uart

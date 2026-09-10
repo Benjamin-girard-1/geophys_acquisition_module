@@ -563,7 +563,7 @@ or implementation.
 | `app_main` composition root | Yes | No | No | No |
 | ESP32-S3 DevKit platform services | Partial | Partial | Partial | Partial |
 | Rev-1 custom board integration | Yes | Partial | Partial | No |
-| Application startup and shared types | Partial | No | No | No |
+| Application startup and shared types | Partial | Partial | Partial: acquisition data contracts | No |
 | Acquisition task | Yes | No | No | No |
 | Processing task | Yes | No | No | No |
 | Storage task and fixed SD ownership | Partial | No | No | No |
@@ -573,7 +573,7 @@ or implementation.
 | LSM6DSV driver | Yes | No | No | No |
 | MAX-M10S driver | Yes | No | No | No |
 | 74HC/HCT595 driver | Yes | Yes | Yes | No |
-| Analog-card detection | Yes | No | No | No |
+| Analog-card detection | Yes | Yes | Partial: bounded calibrated analog-ID measurement | Partial: slot 1 magnetic-card voltage |
 | Magnetic analog card | Yes | No | No | No |
 | Geophysical accelerometer card | Yes | No | No | No |
 | Shared protocol specification | Yes | No | No | N/A |

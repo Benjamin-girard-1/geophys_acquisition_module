@@ -235,7 +235,7 @@ Host decoder and scientific export
 
 ### Step 14: Complete analog-card detection
 
-- [ ] Implement averaged analog-ID measurement for both slots.
+- [x] Implement averaged analog-ID measurement for both slots.
 - [ ] Classify no-card conditions.
 - [ ] Classify supported magnetic cards.
 - [ ] Classify unknown or ambiguous cards safely.

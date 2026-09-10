@@ -23,4 +23,7 @@ fw_monotonic_us_t platform_monotonic_time_us_isr(void);
 /** @brief Busy-wait for a short component timing interval in task context. */
 void platform_delay_us(uint32_t duration_us);
 
+/** @brief Yield the calling task for at least the requested milliseconds. */
+void platform_delay_ms(uint32_t duration_ms);
+
 #endif /* GEOPHYS_PLATFORM_TIME_H */

@@ -14,6 +14,21 @@ typedef enum {
     BOARD_POWER_RAIL_18V,
 } board_power_rail_t;
 
+typedef enum {
+    BOARD_CARD_SLOT_INVALID = 0,
+    BOARD_CARD_SLOT_1,
+    BOARD_CARD_SLOT_2,
+} board_card_slot_t;
+
+/** @brief Calibrated and aggregated analog-ID voltage for one card slot. */
+typedef struct {
+    uint32_t average_mv;
+    uint32_t median_mv;
+    uint32_t minimum_mv;
+    uint32_t maximum_mv;
+    uint16_t sample_count;
+} board_card_id_measurement_t;
+
 /**
  * @brief Establish direct safe GPIO states and apply the complete safe image.
  *
@@ -36,6 +51,17 @@ fw_status_t board_enter_safe_state(fw_error_context_t *error);
 fw_status_t board_set_power_rail(board_power_rail_t rail,
                                  bool enabled,
                                  fw_error_context_t *error);
+
+/**
+ * @brief Measure one Rev-1 card-slot analog ID over the configured window.
+ *
+ * This startup/stopped-acquisition operation returns calibrated millivolts
+ * without exposing ESP32 ADC details. It does not classify the card type.
+ */
+fw_status_t board_measure_card_id(
+    board_card_slot_t slot,
+    board_card_id_measurement_t *measurement,
+    fw_error_context_t *error);
 
 /**
  * @brief Create the Rev-1 SPI2 connection and initialize one AD7779 instance.

@@ -165,6 +165,13 @@ Required milestone-1 operations:
 | Set one logical card pulse output | Magnetic-card module through a bound callback | Safely drive the selected slot's SET or RESET output without exposing SH2 positions |
 | Read/update safe shift image | `board` only | Maintain one 16-bit shadow and prevent unrelated-bit overwrite |
 
+The FW-27 analog-ID boundary is split deliberately: the ESP32-S3 platform maps pins to ADC
+channels, selects the 3.3 V input range, applies factory curve-fitting calibration, and returns only
+millivolts; the Rev-1 board maps those inputs to physical slots; and `card_detect` performs the
+bounded sampling and aggregation through callbacks. The card module therefore has no dependency on
+ESP-IDF, GPIO numbers, ADC units/channels, attenuation, raw ADC codes, or calibration handles.
+Classification of the resulting robust median remains FW-28.
+
 Board rules:
 
 - `board_init()` is synchronous and leaves hardware safe on every failure path.

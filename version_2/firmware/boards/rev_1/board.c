@@ -5,6 +5,8 @@
 
 #include "74hc_hct595.h"
 #include "board_config.h"
+#include "card_detect.h"
+#include "platform_analog_input.h"
 #include "platform_gpio.h"
 #include "platform_spi.h"
 #include "platform_time.h"
@@ -13,8 +15,18 @@ static hc595_t s_shift_register;
 static platform_spi_bus_t *s_adc_spi_bus;
 static platform_spi_device_t *s_adc_spi_device;
 static ad7779_t *s_adc_owner;
+static platform_analog_input_bank_t *s_card_id_inputs;
 static bool s_shift_gpio_configured;
 static bool s_board_initialized;
+
+typedef struct {
+    size_t input_index;
+} board_card_id_read_context_t;
+
+static board_card_id_read_context_t s_card_id_read_contexts[] = {
+    {.input_index = 0U},
+    {.input_index = 1U},
+};
 
 _Static_assert(HC595_OUTPUT_COUNT == 16U,
                "Rev-1 requires exactly two daisy-chained 74HC595 devices");
@@ -25,6 +37,20 @@ _Static_assert(
 _Static_assert(
     (BOARD_REV1_SHIFT_SAFE_IMAGE & BOARD_REV1_SHIFT_FIXED_LOW_MASK) == 0U,
     "Rev-1 safe image must keep SD/USB fixed outputs low");
+_Static_assert(
+    (BOARD_REV1_CARD_DETECT_SAMPLE_RATE_HZ > 0U) &&
+        ((UINT32_C(1000000) %
+          BOARD_REV1_CARD_DETECT_SAMPLE_RATE_HZ) == 0U),
+    "Rev-1 card-detect rate must divide one second exactly");
+_Static_assert(
+    ((BOARD_REV1_CARD_DETECT_SAMPLE_RATE_HZ *
+      BOARD_REV1_CARD_DETECT_WINDOW_MS) % UINT32_C(1000)) == 0U,
+    "Rev-1 card-detect window must contain a whole sample count");
+_Static_assert(
+    (BOARD_REV1_CARD_DETECT_SAMPLE_COUNT > 0U) &&
+        (BOARD_REV1_CARD_DETECT_SAMPLE_COUNT <=
+         CARD_DETECT_MAX_SAMPLE_COUNT),
+    "Rev-1 card-detect window exceeds the bounded sample buffer");
 
 static void clear_error(fw_error_context_t *error)
 {
@@ -50,6 +76,24 @@ static fw_status_t set_board_error(fw_error_context_t *error,
             .resource = FW_ERROR_RESOURCE_GPIO_EXPANDER,
             .operation = operation,
             .instance = BOARD_REV1_SR_INSTANCE,
+            .detail = detail,
+        };
+    }
+    return status;
+}
+
+static fw_status_t set_card_id_error(fw_error_context_t *error,
+                                     fw_status_t status,
+                                     fw_error_operation_t operation,
+                                     uint32_t instance,
+                                     uint32_t detail)
+{
+    if (error != NULL) {
+        *error = (fw_error_context_t) {
+            .status = status,
+            .resource = FW_ERROR_RESOURCE_ADC,
+            .operation = operation,
+            .instance = instance,
             .detail = detail,
         };
     }
@@ -300,6 +344,102 @@ fw_status_t board_set_power_rail(board_power_rail_t rail,
 
     return hc595_set_output(
         &s_shift_register, (uint8_t)output, enabled, error);
+}
+
+static fw_status_t initialize_card_id_inputs(fw_error_context_t *error)
+{
+    if (s_card_id_inputs != NULL) {
+        return FW_STATUS_OK;
+    }
+
+    static const platform_gpio_pin_t pins[] = {
+        BOARD_REV1_GPIO_DEVICE_DETECT_1,
+        BOARD_REV1_GPIO_DEVICE_DETECT_2,
+    };
+    const platform_analog_input_bank_config_t config = {
+        .pins = pins,
+        .input_count = sizeof(pins) / sizeof(pins[0]),
+        .range = PLATFORM_ANALOG_INPUT_RANGE_3V3,
+    };
+    return platform_analog_input_bank_initialize(
+        &config, &s_card_id_inputs, error);
+}
+
+static fw_status_t read_card_id_mv(void *context,
+                                   uint32_t *millivolts,
+                                   fw_error_context_t *error)
+{
+    if (context == NULL) {
+        return set_card_id_error(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_OPERATION_READ,
+            FW_ERROR_INSTANCE_NONE, 0U);
+    }
+
+    const board_card_id_read_context_t *read_context = context;
+    return platform_analog_input_read_mv(
+        s_card_id_inputs, read_context->input_index, millivolts, error);
+}
+
+static void delay_between_card_id_samples(void *context,
+                                          uint32_t duration_us)
+{
+    (void)context;
+    platform_delay_ms(duration_us / UINT32_C(1000));
+    platform_delay_us(duration_us % UINT32_C(1000));
+}
+
+fw_status_t board_measure_card_id(
+    board_card_slot_t slot,
+    board_card_id_measurement_t *measurement,
+    fw_error_context_t *error)
+{
+    clear_error(error);
+    if (measurement != NULL) {
+        *measurement = (board_card_id_measurement_t) {0};
+    }
+
+    if (!s_board_initialized) {
+        return set_card_id_error(
+            error, FW_STATUS_NOT_INITIALIZED, FW_ERROR_OPERATION_READ,
+            (uint32_t)slot, 0U);
+    }
+    if ((measurement == NULL) ||
+        ((slot != BOARD_CARD_SLOT_1) &&
+         (slot != BOARD_CARD_SLOT_2))) {
+        return set_card_id_error(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_OPERATION_READ,
+            (uint32_t)slot, 0U);
+    }
+
+    fw_status_t status = initialize_card_id_inputs(error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    const size_t context_index = (slot == BOARD_CARD_SLOT_1) ? 0U : 1U;
+    const card_detect_measure_config_t config = {
+        .read_mv = read_card_id_mv,
+        .delay_us = delay_between_card_id_samples,
+        .read_context = &s_card_id_read_contexts[context_index],
+        .delay_context = NULL,
+        .sample_count =
+            (uint16_t)BOARD_REV1_CARD_DETECT_SAMPLE_COUNT,
+        .sample_interval_us =
+            BOARD_REV1_CARD_DETECT_SAMPLE_INTERVAL_US,
+        .instance = (uint32_t)slot,
+    };
+    card_detect_measurement_t card_measurement;
+    status = card_detect_measure(&config, &card_measurement, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    measurement->average_mv = card_measurement.average_mv;
+    measurement->median_mv = card_measurement.median_mv;
+    measurement->minimum_mv = card_measurement.minimum_mv;
+    measurement->maximum_mv = card_measurement.maximum_mv;
+    measurement->sample_count = card_measurement.sample_count;
+    return FW_STATUS_OK;
 }
 
 static fw_status_t set_adc_shift_output(board_rev1_shift_output_t output,

@@ -3,4 +3,6 @@ idf_component_register(
         "card_detect.c"
     INCLUDE_DIRS
         "."
+    REQUIRES
+        common
 )

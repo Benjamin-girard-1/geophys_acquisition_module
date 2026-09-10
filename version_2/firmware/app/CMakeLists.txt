@@ -8,6 +8,8 @@ idf_component_register(
         "task_storage.c"
     INCLUDE_DIRS
         "."
+    REQUIRES
+        common
     PRIV_REQUIRES
         freertos
         rev_1

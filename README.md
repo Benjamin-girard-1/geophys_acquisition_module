@@ -11,9 +11,10 @@ an AD7779 ADC, an LSM6DSV IMU, MAX-M10S GNSS, SD storage shared with a USB2641,
 ## Current status
 
 The Version 2 firmware builds with ESP-IDF 5.5. Board safe-state and power
-control, portable GPIO/SPI/UART mechanisms, the 74HC/HCT595 driver, and the
-AD7779 register, lifecycle, channel/gain, fixed output-rate, signed sample
-decoding, and conversion-frame validation foundations are implemented.
+control, portable GPIO/SPI/UART and calibrated analog-input mechanisms, the
+74HC/HCT595 driver, bounded analog-card ID measurement, and the AD7779 register,
+lifecycle, channel/gain, fixed output-rate, signed sample decoding, and
+conversion-frame validation foundations are implemented.
 Acquisition, protocol, and host integration remain in progress, and hardware
 verification is being completed incrementally.
 
