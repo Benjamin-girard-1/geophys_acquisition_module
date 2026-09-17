@@ -13,7 +13,8 @@ visible. Exact byte offsets will be added only after this semantic review.
 ## Commands rules
 
 Every command has exactly one expected reply type.
-Each command sent by the host expect a reply from the device. Some commands from the device can be asynchronous but are used in special cases of data streaming or errors. Those asynchronus commands dont require replies. Receiving an asynchronous message does not complete the pending command.
+Each command sent by the host expect a reply from the device. Some commands from the device can be asynchronous but are used in the special cases of data streaming. This asynchronus command doesnt require replies. Receiving an asynchronous message does not complete the pending command.
+
 Timeouts and retries are handled by the host.
 
 The counters start at 0 at power on or reset of the device. Blocs are a 512 byte data structure that have a 28 byte header, 480 byte of samples data and 4 bytes of CRC32. There is a counter for to keep trac of the order of sampling. This number is related to acquisition only. This 48 byte bloc of data is use to store data in RAM, in SD storage and as the framing to send data from the device to a host.
@@ -32,7 +33,7 @@ A recording continues if its host connection disappears; live streaming stops.
 
 After a `HELLO` command the host will send `DEVICE_GET_CONFIG`. After that the host will send `RECORDING_GET_NUMBER` and will send the command `RECORDING_GET_INFO` a number of time require to get information about all the files.
 
-The command `DEVICE_GET_CONFIG` is run every second to keep connection established.
+The command `DEVICE_GET_STATUS` is run every second to keep connection established.
 
 This is the CRC-32 enforced in this protocol:
 |---|---|
@@ -45,11 +46,30 @@ This is the CRC-32 enforced in this protocol:
 | XorOut:  | 0xFFFFFFFF |
 | Check:   | CRC("123456789") = 0xCBF43926 |
 
+Command result and its meaning, the replies of the commands have the byte 12 reserved for those possible codes:
+|---|---|
+| 0x00 | Success |
+| 0x01 | Invalid argument |
+| 0x02 | Invalid state |
+| 0x03 | Busy |
+| 0x04 | Unsupported |
+| 0x05 | Not found |
+| 0x06 | Already exists |
+| 0x07 | Not ready |
+| 0x08 | Timeout |
+| 0x09 | Storage media absent |
+| 0x0A | Storage full |
+| 0x0B | I/O error |
+| 0x0C | Integrity error |
+| 0x0D | Hardware fault |
+| 0x0E | Internal firmware error |
+| 0x0F | Limit reached |
+
 ## Discovery and state
 
 ### `HELLO` -> `DEVICE_INFO`
 
-Purpose: establish protocol compatibility before any state-changing command.
+The purpose of this command is to establish protocol compatibility before any state-changing command.
 
 #### Command semantics:
 
@@ -79,7 +99,7 @@ Answer payload:
 
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
-| 12 | 1 | - | 0x0 operationnal; 0x1 broken |
+| 12 | 1 | - | STATUS |
 | 13 | 6 | - | ESP32 MAC adress |
 | 19 | 2 | - | Hardware version |
 | 21 | 2 | - | Hardware revision |
@@ -123,33 +143,85 @@ No partial record should be emitted.
 Config payload structure:
 
 | Offset | Size | Action | Notes |
-|---:|---:|:---|---|
-| 12 | 8 | R  | Monolitic timestamp 64 bits at 10 MHz (100ns increments) |
-| 20 | 1 | R  | Recording in progress: 0x00 no recording; 0x01 recording in progress |
-| 21 | 1 | R  | Card slot 1 info: 0x00 absent; 0x01 magnetic; 0x02 acc_geoph |
-| 22 | 1 | R  | Card slot 2 info: 0x00 absent; 0x01 magnetic; 0x02 acc_geoph |
-| 23 | 1 | RW | ADC sampling rate: 0x00 0.5kHz; 0x01 1kHz; 0x02 2kHz; 0x03 4kHz; 0x04 8kHz; 0x05 16kHz |
-| 24 | 1 | RW | ADC channel active mask: 0x00 no active channels; 0x0f channels 0 to 3 active; 0xf0 channels 4 to 7 active; 0xff channels 0 to 7 active, only those mask are valid |
-| 25 | 2 | - | ADC gain: 0b00 x1; 0b01 x2; 0b10 x4; 0b11 x8. Each channel is shifted  by 2 times the number of the channel (<<(2*id)) |
-| 27 | 2 | R  | ADC temperature: signed 16 bits, 0.01°C per count|
-| 29 | 1 | RW | 0x00 +3.3VA off; 0x01 +3.3VA on |
-| 30 | 1 | RW | 0x00 +5VA off; 0x01 +5VA on |
-| 31 | 1 | RW | 0x00 +9VA off; 0x01 +9VA on |
-| 32 | 1 | RW | 0x00 -5VA off; 0x01 -5VA on |
-| 33 | 1 | RW | 0x00 +18VA off; 0x01 +18VA on |
-| 34 | 1 | R  | 0x00 Solar not present; 0x01 Solar present |
-| 35 | 1 | R  | 0x00 +5V USB not present; 0x01 +5V USB present |
-| 36 | 1 | R  | GNSS state: 0x00 disabled/not present; 0x01 ready; 0x02 faulted; 0x03 searching |
-| 37 | 1 | R  | GNSS Satellite count |
-| 38 | 1 | R  | IMU state: 0x00 disabled/not present; 0x01 ready; 0x02 faulted/invalid data |
-| 39 | 2 | RW | IMU averaging time ms |
-| 41 | 2 | R  | IMU roll: signed 16 bits, 0.01° per count, 0° being perfectly leveled |
-| 43 | 2 | R  | IMU pitch: signed 16 bits, 0.01° per count, 0° being perfectly leveled |
-| 45 | 2 | R  | IMU temperature: signed 16 bits, 0.01°C per count |
+|---:|---:|:---|---| 
+| 12 | 1 | R  | Command result |
+| 13 | 8 | R  | Monolitic timestamp 64 bits at 10 MHz (100ns increments) |
+| 21 | 1 | R  | Recording in progress: 0x00 no recording; 0x01 recording in progress |
+| 22 | 1 | R  | Card slot 1 info: 0x00 absent; 0x01 magnetic; 0x02 acc_geoph |
+| 23 | 1 | R  | Card slot 2 info: 0x00 absent; 0x01 magnetic; 0x02 acc_geoph |
+| 24 | 1 | RW | ADC sampling rate: 0x00 0.5kHz; 0x01 1kHz; 0x02 2kHz; 0x03 4kHz; 0x04 8kHz; 0x05 16kHz |
+| 25 | 1 | RW | ADC channel active mask: 0x00 no active channels; 0x0f channels 0 to 3 active; 0xf0 channels 4 to 7 active; 0xff channels 0 to 7 active, only those mask are valid |
+| 26 | 2 | -  | ADC gain: 0b00 x1; 0b01 x2; 0b10 x4; 0b11 x8. Each channel is shifted  by 2 times the number of the channel (<<(2*id)) |
+| 28 | 2 | R  | ADC temperature: signed 16 bits, 0.01°C per count|
+| 30 | 1 | RW | 0x00 +3.3VA off; 0x01 +3.3VA on |
+| 31 | 1 | RW | 0x00 +5VA off; 0x01 +5VA on |
+| 32 | 1 | RW | 0x00 +9VA off; 0x01 +9VA on |
+| 33 | 1 | RW | 0x00 -5VA off; 0x01 -5VA on |
+| 34 | 1 | RW | 0x00 +18VA off; 0x01 +18VA on |
+| 35 | 1 | R  | 0x00 Solar not present; 0x01 Solar present |
+| 36 | 1 | R  | 0x00 +5V USB not present; 0x01 +5V USB present |
+| 37 | 1 | R  | GNSS state: 0x00 disabled/not present; 0x01 ready; 0x02 faulted; 0x03 searching |
+| 38 | 1 | R  | GNSS Satellite count |
+| 39 | 1 | R  | IMU state: 0x00 disabled/not present; 0x01 ready; 0x02 faulted/invalid data |
+| 40 | 2 | RW | IMU averaging time ms |
+| 42 | 2 | R  | IMU roll: signed 16 bits, 0.01° per count, 0° being perfectly leveled |
+| 44 | 2 | R  | IMU pitch: signed 16 bits, 0.01° per count, 0° being perfectly leveled |
+| 46 | 2 | R  | IMU temperature: signed 16 bits, 0.01°C per count |
 | 47 | 1 | R  | SD card present: 0x00 not present; 0x01 present; 0x02 faulted |
-| 48 | 2 | R  | ESP32 temperature: signed 16 bits, 0.01°C per count |
-| 50 | 1 | R  | CONFIG command status: 0x00 ok; 0x01 invalid argument; 0x02 invalid state; 0x03 busy; 0x04 harware error |
-| 51 | 9 | -  | Empty padding |
+| 49 | 2 | R  | ESP32 temperature: signed 16 bits, 0.01°C per count |
+| 51 | 1 | R  | Error! Check command diagnostic: 0x00 no error; 0x01 check diagnostic |
+| 52 | 8 | -  | Empty padding |
+
+### `DEVICE_GET_DIAGNOSTIC` -> `DEVICE_DIAGNOSTIC`
+
+This command is used when the flag error is raised in a config command. It give detail informations about the error that happened, including when and what happen.
+
+Using this command clears the byte 51 of config.
+
+#### Command semantics:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 0 | 4 | "\CMD"  | Syncgronisation value |
+| 4 | 2 | 0x0004 | Command ID |
+| 6 | 1 | 0x00   | Command direction: 0x00 goes to the device; 0x01 goes to the host |
+| 7 | 4 | 0x0000 | Reserved |
+| 11 | 1 | 0x0000 | Number of bytes in the payload |
+| 12 | 48 | 0x00...00 | Payload |
+| 60 | 4 | - | CRC32 byte 0 to 59 |
+
+#### Answer semantics:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 0 | 4 | "\CMD" | Syncgronisation value |
+| 4 | 2 | 0x00a4 | Command ID |
+| 6 | 1 | 0x01   | Command direction: 0x1 goes to the host |
+| 7 | 4 | 0x00000000 | Reserved |
+| 11 | 1 | 0x2a | Number of bytes in the payload |
+| 12 | 48 | - | Payload |
+| 60 | 4  | - | CRC32 byte 0 to 59 |
+
+Answer payload:
+
+| Offset | Size | Notes |
+|---:|---:|---|
+| 12 | 1 | Command result |
+| 13 | 8 | Timestamp of when the error happened since booth in 100ns unit |
+| 21 | 1 | ESP error: 0x00 no error; 0x01 TBA error |
+| 22 | 1 | ADC error: 0x00 no error; 0x01 TBA error |
+| 23 | 1 | IMU error: 0x00 no error; 0x01 TBA error |
+| 24 | 1 | GNSS error: 0x00 no error; 0x01 TBA error |
+| 25 | 1 | Analog card error: 0x00 no error; 0x01 TBA error |
+| 26 | 1 | Power error: 0x00 no error; 0x01 TBA error |
+| 27 | 1 | SD card error: 0x00 no error; 0x01 TBA error |
+| 28 | 4 | Protocol receive CRC-error counter |
+| 32 | 4 | ADC data CRC-error counter |
+| 36 | 4 | ADC header-error counter |
+| 40 | 4 | Acquisition-overrun counter |
+| 44 | 4 | Dropped-conversion counter |
+| 46 | 4 | Storage-error counter |
+| 50 | 10 | Empty padding |
 
 ## Live streaming
 
@@ -179,7 +251,7 @@ conversion 1: channel 0, channel 1, ... channel 7
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x0004 | Command ID |
+| 4 | 2 | 0x0005 | Command ID |
 | 6 | 1 | 0x00 | Command direction: 0x0 goes to the device |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x0002 | Number of bytes in the payload |
@@ -199,7 +271,7 @@ Command payload
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x00a4 | Command ID |
+| 4 | 2 | 0x00a5 | Command ID |
 | 6 | 1 | 0x01 | Command direction: 0x01 goes to the host |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x04 | Number of bytes in the payload |
@@ -210,7 +282,7 @@ Answer payload:
 
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
-| 12 | 1 | - | Status: 0x00 fail; 0x01 succes |
+| 12 | 1 | - | Command result |
 | 13 | 1 | - | Decimation filter applied: 0x00 no filter, same as sampling rate; other value is the decimation rate |
 | 14 | 1 | - | ADC channel active mask: 0x00 no active channels; 0x0f channels 0 to 3 active; 0xf0 channels 4 to 7 active; 0xff channels 0 to 7 active |
 | 15 | 1 | - | Recording already in progress : 0x00 No; 0x01 Yes |
@@ -240,8 +312,9 @@ The streaming is also stopped when a recording is stop with the command. This me
 #### Command semantics:
 
 | Offset | Size | Value | Notes |
+|---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation|
-| 4 | 2 | 0x0005 | Command ID |
+| 4 | 2 | 0x0006 | Command ID |
 | 6 | 1 | 0x00 | Command direction: 0x0 goes to the device |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x00 | Number of bytes in the payload |
@@ -251,8 +324,9 @@ The streaming is also stopped when a recording is stop with the command. This me
 #### Answer semantics:
 
 | Offset | Size | Value | Notes |
+|---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation|
-| 4 | 2 | 0x00a5 | Command ID |
+| 4 | 2 | 0x00a6 | Command ID |
 | 6 | 1 | 0x01 | Command direction: 0x1 goes to the host |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x02 | Number of bytes in the payload |
@@ -262,7 +336,8 @@ The streaming is also stopped when a recording is stop with the command. This me
 Answer payload:
 
 | Offset | Size | Value | Notes |
-| 12 | 1 | - | Status: 0x0 ok; 0x1 faillure |
+|---:|---:|:---|---|
+| 12 | 1 | - | Command result |
 | 13 | 1 | - | Recording already in progress : 0x00 No; 0x01 Yes |
 | 14 | 46 | 0x00...00 | Empty padding |
 
@@ -286,7 +361,7 @@ The name of the file has the following restrictions:
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x0006 | Command ID |
+| 4 | 2 | 0x0007 | Command ID |
 | 6 | 1 | 0x00 | Command direction: 0x0 goes to the device |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x20 | Number of bytes in the payload |
@@ -305,7 +380,7 @@ Command payload:
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x00a6 | Command ID |
+| 4 | 2 | 0x00a7 | Command ID |
 | 6 | 1 | 0x01 | Command direction: 0x01 goes to the host |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x22 | Number of bytes in the payload |
@@ -316,7 +391,7 @@ Answer payload:
 
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
-| 12 | 1 | - | Status: 0x00 success; 0x01 fail |
+| 12 | 1 | - | Command result |
 | 13 | 1 | - | Recording already in progress : 0x00 No; 0x01 Yes |
 | 14 | 32 | - | File name accepted |
 | 46 | 14 | 0x00...00 | Empty padding |
@@ -332,7 +407,7 @@ The result is sent after the recording has properly stopped or tryed to.
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x0007 | Command ID |
+| 4 | 2 | 0x0008 | Command ID |
 | 6 | 1 | 0x00 | Command direction: 0x0 goes to the device |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x00 | Number of bytes in the payload |
@@ -344,7 +419,7 @@ The result is sent after the recording has properly stopped or tryed to.
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x00a7 | Command ID |
+| 4 | 2 | 0x00a8 | Command ID |
 | 6 | 1 | 0x01 | Command direction: 0x01 goes to the host |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x21 | Number of bytes in the payload |
@@ -355,56 +430,13 @@ Answer payload:
 
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
-| 12 | 1 | - | Status: 0x00 success; 0x01 fail |
+| 12 | 1 | - | Command result |
 | 13 | 32 | - | Name of the record in question |
 | 45 | 15 | 0x00...00 | Empty padding |
 
 ### `RECORDING_GET_NUMBER` -> `RECORDING_NUMBER`
 
 This command is used to determine the number of recordings currently in the SD card. It will return a number that represent the number of recording, 0 means there is no recordings.
-
-#### Command semantics:
-
-| Offset | Size | Value | Notes |
-|---:|---:|:---|---|
-| 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x0008 | Command ID |
-| 6 | 1 | 0x00 | Command direction: 0x0 goes to the device |
-| 7 | 4 | 0x00000000 | Reserved |
-| 11 | 1 | 0x00 | Number of bytes in the payload |
-| 12 | 48 | - | Payload |
-| 60 | 4 | - | CRC32 byte 0 to 59 |
-
-#### Recording info semantics:
-
-| Offset | Size | Value | Notes |
-|---:|---:|:---|---|
-| 0 | 4 | "\CMD" | Syncgronisation value  |
-| 4 | 2 | 0x00a8 | Command ID |
-| 6 | 1 | 0x01 | Command direction: 0x01 goes to the host |
-| 7 | 4 | 0x00000000 | Reserved |
-| 11 | 1 | 0x03 | Number of bytes in the payload |
-| 12 | 48 | - | Payload |
-| 60 | 4 | - | CRC32 byte 0 to 59 |
-
-| Offset | Size | Value | Notes |
-|---:|---:|:---|---|
-| 12 | 1 | - | Command success: 0x00 success; 0x01 faillure |
-| 13 | 2 | - | Number of recordings currently in memory |
-| 15 | 45 | 0x00...00 | Empty padding |
-
-### `RECORDING_GET_INFO` -> `RECORDING_INFO`
-
-This command is used to get information about the recordings currently in the SD card. After inquiring about the number of recordings present in memory, this command can be used to get more informations about a specific recording. This command should be used a number of times equal to the number of recording present to identify all of them in the GUI.
-
-The host should keep this recording inforamtions into a chache to display on the GUI.
-
-The cache should be refreshed after:
-- reconnecting;
-- successfully starting a recording;
-- stopping or deleting a recording;
-- an SD-card removal/remount;
-- an unexpected duplicate rejection.
 
 #### Command semantics:
 
@@ -426,14 +458,57 @@ The cache should be refreshed after:
 | 4 | 2 | 0x00a9 | Command ID |
 | 6 | 1 | 0x01 | Command direction: 0x01 goes to the host |
 | 7 | 4 | 0x00000000 | Reserved |
+| 11 | 1 | 0x03 | Number of bytes in the payload |
+| 12 | 48 | - | Payload |
+| 60 | 4 | - | CRC32 byte 0 to 59 |
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 12 | 1 | - | Command result |
+| 13 | 2 | - | Number of recordings currently in memory |
+| 15 | 45 | 0x00...00 | Empty padding |
+
+### `RECORDING_GET_INFO` -> `RECORDING_INFO`
+
+This command is used to get information about the recordings currently in the SD card. After inquiring about the number of recordings present in memory, this command can be used to get more informations about a specific recording. This command should be used a number of times equal to the number of recording present to identify all of them in the GUI.
+
+The host should keep this recording inforamtions into a chache to display on the GUI.
+
+The cache should be refreshed after:
+- reconnecting;
+- successfully starting a recording;
+- stopping or deleting a recording;
+- an SD-card removal/remount;
+- an unexpected duplicate rejection.
+
+#### Command semantics:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 0 | 4 | "\CMD" | Syncgronisation value |
+| 4 | 2 | 0x000a | Command ID |
+| 6 | 1 | 0x00 | Command direction: 0x0 goes to the device |
+| 7 | 4 | 0x00000000 | Reserved |
+| 11 | 1 | 0x00 | Number of bytes in the payload |
+| 12 | 48 | - | Payload |
+| 60 | 4 | - | CRC32 byte 0 to 59 |
+
+#### Recording info semantics:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 0 | 4 | "\CMD" | Syncgronisation value  |
+| 4 | 2 | 0x00aa | Command ID |
+| 6 | 1 | 0x01 | Command direction: 0x01 goes to the host |
+| 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x30 | Number of bytes in the payload |
 | 12 | 48 | - | Payload |
 | 60 | 4 | - | CRC32 byte 0 to 59 |
 
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
-| 12 | 2 | - | Recording indice |
-| 14 | 1 | - | Recording status: 0x00 ok; 0x01 corrupted; 0x02 recording in progress |
+| 12 | 1 | - | Command result |
+| 13 | 2 | - | Recording indice |
 | 15 | 32 | - | Recording name |
 | 47 | 8 | - | Unix timestamp in microseconds of the start of the recording |
 | 55 | 5 | - | Size in bytes of the recording |
@@ -447,7 +522,7 @@ This command is used to delete a recording from the SD card. One record is delet
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x000a | Command ID |
+| 4 | 2 | 0x000b | Command ID |
 | 6 | 1 | 0x00 | Command direction: 0x0 goes to the device |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x20 | Number of bytes in the payload |
@@ -466,7 +541,7 @@ Command payload:
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
 | 0 | 4 | "\CMD" | Syncgronisation value |
-| 4 | 2 | 0x00aa | Command ID |
+| 4 | 2 | 0x00ab | Command ID |
 | 6 | 1 | 0x01 | Command direction: 0x01 goes to the host |
 | 7 | 4 | 0x00000000 | Reserved |
 | 11 | 1 | 0x22 | Number of bytes in the payload |
@@ -477,7 +552,7 @@ Answer payload:
 
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
-| 12 | 1 | - | Status: 0x00 success; 0x01 fail |
+| 12 | 1 | - | Command result |
 | 13 | 1 | - | Recording already in progress : 0x00 No; 0x01 Yes |
 | 14 | 32 | - | Name of the target recording |
 | 46 | 14 | 0x00...00 | Empty padding |
@@ -495,5 +570,3 @@ This command is not implemented for now. A set-reset pulse should be sent before
 Commands from `0xf0` to `0xff`
 
 Those commands are reserved for testing functionnalities that will not be included in the final product.
-
-
