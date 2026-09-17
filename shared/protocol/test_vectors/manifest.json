@@ -26,6 +26,53 @@
       }
     },
     {
+      "name": "device_get_config_request",
+      "path": "command/valid/device_get_config_request.txt",
+      "expected": "valid",
+      "command_id": 2,
+      "direction": 0,
+      "payload_length": 0
+    },
+    {
+      "name": "device_set_config_request",
+      "path": "command/valid/device_set_config_request.txt",
+      "expected": "valid",
+      "command_id": 3,
+      "direction": 0,
+      "payload_length": 39,
+      "decoded": {
+        "adc_sample_rate": 2,
+        "adc_channel_mask": 15,
+        "adc_gain": 58596,
+        "imu_averaging_time_ms": 0
+      }
+    },
+    {
+      "name": "device_config_reply",
+      "path": "command/valid/device_config_reply.txt",
+      "expected": "valid",
+      "command_id": 162,
+      "direction": 1,
+      "payload_length": 40,
+      "decoded": {
+        "result": 0,
+        "timestamp_100ns": 72623859790382856,
+        "recording_in_progress": false,
+        "card_slot_1": 1,
+        "card_slot_2": 2,
+        "adc_sample_rate": 2,
+        "adc_channel_mask": 15,
+        "adc_gain": 58596,
+        "adc_temperature_centi_c": -1234,
+        "imu_averaging_time_ms": 250,
+        "imu_roll_centi_degrees": -123,
+        "imu_pitch_centi_degrees": 456,
+        "imu_temperature_centi_c": 2500,
+        "esp32_temperature_centi_c": 4200,
+        "error_pending": true
+      }
+    },
+    {
       "name": "hello_bad_crc",
       "path": "command/invalid/hello_bad_crc.txt",
       "expected": "invalid_crc"

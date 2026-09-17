@@ -3,10 +3,11 @@
 ## Status
 
 This directory contains an initial independent 64-byte command codec, stream
-parser, serial `HELLO` client, and command-line `DEVICE_INFO` probe. Shared
-vectors and optional Rev-1 hardware smoke tests cover the implemented slice.
-Configuration, diagnostics, streaming, recording, Bluetooth, capture, and UI
-behavior remain scaffolded.
+parser, serial `HELLO` client, command-line `DEVICE_INFO` probe, and codecs for
+`DEVICE_GET_CONFIG`, `DEVICE_SET_CONFIG`, and `DEVICE_CONFIG`. Shared vectors
+and an optional Rev-1 hardware smoke test cover the implemented slices.
+Diagnostics, streaming, recording, Bluetooth, capture, and UI behavior remain
+scaffolded.
 
 Run the implemented probe with:
 

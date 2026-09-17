@@ -3,8 +3,8 @@
 ## Document status
 
 - Status: Active implementation plan
-- Runtime implementation: `HELLO` UART vertical slice verified on Rev-1;
-  remaining commands and streaming not started
+- Runtime implementation: discovery and device-configuration UART slices
+  verified on Rev-1; remaining commands and streaming not started
 - Wire authority: `shared/protocol/protocol.md`
 
 This document describes how to implement the approved protocol without
@@ -86,8 +86,9 @@ can identify a timeout without retrying a state-changing command blindly.
 1. Initialize the UART-to-USB bridge at the selected tested baud rate.
 2. Create fixed parser, reply, and data-block buffers.
 3. Implement `HELLO` and the five-second USB-session activity rule.
-4. Implement `DEVICE_GET_CONFIG` and `DEVICE_GET_DIAGNOSTIC` using snapshots
-   from the resource-owning tasks.
+4. Implement `DEVICE_GET_CONFIG`, `DEVICE_SET_CONFIG`, and
+   `DEVICE_GET_DIAGNOSTIC` using snapshots and atomic updates from the
+   resource-owning tasks.
 5. Implement streaming start/stop around a deterministic synthetic data source.
 6. Verify that command replies are sent between complete `\DAT` blocks and that
    partial UART writes resume from the correct byte.

@@ -20,9 +20,11 @@ verification is being completed incrementally.
 The authoritative protocol defines fixed 64-byte command messages and portable
 512-byte ADC data blocks shared by live capture and SD recording. Fixed command
 framing, incremental stream recovery, CRC validation, and the
-`HELLO`/`DEVICE_INFO` UART vertical slice are implemented and verified on
-Rev-1 hardware. The remaining commands and ADC data blocks are still in
-progress.
+`HELLO`/`DEVICE_INFO` plus `DEVICE_GET_CONFIG`/`DEVICE_SET_CONFIG` UART slices
+are implemented and verified on Rev-1 hardware. Configuration currently
+applies the stopped-device ADC rate, channel mask, and per-channel gains;
+runtime rail and IMU changes remain unsupported until their owning subsystems
+exist. The remaining commands and ADC data blocks are still in progress.
 
 The complete wire contract is
 [shared/protocol/protocol.md](shared/protocol/protocol.md). It is the sole

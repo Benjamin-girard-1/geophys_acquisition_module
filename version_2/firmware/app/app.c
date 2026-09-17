@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "board.h"
+#include "device_configuration.h"
 #include "platform_crc.h"
 #include "platform_device.h"
 #include "platform_uart.h"
@@ -62,6 +63,11 @@ fw_status_t app_start(fw_error_context_t *error)
         return status;
     }
 
+    status = device_configuration_initialize(error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
     status = board_host_uart_initialize(&s_host_uart, error);
     if (status != FW_STATUS_OK) {
         return status;
@@ -72,6 +78,8 @@ fw_status_t app_start(fw_error_context_t *error)
         .crc32 = protocol_crc32,
         .crc_context = NULL,
         .device_info = device_info,
+        .get_device_config = device_configuration_get,
+        .apply_device_config = device_configuration_apply,
         .read_timeout_us = APP_HOST_READ_TIMEOUT_US,
         .write_timeout_us = APP_HOST_WRITE_TIMEOUT_US,
     };

@@ -167,6 +167,76 @@ static void test_device_info_encode(
     assert(memcmp(actual, expected, sizeof(actual)) == 0);
 }
 
+static void test_device_config_requests(
+    const uint8_t get_config[PROTOCOL_COMMAND_SIZE_BYTES],
+    const uint8_t set_config[PROTOCOL_COMMAND_SIZE_BYTES])
+{
+    protocol_command_t command;
+    assert(protocol_command_decode(
+               get_config, reference_crc32, NULL,
+               &command) == PROTOCOL_FRAME_OK);
+    assert(protocol_decode_device_get_config_request(&command) ==
+           PROTOCOL_MESSAGE_OK);
+
+    assert(protocol_command_decode(
+               set_config, reference_crc32, NULL,
+               &command) == PROTOCOL_FRAME_OK);
+    protocol_device_config_update_t update;
+    assert(protocol_decode_device_set_config_request(&command, &update) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(update.adc_sample_rate == PROTOCOL_ADC_SAMPLE_RATE_2000_SPS);
+    assert(update.adc_channel_mask == PROTOCOL_ADC_CHANNEL_MASK_LOW);
+    assert(update.adc_gain == UINT16_C(0xE4E4));
+    assert(update.rail_3v3_enabled == 0U);
+    assert(update.rail_5v_enabled == 0U);
+    assert(update.rail_9v_enabled == 0U);
+    assert(update.rail_negative_5v_enabled == 0U);
+    assert(update.rail_18v_enabled == 0U);
+    assert(update.imu_averaging_time_ms == 0U);
+
+    command.payload[13] = UINT8_C(0x03);
+    assert(protocol_decode_device_set_config_request(&command, &update) ==
+           PROTOCOL_MESSAGE_INVALID_FIELD);
+}
+
+static void test_device_config_encode(
+    const uint8_t expected[PROTOCOL_COMMAND_SIZE_BYTES])
+{
+    const protocol_device_config_t config = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .timestamp_100ns = UINT64_C(0x0102030405060708),
+        .recording_in_progress = 0U,
+        .card_slot_1 = PROTOCOL_CARD_MAGNETIC,
+        .card_slot_2 = PROTOCOL_CARD_ACC_GEOPH,
+        .adc_sample_rate = PROTOCOL_ADC_SAMPLE_RATE_2000_SPS,
+        .adc_channel_mask = PROTOCOL_ADC_CHANNEL_MASK_LOW,
+        .adc_gain = UINT16_C(0xE4E4),
+        .adc_temperature_centi_c = -1234,
+        .rail_3v3_enabled = 1U,
+        .rail_5v_enabled = 0U,
+        .rail_9v_enabled = 1U,
+        .rail_negative_5v_enabled = 1U,
+        .rail_18v_enabled = 0U,
+        .solar_present = 1U,
+        .usb_5v_present = 1U,
+        .gnss_state = PROTOCOL_GNSS_SEARCHING,
+        .gnss_satellite_count = 12U,
+        .imu_state = PROTOCOL_IMU_READY,
+        .imu_averaging_time_ms = 250U,
+        .imu_roll_centi_degrees = -123,
+        .imu_pitch_centi_degrees = 456,
+        .imu_temperature_centi_c = 2500,
+        .sd_card_state = PROTOCOL_SD_CARD_PRESENT,
+        .esp32_temperature_centi_c = 4200,
+        .error_pending = 1U,
+    };
+    uint8_t actual[PROTOCOL_COMMAND_SIZE_BYTES];
+    assert(protocol_encode_device_config_reply(
+               &config, reference_crc32, NULL, actual) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(memcmp(actual, expected, sizeof(actual)) == 0);
+}
+
 static void test_fragmentation(
     const uint8_t hello[PROTOCOL_COMMAND_SIZE_BYTES])
 {
@@ -217,18 +287,26 @@ static void test_garbage_concatenation_and_recovery(
 
 int main(int argc, char **argv)
 {
-    assert(argc == 4);
+    assert(argc == 7);
     uint8_t hello[PROTOCOL_COMMAND_SIZE_BYTES];
     uint8_t device_info[PROTOCOL_COMMAND_SIZE_BYTES];
     uint8_t bad_crc[PROTOCOL_COMMAND_SIZE_BYTES];
+    uint8_t get_config[PROTOCOL_COMMAND_SIZE_BYTES];
+    uint8_t set_config[PROTOCOL_COMMAND_SIZE_BYTES];
+    uint8_t device_config[PROTOCOL_COMMAND_SIZE_BYTES];
     load_hex_vector(argv[1], hello);
     load_hex_vector(argv[2], device_info);
     load_hex_vector(argv[3], bad_crc);
+    load_hex_vector(argv[4], get_config);
+    load_hex_vector(argv[5], set_config);
+    load_hex_vector(argv[6], device_config);
 
     test_crc_check_value();
     test_hello_decode(hello);
     test_canonical_validation(hello);
     test_device_info_encode(device_info);
+    test_device_config_requests(get_config, set_config);
+    test_device_config_encode(device_config);
     test_fragmentation(hello);
     test_garbage_concatenation_and_recovery(hello, bad_crc);
     assert(protocol_command_decode(

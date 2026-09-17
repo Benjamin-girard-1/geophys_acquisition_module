@@ -592,11 +592,11 @@ or implementation.
 | `app_main` composition root | Yes | No | No | No |
 | ESP32-S3 DevKit platform services | Partial | Partial | Partial | Partial |
 | Rev-1 custom board integration | Yes | Partial | Partial | No |
-| Application startup and shared types | Partial | Partial | Partial: acquisition data contracts | No |
+| Application startup and shared types | Partial | Partial | Partial: acquisition data contracts and stopped-device configuration state | Partial: configuration state exercised through Rev-1 UART |
 | Acquisition task | Yes | No | No | No |
 | Processing task | Yes | No | No | No |
 | Storage task and fixed SD ownership | Partial | No | No | No |
-| Communication task | Yes | Partial: startup and `HELLO` dispatch | Partial: UART `HELLO`/`DEVICE_INFO` session | Partial: Rev-1 UART reply at 921600 baud |
+| Communication task | Yes | Partial: startup, discovery, and configuration dispatch | Partial: UART `HELLO`/`DEVICE_INFO` and `DEVICE_GET_CONFIG`/`DEVICE_SET_CONFIG` session | Partial: discovery and configuration replies at 921600 baud |
 | Bluetooth task | Yes | No | No | No |
 | AD7779 driver | Yes | Partial | Partial: register map, lifecycle, channel/gain, fixed output-rate configuration, signed frame decoding, and header/status/pair-CRC validation | No |
 | LSM6DSV driver | Yes | No | No | No |
@@ -607,11 +607,11 @@ or implementation.
 | Geophysical accelerometer card | Yes | No | No | No |
 | Shared protocol specification | Yes | Defined in `protocol.md` | No | N/A |
 | Portable ADC-record format | Yes | Defined in `protocol.md` | No | N/A |
-| Firmware protocol implementation | Yes | Partial: command frame and `HELLO` codecs | Partial: incremental `\CMD` parser and `HELLO`/`DEVICE_INFO` | Partial: `HELLO` vectors exercised over Rev-1 UART |
-| UART transport | Yes | Yes | Yes | Partial: 921600-baud `HELLO` exchange |
+| Firmware protocol implementation | Yes | Partial: command frame, discovery, and configuration codecs | Partial: incremental `\CMD` parser, `HELLO`/`DEVICE_INFO`, and device configuration messages | Partial: discovery and configuration vectors exercised over Rev-1 UART |
+| UART transport | Yes | Yes | Yes | Partial: 921600-baud discovery and configuration exchange |
 | USB transport | Yes | No | No | No |
-| Host application | Yes | Partial: command codec and `HELLO` CLI | Partial: `DEVICE_INFO` probe and shared-vector tests | Partial: Rev-1 UART probe |
-| Automated tests and continuous integration | Partial | Partial: protocol-vector tests | Partial: native C and Python `HELLO` tests | N/A |
+| Host application | Yes | Partial: discovery/configuration command codecs and `HELLO` CLI | Partial: `DEVICE_INFO`/`DEVICE_CONFIG` probe and shared-vector tests | Partial: Rev-1 UART probe |
+| Automated tests and continuous integration | Partial | Partial: protocol-vector tests | Partial: native C and Python discovery/configuration tests | N/A |
 
 Update this table when an interface becomes usable, an implementation builds and
 passes its software tests, or behavior has been verified on the Rev-1 hardware.

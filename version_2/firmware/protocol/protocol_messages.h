@@ -54,6 +54,37 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_VERSION_CURRENT              UINT8_C(0x01)
 #define PROTOCOL_DEVICE_INFO_PAYLOAD_SIZE_BYTES UINT8_C(16)
 #define PROTOCOL_DEVICE_MAC_SIZE_BYTES        UINT8_C(6)
+#define PROTOCOL_DEVICE_SET_CONFIG_PAYLOAD_SIZE_BYTES UINT8_C(39)
+#define PROTOCOL_DEVICE_CONFIG_PAYLOAD_SIZE_BYTES UINT8_C(40)
+
+#define PROTOCOL_ADC_SAMPLE_RATE_500_SPS       UINT8_C(0x00)
+#define PROTOCOL_ADC_SAMPLE_RATE_1000_SPS      UINT8_C(0x01)
+#define PROTOCOL_ADC_SAMPLE_RATE_2000_SPS      UINT8_C(0x02)
+#define PROTOCOL_ADC_SAMPLE_RATE_4000_SPS      UINT8_C(0x03)
+#define PROTOCOL_ADC_SAMPLE_RATE_8000_SPS      UINT8_C(0x04)
+#define PROTOCOL_ADC_SAMPLE_RATE_16000_SPS     UINT8_C(0x05)
+
+#define PROTOCOL_ADC_CHANNEL_MASK_NONE         UINT8_C(0x00)
+#define PROTOCOL_ADC_CHANNEL_MASK_LOW          UINT8_C(0x0F)
+#define PROTOCOL_ADC_CHANNEL_MASK_HIGH         UINT8_C(0xF0)
+#define PROTOCOL_ADC_CHANNEL_MASK_ALL          UINT8_C(0xFF)
+
+#define PROTOCOL_CARD_ABSENT                   UINT8_C(0x00)
+#define PROTOCOL_CARD_MAGNETIC                 UINT8_C(0x01)
+#define PROTOCOL_CARD_ACC_GEOPH                UINT8_C(0x02)
+
+#define PROTOCOL_GNSS_DISABLED                 UINT8_C(0x00)
+#define PROTOCOL_GNSS_READY                    UINT8_C(0x01)
+#define PROTOCOL_GNSS_FAULTED                  UINT8_C(0x02)
+#define PROTOCOL_GNSS_SEARCHING                UINT8_C(0x03)
+
+#define PROTOCOL_IMU_DISABLED                  UINT8_C(0x00)
+#define PROTOCOL_IMU_READY                     UINT8_C(0x01)
+#define PROTOCOL_IMU_FAULTED                   UINT8_C(0x02)
+
+#define PROTOCOL_SD_CARD_ABSENT                UINT8_C(0x00)
+#define PROTOCOL_SD_CARD_PRESENT               UINT8_C(0x01)
+#define PROTOCOL_SD_CARD_FAULTED               UINT8_C(0x02)
 
 typedef enum {
     PROTOCOL_MESSAGE_OK = 0,
@@ -62,6 +93,7 @@ typedef enum {
     PROTOCOL_MESSAGE_UNEXPECTED_DIRECTION,
     PROTOCOL_MESSAGE_UNEXPECTED_LENGTH,
     PROTOCOL_MESSAGE_INVALID_RESULT,
+    PROTOCOL_MESSAGE_INVALID_FIELD,
 } protocol_message_status_t;
 
 typedef struct {
@@ -73,11 +105,67 @@ typedef struct {
     uint8_t protocol_version;
 } protocol_device_info_t;
 
+/** Writable fields carried by DEVICE_SET_CONFIG in their wire representation. */
+typedef struct {
+    uint8_t adc_sample_rate;
+    uint8_t adc_channel_mask;
+    uint16_t adc_gain;
+    uint8_t rail_3v3_enabled;
+    uint8_t rail_5v_enabled;
+    uint8_t rail_9v_enabled;
+    uint8_t rail_negative_5v_enabled;
+    uint8_t rail_18v_enabled;
+    uint16_t imu_averaging_time_ms;
+} protocol_device_config_update_t;
+
+/** Complete DEVICE_CONFIG reply fields in their defined wire representation. */
+typedef struct {
+    protocol_command_result_t result;
+    uint64_t timestamp_100ns;
+    uint8_t recording_in_progress;
+    uint8_t card_slot_1;
+    uint8_t card_slot_2;
+    uint8_t adc_sample_rate;
+    uint8_t adc_channel_mask;
+    uint16_t adc_gain;
+    int16_t adc_temperature_centi_c;
+    uint8_t rail_3v3_enabled;
+    uint8_t rail_5v_enabled;
+    uint8_t rail_9v_enabled;
+    uint8_t rail_negative_5v_enabled;
+    uint8_t rail_18v_enabled;
+    uint8_t solar_present;
+    uint8_t usb_5v_present;
+    uint8_t gnss_state;
+    uint8_t gnss_satellite_count;
+    uint8_t imu_state;
+    uint16_t imu_averaging_time_ms;
+    int16_t imu_roll_centi_degrees;
+    int16_t imu_pitch_centi_degrees;
+    int16_t imu_temperature_centi_c;
+    uint8_t sd_card_state;
+    int16_t esp32_temperature_centi_c;
+    uint8_t error_pending;
+} protocol_device_config_t;
+
 protocol_message_status_t protocol_decode_hello_request(
     const protocol_command_t *command);
 
 protocol_message_status_t protocol_encode_device_info_reply(
     const protocol_device_info_t *device_info,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_device_get_config_request(
+    const protocol_command_t *command);
+
+protocol_message_status_t protocol_decode_device_set_config_request(
+    const protocol_command_t *command,
+    protocol_device_config_update_t *update);
+
+protocol_message_status_t protocol_encode_device_config_reply(
+    const protocol_device_config_t *device_config,
     protocol_crc32_callback_t crc32,
     void *crc_context,
     uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);

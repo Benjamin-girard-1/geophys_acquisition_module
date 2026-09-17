@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "app.c"
+        "device_configuration.c"
         "task_acquisition.c"
         "task_bluetooth.c"
         "task_communication.c"

@@ -312,7 +312,9 @@ Milestone-1 task rules:
 - `task_acquisition` has higher priority than `task_communication`.
 - `task_acquisition` blocks on DRDY notification or its command queue, never on UART transmission.
 - `task_communication` may block on UART and returns consumed ADC blocks to the free pool.
-- Gain, sample-rate, and channel-mask changes are accepted only while acquisition is stopped.
+- Gain, sample-rate, and channel-mask changes are applied atomically while
+  acquisition is stopped or live streaming, and are rejected while recording.
+  A live-streaming change is serialized through the acquisition command queue.
 - Pulse commands may execute during acquisition so affected frames can be marked.
 - Only one acquisition reconfiguration or pulse command is active at a time.
 - `task_processing`, `task_storage`, `task_bluetooth`, `task_gnss`, and `task_imu` are not created in
@@ -438,7 +440,8 @@ electrically safe.
 - [ ] Acquisition continues servicing DRDY while UART is blocked or disconnected.
 - [ ] Pool exhaustion produces a visible sequence gap and counter.
 - [ ] SET and RESET requests cannot overlap and affected frames are marked.
-- [ ] Configuration requests are atomic and rejected while acquisition is active.
+- [ ] Configuration requests are atomic, may reconfigure live streaming through
+  its owner, and are rejected while recording.
 - [ ] Protocol parsing handles fragmented, concatenated, corrupt, and unknown frames.
 - [ ] V2 CRC and serialization match shared protocol test vectors.
 - [ ] Eight raw channels stream at 1 kSPS for eight hours without unexplained loss.
