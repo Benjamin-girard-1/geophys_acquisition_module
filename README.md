@@ -11,12 +11,23 @@ an AD7779 ADC, an LSM6DSV IMU, MAX-M10S GNSS, SD storage shared with a USB2641,
 ## Current status
 
 The Version 2 firmware builds with ESP-IDF 5.5. Board safe-state and power
-control, portable GPIO/SPI/UART and calibrated analog-input mechanisms, the
-74HC/HCT595 driver, bounded analog-card ID measurement, and the AD7779 register,
-lifecycle, channel/gain, fixed output-rate, signed sample decoding, and
-conversion-frame validation foundations are implemented.
+control, portable GPIO/SPI/UART, calibrated analog-input, and ROM-backed CRC
+mechanisms, the 74HC/HCT595 driver, bounded analog-card ID measurement, and the
+AD7779 register, lifecycle, channel/gain, fixed output-rate, signed sample
+decoding, and conversion-frame validation foundations are implemented.
 Acquisition, protocol, and host integration remain in progress, and hardware
 verification is being completed incrementally.
+Draft scaffolding now documents common UART/future-Bluetooth command semantics,
+a proposed fixed 128-byte control record, and a portable 512-byte ADC record
+shared by live capture and future SD recording. These formats are not approved
+or implemented yet.
+
+Protocol review starts with
+[shared/protocol/protocol_code.md](shared/protocol/protocol_code.md), followed by
+the detailed command catalog in
+[shared/protocol/protocol_commands.md](shared/protocol/protocol_commands.md).
+The message registry, framing proposal, and ADC record are separate documents in
+the same directory.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for module responsibilities, dependency
 rules, initialization order, and the detailed implementation-status table.
@@ -43,6 +54,7 @@ Milestone-1 execution and verification are tracked in
     │   ├── boards/              Custom carrier-board integration by revision
     │   ├── analog_cards/        Removable analog-card integration
     │   ├── drivers/             Portable component-specific drivers
+    │   ├── data_format/         Portable serialized acquisition records
     │   ├── protocol/            Firmware framing and message encoding
     │   ├── transports/          UART, USB, and future byte transports
     │   ├── platform/
@@ -66,6 +78,8 @@ Milestone-1 execution and verification are tracked in
   belongs in `analog_cards/magnetic/` and is not shared with `analog_cards/acc_geoph/`.
 - `drivers/` implements individual components without depending on ESP-IDF,
   FreeRTOS, or board wiring.
+- `data_format/` defines transport- and storage-independent acquisition-record
+  serialization.
 - `platform/esp32s3_devkit/` isolates ESP-IDF and immutable DevKit details.
 - `protocol/` implements transport-independent framing and messages.
 - `transports/` move bytes without interpreting application commands.
@@ -85,6 +99,7 @@ The current scaffolds cover:
 - Acquisition, processing, storage, communication, and Bluetooth tasks
 - UART and USB transports
 - Transport-independent protocol framing and messages
+- Portable 512-byte ADC-record format
 
 ## Building
 

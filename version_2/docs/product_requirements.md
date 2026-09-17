@@ -4,7 +4,7 @@
 
 - Product version: V2
 - Status: Frozen for milestone 1
-- Last updated: 2026-08-25
+- Last updated: 2026-09-10
 - Author: Benjamin Girard
 
 ## 1. Product scope and milestones
@@ -30,7 +30,8 @@ USB mass-storage access.
 - MAX-M10S GNSS acquisition and inter-device time alignment.
 - LSM6DSV IMU acquisition for orientation and movement detection.
 - Geophysical accelerometer analog card.
-- Bluetooth, if it remains useful after the wired workflow is validated.
+- Bluetooth access to the same V2 commands and product features exposed by the
+  wired interface, subject to the feature being implemented and available.
 - Power-loss recovery and field-oriented fault handling.
 
 ### Explicitly unsupported in V2 Rev-1 firmware
@@ -137,6 +138,9 @@ report that behavior explicitly and must continue to detect acquisition overruns
 - The host can select an alternate channel mask and supported ADC rate.
 - When the requested stream exceeds transport capacity, firmware rejects it or negotiates an
   explicit reduced channel/preview configuration; it never silently drops data to fit the link.
+- When Bluetooth is implemented in milestone 2, it exposes the same command semantics as UART.
+  Its live stream may use an explicitly negotiated reduced channel mask, rate, or preview format
+  when measured Bluetooth bandwidth cannot carry the full requested stream.
 - The host application may save received laboratory data to the PC.
 - Host-side data capture includes frame sequence numbers, timestamps, validity flags, and metadata.
 

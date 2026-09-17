@@ -37,8 +37,11 @@ README.md                        Project overview and getting-started informatio
 shared/
 ├── kicad-libraries/             Shared schematic and footprint libraries
 ├── protocol/                    Cross-platform wire-protocol specification
+│   ├── protocol_code.md         Common protocol rules and transport parity
 │   ├── protocol_frame.md
-│   ├── protocol_types.md
+│   ├── protocol_types.md        Stable message and public type registry
+│   ├── protocol_commands.md     Detailed command and response semantics
+│   ├── adc_record.md            Shared transport/future-storage ADC record
 │   └── test_vectors/            Valid and invalid protocol examples
 ├── third_party/                 Pinned external dependencies
 └── tools/                       Repository-wide development utilities
@@ -66,6 +69,7 @@ version_2/
 │   │   ├── gnss/                MAX-M10S
 │   │   ├── imu/                 LSM6DSV
 │   │   └── gpio_expansion/      74HC/HCT595 shift register
+│   ├── data_format/             Portable acquisition-record serialization
 │   ├── protocol/                Firmware protocol encoder and decoder
 │   ├── transports/              UART, USB, and future byte transports
 │   ├── platform/
@@ -93,6 +97,7 @@ source architecture.
 | Magnetic-card SET/RESET pulse sequence, width, dead time, and settling policy | `firmware/analog_cards/magnetic/` |
 | Rev-1 18 V rail control and physical SET/RESET shift-register mapping | `firmware/boards/rev_1/` |
 | Register map or datasheet behavior for one IC | `firmware/drivers/<component>/` |
+| Packed ADC records shared by transports and future storage | `firmware/data_format/` |
 | ESP-IDF SPI, I2C, UART, GPIO, timer, or SDMMC adapter | `firmware/platform/esp32s3_devkit/` |
 | Message framing or serialization | `firmware/protocol/` |
 | USB, UART, or Bluetooth byte movement | `firmware/transports/` |
@@ -117,6 +122,7 @@ app_main
 ├── board
 └── application
     ├── acquisition / processing / storage
+    ├── data-format encoder
     └── communication task
         ├── protocol
         └── transport interface
@@ -131,6 +137,9 @@ board
 
 analog-card integrations
 └── component drivers
+
+data-format encoder
+└── portable C types and algorithms only
 
 transports
 └── platform services
@@ -149,11 +158,15 @@ Allowed dependencies:
 - `boards/` uses analog-card modules, component drivers, and platform services.
 - `analog_cards/` uses portable component interfaces and describes card-level
   topology or sequencing without knowing ESP32 GPIO numbers.
+- `data_format/` uses portable C types and algorithms only. It knows neither
+  UART framing nor FatFs/SD write policy.
 - `protocol/` uses portable C types and algorithms only.
 - `transports/` use their corresponding platform or third-party service and do
   not interpret application messages.
 - `drivers/` use portable callbacks and opaque contexts supplied during
-  initialization.
+  initialization. The AD7779 driver directly uses only the stateless
+  `platform_crc8_be()` platform primitive; its source still contains no
+  ESP-IDF types or headers.
 - `platform/esp32s3_devkit/` uses ESP-IDF and FreeRTOS APIs.
 
 Forbidden dependencies:
@@ -291,6 +304,7 @@ The platform layer is responsible for mechanisms such as:
 - ESP-IDF system, clock, and power initialization that the application must
   explicitly control.
 - GPIO, SPI, I2C, UART, SDMMC, USB, DMA, timer, and interrupt operations.
+- ROM-backed CRC primitives behind firmware-owned, ESP-IDF-free interfaces.
 - Monotonic time, delays, and critical sections.
 - ESP-IDF and FreeRTOS error translation.
 - DevKit-intrinsic resources and immutable constraints.
@@ -398,9 +412,27 @@ switch SD ownership at runtime. The exact fixed mux select/enable levels and
 USB2641 reset state belong to the Rev-1 board implementation and must be
 verified against the schematic and datasheets.
 
+### Portable ADC records
+
+`firmware/data_format/` owns the proposed portable 512-byte ADC record shared by
+milestone-1 UART capture, future Bluetooth capture, and future milestone-2 SD
+recording. It explicitly serializes record metadata and packed signed 24-bit
+samples without depending on the AD7779 driver, application queues, UART,
+Bluetooth, ESP-IDF, FatFs, or SD hardware.
+
+The 512-byte logical record size is independent of the acquisition task's RAM
+block size and the storage task's eventual multi-record filesystem write size.
+The draft byte contract and unresolved review decisions are kept in
+`shared/protocol/adc_record.md`.
+
 ## Communication architecture
 
 UART, USB, Bluetooth, and future transports carry one application protocol.
+Every enabled command transport exposes the same command meanings. Feature
+availability is reported explicitly and does not depend on whether a request
+arrived through UART or Bluetooth. A constrained link may negotiate a reduced
+live stream profile without changing the scientific ADC acquisition settings or
+silently dropping data.
 
 ```text
 Host application
@@ -444,8 +476,10 @@ a dedicated debug channel or an explicitly separate framing/channel mechanism.
 `shared/protocol/` is the contract between firmware and the host application. It
 contains or will contain:
 
+- Common protocol invariants and transport-parity rules.
 - Protocol version and compatibility rules.
 - Frame and message layouts.
+- Detailed command, response, and state-transition semantics.
 - Message identifiers and stable status codes.
 - Byte order and checksum/CRC definitions.
 - Units, scaling, and invalid-value representations.
@@ -576,11 +610,12 @@ or implementation.
 | Analog-card detection | Yes | Yes | Partial: bounded calibrated analog-ID measurement | Partial: slot 1 magnetic-card voltage |
 | Magnetic analog card | Yes | No | No | No |
 | Geophysical accelerometer card | Yes | No | No | No |
-| Shared protocol specification | Yes | No | No | N/A |
+| Shared protocol specification | Yes | Draft proposal | No | N/A |
+| Portable ADC-record format | Yes | Draft proposal | No | N/A |
 | Firmware protocol implementation | Yes | No | No | No |
 | UART transport | Yes | Yes | Yes | No |
 | USB transport | Yes | No | No | No |
-| Host application | Directory only | No | No | No |
+| Host application | Yes | Organization only | No | No |
 | Automated tests and continuous integration | No | No | No | No |
 
 Update this table when an interface becomes usable, an implementation builds and

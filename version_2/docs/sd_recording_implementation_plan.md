@@ -5,7 +5,7 @@
 - Product: Geophysical Acquisition Module V2
 - Hardware: V2 Rev-1 with ESP32-S3 DevKitC
 - Status: Draft implementation plan
-- Purpose: Track the implementation of card-aware ADC recording to SD with Bluetooth control
+- Purpose: Track card-aware ADC recording to SD and the common V2 protocol over Bluetooth
 
 ## How to use this checklist
 
@@ -50,7 +50,8 @@ Host decoder and scientific export
 ### Step 1: Confirm the primary workflow
 
 - [ ] Confirm that SD recording is a primary product requirement.
-- [ ] Confirm that Bluetooth is initially used for control and status rather than full-rate raw streaming.
+- [ ] Confirm that Bluetooth exposes the common V2 command set, including live streaming with an
+      explicit reduced profile when the full stream does not fit measured bandwidth.
 - [ ] Confirm that recognized installed analog cards determine the default recording channel mask.
 - [ ] Confirm whether users may disable a subset of available channels.
 - [ ] Confirm that no supported card means recording cannot start.
@@ -403,19 +404,23 @@ Host decoder and scientific export
 - [ ] Verify that earlier complete records remain extractable.
 - [ ] Verify that every damaged tail is detected and reported.
 
-## Phase 11: Implement Bluetooth control
+## Phase 11: Implement the Bluetooth protocol transport
 
-### Step 29: Define Bluetooth control messages
+### Step 29: Bind Bluetooth to the common V2 protocol
 
-- [ ] Report device and firmware information.
-- [ ] Report detected cards and available channel mappings.
-- [ ] Get the current acquisition configuration.
-- [ ] Set supported sample rates and gains while stopped.
-- [ ] Start an SD recording.
-- [ ] Stop an SD recording.
-- [ ] Report current recording state and session identifier.
-- [ ] Report SD capacity and storage status.
-- [ ] Report sticky errors and counters.
+- [ ] Reuse `protocol_code.md`, `protocol_frame.md`, `protocol_types.md`, and
+      `protocol_commands.md`; do not define Bluetooth-only command meanings.
+- [ ] Support discovery, card information, status, acquisition configuration,
+      streaming, recording, magnetic pulse, and error operations when their
+      corresponding product features are enabled.
+- [ ] Return the same stable result for the same command and device state over
+      UART and Bluetooth.
+- [ ] Define the Bluetooth service/channel binding and transport fragmentation.
+- [ ] Measure usable bandwidth on representative peer devices.
+- [ ] Negotiate or reject the requested stream profile explicitly; never cut a
+      512-byte record or silently omit conversions.
+- [ ] Define the approved source-sequence representation before enabling a
+      decimated live stream.
 
 ### Step 30: Preserve resource ownership
 
@@ -455,6 +460,10 @@ Host decoder and scientific export
 - [ ] Test partial final records.
 - [ ] Test automatic segment transitions.
 - [ ] Test Bluetooth disconnect and reconnect.
+- [ ] Exercise every enabled command through both UART and Bluetooth and compare
+      the resulting semantics.
+- [ ] Verify that a reduced Bluetooth live stream reports its delivered channel
+      mask, rate, and source-sequence step.
 - [ ] Decode every resulting file on the host.
 
 ### Step 33: Run fault-injection tests

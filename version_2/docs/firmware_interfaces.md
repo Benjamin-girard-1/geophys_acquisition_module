@@ -144,6 +144,17 @@ context.
   notifications/queues rather than polling delays.
 - UTC mapping is a separate milestone-2 service and never changes stored monotonic timestamps.
 
+### CRC
+
+- The ESP32-S3 platform exposes stateless CRC-8 big-endian and CRC-32 little-endian primitives
+  without exposing ESP-IDF headers to their callers.
+- Both operations accept a raw initial or previously returned remainder and return the raw updated
+  remainder without applying a final XOR. The platform wrapper compensates for the complements
+  performed internally by the ESP ROM API, so buffers can be processed incrementally.
+- `platform_crc8_be()` uses polynomial `0x07` and provides the AD7779 pair-frame CRC calculation.
+- `platform_crc32_le()` uses the reflected IEEE polynomial `0x04C11DB7`. It is not CRC-32C and is
+  not used by the V2 protocol, whose checksum implementation remains deferred.
+
 ## 5. Board-level interface
 
 `boards/rev_1/board.h` is the only entry to Rev-1 hardware. It exposes product operations and the
@@ -356,18 +367,20 @@ Interface-level decisions:
 | Message | Direction | Purpose |
 |---|---|---|
 | `HELLO/DEVICE_INFO` | Both | Negotiate protocol and report firmware/hardware identity |
-| `CAPABILITIES` | Device → host | Report cards, channels, gains, rates, and enabled features |
+| `GET_CARD_INFO/CARD_INFO` | Both | Report cards, channels, gains, rates, and card-dependent features |
 | `GET_CONFIG` | Host → device | Read the selected applied acquisition configuration |
 | `SET_CONFIG` | Host → device | Set stopped-state rate, channel mask, and gains |
-| `START_ACQUISITION` | Host → device | Start ADC and streaming |
-| `STOP_ACQUISITION` | Host → device | Stop streaming and return ADC to ready state |
-| `ADC_BLOCK` | Device → host | Carry packed 24-bit samples and per-frame validity |
+| `START_STREAMING` | Host → device | Start ADC when needed and begin an explicit live stream profile |
+| `STOP_STREAMING` | Host → device | Stop live delivery and stop ADC only when no other consumer needs it |
+| `ADC_RECORD` | Device → host | Carry packed 24-bit samples and correlated validity information |
 | `GET_STATUS/STATUS` | Both | Report state, card presence, counters, and sticky faults |
 | `PULSE_REQUEST/PULSE_RESULT` | Both | Execute on-demand SET, RESET, or diagnostic pulse |
-| `ERROR` | Device → host | Report asynchronous stable error/event information |
+| `ERROR_EVENT` | Device → host | Report asynchronous stable error/event information |
 
-Storage, GNSS, IMU, Bluetooth, and USB-mass-storage messages are not part of milestone 1. New
-message types extend V2 without changing the existing frame envelope.
+Storage, GNSS, IMU, and USB-mass-storage messages are not part of milestone 1.
+The Bluetooth transport binding is also deferred, but when added it reuses the
+same V2 messages. New message types extend V2 without changing the existing
+frame envelope.
 
 ## 11. Initialization and shutdown order
 
@@ -402,7 +415,12 @@ electrically safe.
 - `task_imu` owns LSM6DSV sampling and publishes low-rate orientation/movement records.
 - GNSS, IMU, housekeeping, ADC, and system events remain separate timestamped streams.
 - `task_processing` is created only if measured CPU work or latency justifies a separate task.
-- Bluetooth reuses the V2 message layer and does not create a second command protocol.
+- Bluetooth exposes the same V2 command semantics as UART and does not create a
+  second command protocol. Feature availability is independent of the command
+  transport.
+- A Bluetooth live stream may use only an explicitly accepted reduced channel
+  mask, rate, or preview representation. It never silently truncates records or
+  changes the ADC acquisition configuration to fit the radio link.
 
 ## 13. Interface acceptance criteria
 
