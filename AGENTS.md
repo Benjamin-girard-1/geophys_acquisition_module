@@ -11,8 +11,6 @@ For every task, first read:
 1. `README.md` for the current repository overview and implementation status.
 2. `ARCHITECTURE.md` for module responsibilities, dependency direction, and
    where new files belong.
-3. `version_2/docs/product_requirements.md` for the frozen milestone scope and
-   product behavior.
 
 Then read the documents relevant to the task:
 
@@ -21,8 +19,7 @@ Then read the documents relevant to the task:
   `version_2/docs/firmware_interfaces.md`.
 - Firmware implementation or progress review:
   `version_2/docs/firmware_implementation_checklist.md`.
-- Protocol or host-interface work: `shared/protocol/protocol_frame.md` and
-  `shared/protocol/protocol_types.md`.
+- Protocol or host-interface work: `shared/protocol/protocol.md`.
 - Component-driver work: the relevant local datasheet and schematic sheet.
   Vendor PDF datasheets are intentionally untracked under
   `version_2/docs/datasheets/`.
@@ -36,8 +33,9 @@ DevKit is an immutable platform component. The custom carrier PCB, its wiring,
 and its revision-specific behavior belong under `version_2/firmware/boards/`
 and `version_2/hardware/pcb/`.
 
-The Version 2 firmware is currently scaffolding and is not yet buildable or
-hardware-verified. Preserve the existing layered structure:
+The Version 2 firmware builds, but acquisition, protocol, storage, Bluetooth,
+and host runtime behavior remain incomplete and are not fully hardware-verified.
+Preserve the existing layered structure:
 
 - `main/`: composition and startup only.
 - `app/`: product behavior, tasks, queues, and resource ownership.
@@ -54,18 +52,16 @@ hardware-verified. Preserve the existing layered structure:
 - `shared/protocol/`: wire contract shared by firmware and host software.
 - `version_2/host_app/`: host-only acquisition and validation software.
 
-## Current product boundary
+## Current protocol boundary
 
-Milestone 1 is laboratory validation of both magnetic-card slots using all
-eight synchronized AD7779 channels by default at 1 kSPS. It includes configurable
-sample rate and gain, UART-to-USB PC streaming, host visualization/capture,
-on-demand SET/RESET, explicit faults, and safe startup/shutdown behavior.
+`shared/protocol/protocol.md` is the sole authority for the wire protocol and
+the command features it exposes. `version_2/docs/product_requirements.md` is a
+historical planning document and is not authoritative. Implementation progress
+is tracked separately; the presence of a command in the protocol does not mean
+that its firmware, hardware, or host behavior is already implemented.
 
-Milestone 1 does not initialize or create runtime resources for SD recording,
-GNSS, IMU, Bluetooth, processing, or USB mass storage. Those are milestone-2 or
-later work unless the user explicitly changes the scope. The SD mux stays fixed
-to the ESP32 and the USB2641 stays reset/isolated; do not create runtime SD/USB
-ownership switching.
+The SD mux stays fixed to the ESP32 and the USB2641 stays reset/isolated; do not
+create runtime SD/USB ownership switching.
 
 ## Non-negotiable firmware rules
 
@@ -86,8 +82,9 @@ ownership switching.
   each selected ADC sample into exactly three bytes on the wire.
 - Never hide data loss. Preserve sequence gaps and expose overflow/error
   counters.
-- SET and RESET are on-demand operations only and must never be active
-  simultaneously. Mark pulse and settling samples transient/invalid.
+- SET and RESET must never be active simultaneously. The current protocol does
+  not expose a host pulse command; any automatic recording-start pulse remains
+  serialized by firmware and marks affected samples transient/invalid.
 - Never insert debug text into the binary data stream.
 - Do not invent GPIO assignments, active levels, voltage thresholds, delays,
   pulse widths, or bus limits. Resolve them from the board contract, schematic,
@@ -95,7 +92,8 @@ ownership switching.
 
 ## Document authority and conflicts
 
-- `product_requirements.md` defines product scope and required behavior.
+- `shared/protocol/protocol.md` defines the complete host-visible wire contract.
+- `product_requirements.md` is historical and is not authoritative.
 - `board_rev_1_contract.md` defines the firmware-visible Rev-1 hardware
   contract.
 - `firmware_interfaces.md` defines ownership, interfaces, data, queues, and

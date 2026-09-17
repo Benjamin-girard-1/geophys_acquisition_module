@@ -1,14 +1,14 @@
-# Protocol Command Definitions
+# Communication Protocol
 
 ## Document status
 
-- Scope: Command meanings shared by UART-to-USB and future Bluetooth control
-- Common rules: `protocol_core.md`
-- Message registry: `protocol_types.md`
+- Status: Authoritative wire protocol
+- Scope: Commands and data blocks shared by UART-to-USB and future Bluetooth control
+- Authority: This is the sole protocol-definition document
 
-This document defines what each command asks the device to do, which state may
-accept it, what its successful response must report, and how failure is made
-visible. Exact byte offsets will be added only after this semantic review.
+This document defines the complete wire protocol, including framing, byte order,
+CRC, command identifiers, command results, payload layouts, data blocks, command
+behavior, and failure visibility.
 
 ## Commands rules
 

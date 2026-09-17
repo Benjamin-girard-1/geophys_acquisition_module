@@ -2,18 +2,18 @@
 
 ## Document information
 
-- Status: Frozen for milestone 1
+- Status: Active interface guide; wire details defer to `shared/protocol/protocol.md`
 - Product version: V2
 - Initial target: two magnetic cards, eight synchronized AD7779 channels
 - Last updated: 2026-08-27
 
-## 1. Purpose and milestone-1 scope
+## 1. Purpose and implementation scope
 
 This document defines ownership and interface rules between firmware modules. It is intentionally
 small: an interface exists only when it prevents duplicated hardware access, hidden coupling, or
 ambiguous data.
 
-Milestone 1 runs:
+The first runnable acquisition slice uses:
 
 - `task_acquisition`
 - `task_communication`
@@ -21,8 +21,9 @@ Milestone 1 runs:
 - AD7779, 74HC595, card-detection, and magnetic-card modules
 - UART transport and V2 protocol
 
-Milestone 1 does not create storage, GNSS, IMU, processing, Bluetooth, or USB-mass-storage tasks.
-Their scaffolds may compile, but they do not initialize hardware or allocate runtime resources.
+Storage, GNSS, IMU, processing, and Bluetooth may remain scaffolded until their
+implementation phase. Their host-visible command meanings are nevertheless
+already fixed by `shared/protocol/protocol.md`.
 
 ## 2. Dependency and access rules
 
@@ -75,8 +76,7 @@ Rules:
 - Board/card layers preserve useful lower-layer context or replace it with the product resource and
   operation at their own boundary.
 - Public protocol errors use stable V2 error codes, not ESP-IDF or private driver numbers.
-- The per-call error context is not itself an error event. A reported error event additionally
-  contains source, severity, monotonic timestamp, and occurrence count.
+- The per-call error context is internal firmware state and is not serialized directly.
 - Repeated errors may be coalesced, but their count is never lost.
 - ADC data loss is represented by sequence discontinuity and counters, never only by a text log.
 
@@ -137,7 +137,11 @@ context.
 
 ### Time
 
-- The application time type is an unsigned 64-bit count of microseconds since boot.
+- The application and protocol monotonic-time type is an unsigned 64-bit container for the
+  ESP32-S3's 54-bit GPTimer count since platform initialization.
+- The GPTimer is crystal-clocked at a nominal 10 MHz, so every count represents one 100 ns unit; no
+  timestamp unit conversion is performed by the serializer.
+- At 10 MHz the 54-bit hardware counter wraps after approximately 57 years of continuous uptime.
 - Monotonic time never moves backward and does not represent UTC.
 - The `ADC_DRDY` falling edge is the milestone-1 timestamp reference for an ADC frame.
 - Delay operations are for initialization and short hardware sequencing only; application tasks use
@@ -152,8 +156,9 @@ context.
   remainder without applying a final XOR. The platform wrapper compensates for the complements
   performed internally by the ESP ROM API, so buffers can be processed incrementally.
 - `platform_crc8_be()` uses polynomial `0x07` and provides the AD7779 pair-frame CRC calculation.
-- `platform_crc32_le()` uses the reflected IEEE polynomial `0x04C11DB7`. It is not CRC-32C and is
-  not used by the V2 protocol, whose checksum implementation remains deferred.
+- `platform_crc32_le()` uses the reflected IEEE polynomial `0x04C11DB7`. Protocol callers use an
+  initial remainder of `0xFFFFFFFF` and apply a final XOR of `0xFFFFFFFF` to produce the
+  CRC-32/ISO-HDLC value defined by `shared/protocol/protocol.md`.
 
 ## 5. Board-level interface
 
@@ -243,7 +248,7 @@ The in-memory frame contains:
 | Field | Type/meaning |
 |---|---|
 | `sequence` | Unsigned 64-bit conversion-attempt counter |
-| `timestamp_us` | Unsigned 64-bit monotonic timestamp captured from `ADC_DRDY` |
+| `timestamp_100ns` | Unsigned 64-bit container holding the 54-bit monotonic timestamp captured from `ADC_DRDY`, in 100 ns units |
 | `channel_mask` | Eight-bit mask of configured channels |
 | `valid_mask` | Eight-bit mask of scientifically valid channel samples |
 | `samples[8]` | Signed 32-bit values containing sign-extended 24-bit ADC codes |
@@ -340,47 +345,46 @@ Buffer rules:
 
 ## 10. V2 protocol contract
 
-The authoritative byte layouts and test vectors belong in:
-
-- `shared/protocol/protocol_frame.md`
-- `shared/protocol/protocol_types.md`
-- `shared/protocol/test_vectors/`
+The authoritative byte layouts, identifiers, results, and command behavior are
+defined only by `shared/protocol/protocol.md`. Byte-exact examples belong in
+`shared/protocol/test_vectors/` and must not introduce additional protocol
+values.
 
 Interface-level decisions:
 
 - Binary framing only; debug logs use a different console/path.
 - Fixed byte order: little-endian.
-- Frame integrity: CRC-32C.
-- Maximum payload: 2048 bytes.
+- Frame integrity: CRC-32/ISO-HDLC.
+- Commands are exactly 64 bytes with a 48-byte payload area.
+- ADC data blocks are exactly 512 bytes with a 28-byte header, 480-byte sample payload, and
+  four-byte CRC.
 - Parser accepts partial frames, multiple frames per read, corrupt bytes, and resynchronization.
-- Every protocol frame contains magic, protocol version, message type, flags, payload length,
-  message sequence, monotonic timestamp when relevant, payload, and CRC.
-- Every host request contains a request identifier and receives exactly one response or a connection
-  reset.
-- Unknown message types return `UNSUPPORTED`.
-- Malformed messages return a protocol error without changing device configuration.
+- One host command may be outstanding. Its named reply is identified by command ID; no request
+  identifier is serialized.
+- Asynchronous `\DAT` blocks do not satisfy the outstanding command.
+- A request with an invalid CRC is silently discarded and detected by the host timeout.
+- Rejected commands make no partial state change.
 - Configuration changes are validated completely before any state is modified.
-- V1 frames are neither emitted nor accepted.
 
 ### Required milestone-1 messages
 
 | Message | Direction | Purpose |
 |---|---|---|
 | `HELLO/DEVICE_INFO` | Both | Negotiate protocol and report firmware/hardware identity |
-| `GET_CARD_INFO/CARD_INFO` | Both | Report cards, channels, gains, rates, and card-dependent features |
-| `GET_CONFIG` | Host → device | Read the selected applied acquisition configuration |
-| `SET_CONFIG` | Host → device | Set stopped-state rate, channel mask, and gains |
-| `START_STREAMING` | Host → device | Start ADC when needed and begin an explicit live stream profile |
-| `STOP_STREAMING` | Host → device | Stop live delivery and stop ADC only when no other consumer needs it |
-| `ADC_RECORD` | Device → host | Carry packed 24-bit samples and correlated validity information |
-| `GET_STATUS/STATUS` | Both | Report state, card presence, counters, and sticky faults |
-| `PULSE_REQUEST/PULSE_RESULT` | Both | Execute on-demand SET, RESET, or diagnostic pulse |
-| `ERROR_EVENT` | Device → host | Report asynchronous stable error/event information |
+| `DEVICE_GET_CONFIG` / `DEVICE_SET_CONFIG` → `DEVICE_CONFIG` | Both | Read or atomically apply device configuration and current state |
+| `DEVICE_GET_DIAGNOSTIC` → `DEVICE_DIAGNOSTIC` | Both | Read the defined subsystem indications and cumulative counters |
+| `STREAMING_START` → `STREAMING_START_RESULT` | Both | Start the requested live stream profile |
+| `STREAMING_STOP` → `STREAMING_STOP_RESULT` | Both | Stop live delivery and stop acquisition when recording does not need it |
+| `\DAT` | Device → host | Carry one complete 512-byte asynchronous ADC data block |
+| `RECORDING_START` → `RECORDING_START_RESULT` | Both | Start an SD recording using the defined name |
+| `RECORDING_STOP` → `RECORDING_STOP_RESULT` | Both | Finish the active recording |
+| `RECORDING_GET_NUMBER` → `RECORDING_NUMBER` | Both | Return the number of recordings |
+| `RECORDING_GET_INFO` → `RECORDING_INFO` | Both | Return information for one zero-based recording index |
+| `RECORDING_DELETE` → `RECORDING_DELETE_RESULT` | Both | Delete one inactive recording by name |
 
-Storage, GNSS, IMU, and USB-mass-storage messages are not part of milestone 1.
-The Bluetooth transport binding is also deferred, but when added it reuses the
-same V2 messages. New message types extend V2 without changing the existing
-frame envelope.
+UART-to-USB and Bluetooth use the same command meanings. Bluetooth transport
+binding and fragmentation may be implemented later without changing this
+command set.
 
 ## 11. Initialization and shutdown order
 
@@ -398,7 +402,7 @@ Startup:
 
 Orderly stop:
 
-1. Reject new configuration and pulse commands.
+1. Reject new configuration and recording commands.
 2. Complete or safely abort the current pulse.
 3. Stop ADC acquisition and drain/return owned blocks.
 4. Emit final counters if the host remains connected.

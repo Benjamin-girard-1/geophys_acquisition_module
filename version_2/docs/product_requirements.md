@@ -1,9 +1,12 @@
 # Version 2 Product Requirements
 
+> Historical planning document. This file is no longer authoritative. The
+> current wire contract is defined only by `shared/protocol/protocol.md`.
+
 ## Document information
 
 - Product version: V2
-- Status: Frozen for milestone 1
+- Status: Historical; superseded
 - Last updated: 2026-09-10
 - Author: Benjamin Girard
 

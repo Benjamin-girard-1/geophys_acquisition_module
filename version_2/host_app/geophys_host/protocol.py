@@ -1,5 +1,5 @@
-"""Fixed control-record and mixed-stream parser scaffold.
+"""Fixed 64-byte command and mixed-stream parser scaffold.
 
-Implementation is intentionally deferred until the shared protocol proposal is
-approved and golden vectors exist.
+Implementation is intentionally deferred until golden vectors derived from
+``shared/protocol/protocol.md`` exist.
 """

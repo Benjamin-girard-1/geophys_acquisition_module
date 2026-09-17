@@ -7,6 +7,10 @@
 - Status: Draft implementation plan
 - Purpose: Track card-aware ADC recording to SD and the common V2 protocol over Bluetooth
 
+This plan is not a wire-format authority. Optional file containers, event logs,
+and recovery mechanisms described here must not alter the commands or `\DAT`
+blocks defined by `shared/protocol/protocol.md`.
+
 ## How to use this checklist
 
 - Check an item only after its implementation and required verification are complete.
@@ -59,11 +63,11 @@ Host decoder and scientific export
 - [ ] Confirm that analog-card hot-plugging remains unsupported during acquisition.
 - [ ] Confirm that Bluetooth disconnection does not stop an active SD recording.
 - [ ] Confirm that gain, rate, or channel changes require stopping and starting a new file or segment.
-- [ ] Record all decisions in the product requirements.
+- [ ] Record every host-visible decision in `shared/protocol/protocol.md` before implementation.
 
 ### Step 2: Update the authoritative contracts
 
-- [ ] Update `product_requirements.md` with the revised milestone scope.
+- [ ] Keep `shared/protocol/protocol.md` as the sole wire-format and command authority.
 - [ ] Update `firmware_interfaces.md` with acquisition, storage, and Bluetooth ownership.
 - [ ] Update `ARCHITECTURE.md` with the recording-format module and dependency direction.
 - [ ] Update `board_rev_1_contract.md` with verified SDMMC configuration and timing.
@@ -72,35 +76,35 @@ Host decoder and scientific export
 
 ## Phase 2: Freeze the binary recording format
 
-### Step 3: Create the authoritative recording specification
+### Step 3: Implement the authoritative recording specification
 
-- [ ] Create a tracked recording-format specification outside the AD7779 driver.
-- [ ] Define the data-file magic value.
+- [ ] Use the `\DAT` block defined by `shared/protocol/protocol.md` outside the AD7779 driver.
+- [ ] Use the `\DAT` synchronization value for every stored data block.
 - [ ] Define the event-file magic value.
-- [ ] Define file-format and record-format versions.
+- [ ] Keep any optional file-container metadata separate from the fixed `\DAT` block layout.
 - [ ] Fix byte order to little-endian.
 - [ ] Fix the sample representation to signed packed 24-bit values.
-- [ ] Define the exact CRC-32C parameters.
-- [ ] Define exactly which bytes each CRC covers.
+- [ ] Use CRC-32/ISO-HDLC with the parameters defined by `protocol.md`.
+- [ ] Cover bytes 0 through 507 of every `\DAT` block.
 - [ ] Define channel ordering inside each sample payload.
-- [ ] Define zero-padding rules.
-- [ ] Define partial final-record behavior.
+- [ ] Emit only complete 480-byte sample payloads.
+- [ ] Define recording-stop handling for conversions that do not complete a block without creating a partial `\DAT` block.
 - [ ] Define corruption and resynchronization behavior.
 - [ ] Define file segmentation and recovery behavior.
 
 ### Step 4: Freeze the 28-byte sample-record header
 
 - [ ] Confirm the record magic field: 4 bytes.
-- [ ] Confirm the record-format version field: 1 byte.
 - [ ] Confirm the channel-mask field: 1 byte.
-- [ ] Confirm the conversion-count field: 1 byte.
-- [ ] Confirm the aggregate status-flags field: 1 byte.
-- [ ] Confirm the applied sample-rate field: 4 bytes.
-- [ ] Confirm the first conversion-sequence field: 8 bytes.
-- [ ] Confirm the first monotonic-timestamp field: 8 bytes.
+- [ ] Confirm the single status-code field: 1 byte.
+- [ ] Confirm the packed ADC-gain field: 2 bytes.
+- [ ] Confirm the payload-number field: 4 bytes.
+- [ ] Confirm the first source-conversion sequence field: 4 bytes.
+- [ ] Confirm the first monotonic-timestamp field: 8 bytes in 100 ns units.
+- [ ] Confirm the stored sample-period field: 4 bytes in 100 ns units.
 - [ ] Confirm that the total header size is exactly 28 bytes.
 - [ ] Confirm that the sample payload is exactly 480 bytes.
-- [ ] Confirm that the trailing CRC-32C is exactly 4 bytes.
+- [ ] Confirm that the trailing CRC-32/ISO-HDLC is exactly 4 bytes.
 - [ ] Confirm that every sample record is exactly 512 bytes.
 
 ### Step 5: Freeze the file/session metadata
@@ -119,7 +123,7 @@ Host decoder and scientific export
 - [ ] Store the calibration identifier.
 - [ ] Store the initial sequence and monotonic timestamp.
 - [ ] Reserve fields for UTC time, validity, and uncertainty.
-- [ ] Protect the file header with CRC-32C.
+- [ ] Protect any optional file header with CRC-32/ISO-HDLC.
 - [ ] Reserve space for backward-compatible metadata extensions.
 
 ## Phase 3: Create reference vectors and a host decoder
@@ -130,8 +134,8 @@ Host decoder and scientific export
 - [ ] Create a slot-1-only, four-channel, 40-conversion valid record.
 - [ ] Create a slot-2-only, four-channel, 40-conversion valid record.
 - [ ] Include zero, positive, negative, minimum, and maximum signed 24-bit samples.
-- [ ] Create a partial final record with canonical padding.
-- [ ] Create a record with an aggregate error flag.
+- [ ] Verify that an incomplete final block is not emitted as a `\DAT` block.
+- [ ] Create a block for each defined status-code value.
 - [ ] Create a record with an invalid magic value.
 - [ ] Create a record with an invalid CRC.
 - [ ] Create a truncated-record example.
@@ -141,8 +145,8 @@ Host decoder and scientific export
 
 - [ ] Read and validate the file/session header.
 - [ ] Locate the first 512-byte sample record.
-- [ ] Validate record magic and version.
-- [ ] Validate every record CRC-32C.
+- [ ] Validate the `\DAT` synchronization value.
+- [ ] Validate every block CRC-32/ISO-HDLC.
 - [ ] Decode signed packed 24-bit samples.
 - [ ] Reconstruct channel identities from the channel mask.
 - [ ] Reconstruct conversion sequences and timestamps.
@@ -159,24 +163,23 @@ Host decoder and scientific export
 - [ ] Reject an empty channel mask.
 - [ ] Calculate bytes per conversion as `channel_count * 3`.
 - [ ] Calculate conversions per record from the 480-byte payload.
-- [ ] Calculate used payload bytes and required padding.
 - [ ] Verify that mask `0x0F` produces 40 conversions with no padding.
 - [ ] Verify that mask `0xF0` produces 40 conversions with no padding.
 - [ ] Verify that mask `0xFF` produces 20 conversions with no padding.
-- [ ] Define deterministic behavior for future masks that require padding.
+- [ ] Reject channel masks not listed as valid by `protocol.md`.
 
 ### Step 9: Implement 512-byte record construction
 
 - [ ] Initialize a record without dynamic allocation.
-- [ ] Copy the applied channel mask and sample rate into the header.
+- [ ] Copy the applied channel mask, packed gain, and stored sample period into the header.
 - [ ] Store the first conversion sequence and timestamp.
 - [ ] Pack only enabled channels in ascending ADC-channel order.
 - [ ] Convert each `int32_t` ADC code to exactly three little-endian bytes.
 - [ ] Reject values outside the signed 24-bit range.
 - [ ] Preserve every accepted conversion in order.
-- [ ] Set aggregate record status flags when required.
-- [ ] Zero-fill unused payload bytes.
-- [ ] Calculate and append CRC-32C.
+- [ ] Set one of the data-block status codes already defined by `protocol.md`.
+- [ ] Do not emit a block until its 480-byte sample payload is complete.
+- [ ] Calculate and append CRC-32/ISO-HDLC.
 - [ ] Prove that the output is exactly 512 bytes.
 
 ### Step 10: Verify encoder/decoder compatibility
@@ -316,9 +319,9 @@ Host decoder and scientific export
 - [ ] Count every conversion lost because of buffer exhaustion.
 - [ ] Preserve the sequence discontinuity.
 - [ ] Set a sticky RAM fault and counter.
-- [ ] Set an aggregate gap flag on the next writable record.
+- [ ] Set the defined timing-error status on the next writable block when a gap must be reported.
 - [ ] Queue a detailed event when storage remains usable.
-- [ ] Report the fault through Bluetooth.
+- [ ] Expose the fault through the next defined configuration and diagnostic polls.
 
 ## Phase 9: Implement `task_storage`
 
@@ -365,7 +368,7 @@ Host decoder and scientific export
 - [ ] Stop accepting new recording configuration during shutdown.
 - [ ] Stop acquisition without abandoning owned buffers.
 - [ ] Drain all complete frames and records.
-- [ ] Finalize the partial final record using the specified padding policy.
+- [ ] Do not emit an incomplete final `\DAT` block.
 - [ ] Write and synchronize the remaining data.
 - [ ] Write final event/counter information.
 - [ ] Close both files.
@@ -373,11 +376,12 @@ Host decoder and scientific export
 
 ## Phase 10: Implement segmentation and recovery
 
-### Step 26: Implement file segmentation
+### Step 26: Decide whether file segmentation is required
 
-- [ ] Start a new segment after one hour or 1 GiB, whichever occurs first.
-- [ ] Give every segment a complete file header.
-- [ ] Preserve the session UUID across segments.
+- [ ] Keep each recording size representable by the 32-bit size field in `RECORDING_INFO`.
+- [ ] If internal segmentation is required, define it without changing the host-visible recording identity.
+- [ ] Give every internal segment a complete file header when file headers are used.
+- [ ] Preserve the session UUID across internal segments when session UUIDs are used.
 - [ ] Increment the segment number monotonically.
 - [ ] Preserve conversion sequence continuity across segments.
 - [ ] Synchronize and close the old segment before activating the new one.
@@ -408,11 +412,9 @@ Host decoder and scientific export
 
 ### Step 29: Bind Bluetooth to the common V2 protocol
 
-- [ ] Reuse `protocol_code.md`, `protocol_frame.md`, `protocol_types.md`, and
-      `protocol_commands.md`; do not define Bluetooth-only command meanings.
-- [ ] Support discovery, card information, status, acquisition configuration,
-      streaming, recording, magnetic pulse, and error operations when their
-      corresponding product features are enabled.
+- [ ] Reuse `shared/protocol/protocol.md`; do not define Bluetooth-only command meanings.
+- [ ] Support the `HELLO`, configuration, diagnostic, streaming, and recording
+      commands defined there when their corresponding product features are enabled.
 - [ ] Return the same stable result for the same command and device state over
       UART and Bluetooth.
 - [ ] Define the Bluetooth service/channel binding and transport fragmentation.
@@ -457,7 +459,7 @@ Host decoder and scientific export
 - [ ] Reject or isolate an unknown card safely.
 - [ ] Test every supported gain.
 - [ ] Test every supported sample rate.
-- [ ] Test partial final records.
+- [ ] Test that incomplete final blocks are not emitted.
 - [ ] Test automatic segment transitions.
 - [ ] Test Bluetooth disconnect and reconnect.
 - [ ] Exercise every enabled command through both UART and Bluetooth and compare
@@ -485,7 +487,7 @@ Host decoder and scientific export
 - [ ] Install both magnetic cards.
 - [ ] Acquire all eight channels synchronously at 1 kSPS.
 - [ ] Record continuously for eight hours.
-- [ ] Confirm that every data record passes CRC-32C.
+- [ ] Confirm that every data block passes CRC-32/ISO-HDLC.
 - [ ] Confirm that extracted sample counts match expected counts.
 - [ ] Confirm that there are no unexplained sequence gaps.
 - [ ] Confirm that every reported anomaly has a matching event entry.

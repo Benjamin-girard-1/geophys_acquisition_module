@@ -8,7 +8,7 @@
 #include "fw_time.h"
 
 #define ADC_FRAME_CHANNEL_COUNT 8U
-#define ADC_BLOCK_FRAME_CAPACITY 32U
+#define ADC_BLOCK_FRAME_CAPACITY 40U
 
 /** @brief Sequence assigned to every expected simultaneous ADC conversion. */
 typedef uint64_t adc_sequence_t;
@@ -61,7 +61,7 @@ typedef uint32_t adc_sample_flags_t;
  */
 typedef struct {
     adc_sequence_t sequence;
-    fw_monotonic_us_t timestamp_us;
+    fw_monotonic_100ns_t timestamp_100ns;
     uint8_t channel_mask;
     uint8_t valid_mask;
     int32_t samples[ADC_FRAME_CHANNEL_COUNT];
@@ -100,15 +100,15 @@ typedef struct {
     pulse_request_id_t request_id;
     pulse_card_slot_t card_slot;
     pulse_operation_t operation;
-    fw_monotonic_us_t requested_timestamp_us;
+    fw_monotonic_100ns_t requested_timestamp_100ns;
 } pulse_request_t;
 
 /** @brief Completed pulse command, including timing and affected ADC range. */
 typedef struct {
     pulse_request_t request;
     uint32_t configured_control_width_us;
-    fw_monotonic_us_t actual_timestamp_us;
-    fw_monotonic_us_t settling_end_timestamp_us;
+    fw_monotonic_100ns_t actual_timestamp_100ns;
+    fw_monotonic_100ns_t settling_end_timestamp_100ns;
     adc_sequence_t first_affected_sequence;
     adc_sequence_t last_affected_sequence;
     bool affected_sequence_range_valid;

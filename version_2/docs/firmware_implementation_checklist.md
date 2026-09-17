@@ -1,17 +1,18 @@
-# Version 2 Milestone-1 Firmware Implementation Checklist
+# Version 2 Firmware Implementation Checklist
 
 ## Document information
 
 - Product version: V2
 - Hardware target: V2-Rev-1 with ESP32-S3 DevKitC
-- Scope: laboratory acquisition and validation
+- Scope: staged implementation and validation
 - Status: Active planning checklist
 - Last updated: 2026-09-10
 
 ## How to use this checklist
 
-This document tracks implementation progress; it does not replace the product requirements, board
-contract, firmware interface contract, or architecture. Each item has only three tracking fields:
+This document tracks implementation progress; it does not replace
+`shared/protocol/protocol.md`, the board contract, the firmware interface
+contract, or the architecture. Each item has only three tracking fields:
 
 - **Complete:** the described code, document, measurement, or decision is finished and matches the
   stated acceptance condition.
@@ -59,7 +60,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | ID | Deliverable and acceptance condition | Complete |
 |---|---|:---:|
 | FW-06 | Define the common status/error categories without exposing `esp_err_t` outside the platform layer | [x] |
-| FW-07 | Implement monotonic microsecond time and the explicitly ISR-safe timestamp operation | [x] |
+| FW-07 | Implement crystal-clocked 10 MHz monotonic time with a 54-bit hardware count and an explicitly ISR-safe timestamp operation | [x] |
 | FW-08 | Implement generic GPIO input/output and interrupt services | [x] |
 | FW-09 | Implement blocking portable SPI callbacks with timeout and atomic bus access | [x] |
 | FW-10 | Implement UART byte transport with partial-read/write and timeout handling | [x] |
@@ -110,7 +111,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-35 | Make `task_acquisition` the sole owner of ADC configuration, streaming, and pulse timing | [ ] |
 | FW-36 | Assign one timestamp and monotonically increasing sequence to each simultaneous conversion frame | [ ] |
 | FW-37 | Preserve invalid frames, dropped counts, sequence gaps, ISR overflow, and pool exhaustion visibly | [ ] |
-| FW-38 | Accept gain, rate, and channel-mask changes only while acquisition is stopped and apply them atomically | [ ] |
+| FW-38 | Apply configuration changes atomically during stopped acquisition or live streaming, and reject them while recording | [ ] |
 | FW-39 | Demonstrate that acquisition continues servicing DRDY while UART output is blocked or disconnected | [ ] |
 
 ## 7. V2 protocol
@@ -118,12 +119,12 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
 | FW-40 | Freeze frame fields, message identifiers, stable error codes, and payload layouts in `shared/protocol` | [ ] | [ ] | |
-| FW-41 | Implement little-endian framing, 2048-byte payload limit, explicit serialization, and CRC-32C | [ ] | [ ] | |
+| FW-41 | Implement fixed 64-byte `\CMD` messages, fixed 512-byte `\DAT` blocks, explicit little-endian serialization, and CRC-32/ISO-HDLC | [ ] | [ ] | |
 | FW-42 | Implement incremental parsing and recovery from partial, concatenated, corrupt, and unknown frames | [ ] | [ ] | |
 | FW-43 | Pack each selected ADC code into exactly three little-endian two's-complement bytes | [ ] | [ ] | |
-| FW-44 | Implement the required Milestone-1 handshake, configuration, acquisition, status, pulse, and error messages | [ ] | [ ] | |
+| FW-44 | Implement the command and named-reply inventory defined by `shared/protocol/protocol.md` without adding wire values | [ ] | [ ] | |
 | FW-45 | Add shared valid/invalid golden vectors consumed independently by firmware and host tests | [ ] | [ ] | |
-| FW-46 | Verify every accepted request receives one response and malformed requests cannot partially change state | [ ] | [ ] | |
+| FW-46 | Verify one outstanding command, named replies, silent discard of CRC-invalid requests, and no partial state change | [ ] | [ ] | |
 
 ## 8. UART streaming and host application
 
@@ -134,37 +135,37 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-49 | Negotiate/reject stream configurations that exceed measured link capacity; never silently thin data | [ ] | [ ] | |
 | FW-50 | Adapt the proven V1 host workflow to the V2 protocol without importing an absolute local-path dependency | [ ] | [ ] | |
 | FW-51 | Display both cards' axes and thermistors, validity, counters, and visible sequence gaps | [ ] | [ ] | |
-| FW-52 | Support host gain/rate/channel controls, start/stop, status, and PC-side capture | [ ] | [ ] | |
+| FW-52 | Support host configuration, streaming, diagnostic polling, recording commands, and PC-side live capture | [ ] | [ ] | |
 | FW-53 | Reconnect and restart safely after host disconnect without requiring a reboot | [ ] | [ ] | |
 
-## 9. On-demand magnetic SET/RESET
+## 9. Magnetic SET/RESET
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
-| FW-54 | Implement explicit per-slot SET, RESET, and diagnostic SET-then-RESET requests; never run them periodically | [ ] | [ ] | |
-| FW-55 | Enforce one outstanding pulse operation, SET/RESET mutual exclusion, and minimum dead time | [ ] | [ ] | |
+| FW-54 | Implement the firmware-controlled pulse required before recording; do not expose an undefined host pulse command | [ ] | [ ] | |
+| FW-55 | Serialize pulse operation with acquisition and enforce SET/RESET mutual exclusion and minimum dead time | [ ] | [ ] | |
 | FW-56 | Enable the 18 V pulse path only for a known magnetic card and return every control to its safe state | [ ] | [ ] | |
-| FW-57 | Record requested/actual timing, result, settling end, and first/last affected sequence | [ ] | [ ] | |
+| FW-57 | Record actual pulse timing, result, settling end, and first/last affected sequence internally | [ ] | [ ] | |
 | FW-58 | Mark every pulse-active and settling frame transient/invalid without losing its timestamp | [ ] | [ ] | |
 | FW-59 | Measure approximately 2–3 µs sensor-strap current pulse and establish safe recharge/settling values | [ ] | [ ] | |
 
-## 10. Fault handling and Milestone-1 acceptance
+## 10. Fault handling and system acceptance
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
-| FW-60 | Report stable error code, source, severity, timestamp, detail, and occurrence count | [ ] | [ ] | |
+| FW-60 | Implement the `DEVICE_DIAGNOSTIC` fields and counters already defined by the protocol without assigning the TBA subsystem values | [ ] | [ ] | |
 | FW-61 | Keep communication diagnosable when ADC startup fails, while all unsafe outputs remain inactive | [ ] | [ ] | |
 | FW-62 | Inject ADC CRC, timeout, queue-overflow, missing-card, unsupported-command, and disconnect faults | [ ] | [ ] | |
 | FW-63 | Acquire both magnetic cards as eight synchronized channels at the default 1 kSPS | [ ] | [ ] | |
 | FW-64 | Verify configurable ADC rates through 16 kSPS while explicitly reporting any streaming limitation | [ ] | [ ] | |
 | FW-65 | Stream all eight packed channels at 1 kSPS for eight hours with no unexplained gap or silent loss | [ ] | [ ] | |
-| FW-66 | Complete all Milestone-1 product and interface acceptance criteria and attach evidence | [ ] | [ ] | |
+| FW-66 | Complete the current protocol, product, and interface acceptance criteria and attach evidence | [ ] | [ ] | |
 | FW-67 | Update `README.md`, `ARCHITECTURE.md` implementation status, and affected contracts to match verified behavior | [ ] | [ ] | |
 
-## Deferred work
+## Later implementation phases
 
-Do not expand Milestone 1 to complete these items. Revisit them after FW-66 unless the frozen product
-requirements are deliberately revised:
+The protocol already defines the host-visible behavior of these features, but
+their runtime implementation may follow the initial acquisition slice:
 
 - SD-card recording and recovery.
 - MAX-M10S GNSS parsing and UART-only inter-device time alignment.

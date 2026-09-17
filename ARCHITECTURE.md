@@ -37,11 +37,7 @@ README.md                        Project overview and getting-started informatio
 shared/
 ├── kicad-libraries/             Shared schematic and footprint libraries
 ├── protocol/                    Cross-platform wire-protocol specification
-│   ├── protocol_code.md         Common protocol rules and transport parity
-│   ├── protocol_frame.md
-│   ├── protocol_types.md        Stable message and public type registry
-│   ├── protocol_commands.md     Detailed command and response semantics
-│   ├── adc_record.md            Shared transport/future-storage ADC record
+│   ├── protocol.md              Complete authoritative wire contract
 │   └── test_vectors/            Valid and invalid protocol examples
 ├── third_party/                 Pinned external dependencies
 └── tools/                       Repository-wide development utilities
@@ -422,8 +418,7 @@ Bluetooth, ESP-IDF, FatFs, or SD hardware.
 
 The 512-byte logical record size is independent of the acquisition task's RAM
 block size and the storage task's eventual multi-record filesystem write size.
-The draft byte contract and unresolved review decisions are kept in
-`shared/protocol/adc_record.md`.
+The byte contract is defined by `shared/protocol/protocol.md`.
 
 ## Communication architecture
 
@@ -452,8 +447,8 @@ Host application
 - `protocol_frame` detects frame boundaries and checks framing integrity.
 - `protocol_messages` serializes and deserializes typed command and data
   payloads.
-- Protocol state eventually manages versions, sequence numbers, requests,
-  acknowledgements, and responses.
+- Protocol state allows one outstanding host command, matches its named reply,
+  and does not treat asynchronous `\DAT` blocks as command responses.
 
 Parsing accepts partial input and multiple frames in one buffer. It must not
 depend on USB packet boundaries, UART read sizes, or Bluetooth packet sizes.
@@ -551,8 +546,8 @@ normal operation
 
 Tasks must not access a resource until its platform, board, and driver
 initialization has completed successfully. Optional devices may be marked
-unavailable when product requirements permit degraded operation; required-device
-failures prevent acquisition from starting.
+unavailable when the current application contract permits degraded operation;
+required-device failures prevent acquisition from starting.
 
 ## Build and dependency conventions
 
@@ -610,8 +605,8 @@ or implementation.
 | Analog-card detection | Yes | Yes | Partial: bounded calibrated analog-ID measurement | Partial: slot 1 magnetic-card voltage |
 | Magnetic analog card | Yes | No | No | No |
 | Geophysical accelerometer card | Yes | No | No | No |
-| Shared protocol specification | Yes | Draft proposal | No | N/A |
-| Portable ADC-record format | Yes | Draft proposal | No | N/A |
+| Shared protocol specification | Yes | Defined in `protocol.md` | No | N/A |
+| Portable ADC-record format | Yes | Defined in `protocol.md` | No | N/A |
 | Firmware protocol implementation | Yes | No | No | No |
 | UART transport | Yes | Yes | Yes | No |
 | USB transport | Yes | No | No | No |

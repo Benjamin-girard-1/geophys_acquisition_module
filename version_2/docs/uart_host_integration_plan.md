@@ -1,186 +1,134 @@
-# Host Communication Integration Scaffold and Review Plan
+# UART-to-USB Host Integration Plan
 
 ## Document status
 
-- Status: Draft for review
-- Scope: Milestone-1 UART control/live extraction and transport-compatible
-  design for future Bluetooth
-- Runtime implementation: Not started by this scaffold
-- Related proposals: `shared/protocol/protocol_code.md`,
-  `shared/protocol/protocol_frame.md`, `shared/protocol/protocol_types.md`,
-  `shared/protocol/protocol_commands.md`, and `shared/protocol/adc_record.md`
+- Status: Active implementation plan
+- Runtime implementation: Not started
+- Wire authority: `shared/protocol/protocol.md`
 
-This document explains the intended implementation sequence. It does not change
-the frozen milestone scope and does not enable milestone-2 Bluetooth or SD
-recording. The common protocol is being designed now so UART, future Bluetooth,
-and future SD files can reuse tested command and record semantics.
+This document describes how to implement the approved protocol without
+redefining its fields, identifiers, results, or behavior. UART-to-USB and future
+Bluetooth connections carry the same 64-byte commands and 512-byte data blocks.
 
-## Proposed component boundaries
+## Component boundaries
 
 ```text
 ADC_DRDY ISR
     -> task_acquisition
-        -> rich adc_frame_t blocks
-            -> portable ADC-record encoder
-                -> task_communication -> UART -> PC
-                -> future Bluetooth adapter -> PC or mobile host
-                -> future task_storage -> FatFs -> SD
+        -> adc_frame_t buffers
+            -> data_format/adc_record
+                -> task_communication -> UART-to-USB -> host
+                -> future Bluetooth transport -> host
+                -> task_storage -> SD card
 
-host -> UART or future Bluetooth -> fixed control record -> protocol dispatcher
-    -> validated application command queue
-        -> task_acquisition
-            -> result queue -> requesting connection
+host -> byte transport -> task_communication -> validated command
+    -> owning application task -> named reply -> requesting transport
 ```
 
-Responsibilities:
+- `drivers/adc/ad7779.*` handles AD7779 registers and raw conversion decoding.
+- `app/task_acquisition.*` owns ADC configuration, acquisition sequence,
+  timestamps, and data validity.
+- `data_format/adc_record.*` builds and validates complete 512-byte `\DAT`
+  blocks.
+- `protocol/protocol_frame.*` handles fixed 64-byte `\CMD` framing and stream
+  resynchronization.
+- `protocol/protocol_messages.*` handles typed command and reply payloads.
+- `transports/transport_uart.*` moves bytes and handles partial reads/writes.
+- `app/task_communication.*` owns the UART session, parser, dispatch, reply
+  scheduling, and `\DAT` routing.
+- `host_app/` independently implements the same codecs and connection policy.
 
-- `drivers/adc/ad7779.*`: AD7779 register behavior and raw conversion decoding.
-- `app/task_acquisition.*`: ADC ownership, sequence/timestamps, frame validity,
-  bounded buffers, and command serialization.
-- `data_format/adc_record.*`: portable 512-byte sample-record encoding only.
-- `protocol/protocol_frame.*`: fixed control-record encoding and incremental
-  parsing only.
-- `protocol/protocol_messages.*`: typed command/response payload codecs.
-- `transports/transport_uart.*`: UART bytes, partial reads/writes, and timeouts.
-- Future Bluetooth adapter: connection mechanics, packet fragmentation, and
-  backpressure without a separate command protocol.
-- `app/task_communication.*`: UART ownership, common parser dispatch, response
-  priority, and ADC-record routing.
-- `host_app/`: independent decoder, transport adapters, capture, and later UI.
+Protocol and data-format code do not directly operate UART, FreeRTOS, FatFs,
+board GPIO, or component drivers.
 
-Neither protocol nor data-format code calls UART, FreeRTOS, FatFs, board code,
-or component drivers.
+## Phase 1: Shared vectors
 
-## Scaffold added for review
+1. Create byte-exact vectors from `shared/protocol/protocol.md`.
+2. Cover every defined request and named reply.
+3. Cover four-channel and eight-channel `\DAT` blocks.
+4. Verify CRC-32/ISO-HDLC with `CRC("123456789") = 0xCBF43926`.
+5. Add invalid magic, direction, length, reserved-byte, padding, and CRC cases.
 
-The scaffold establishes file placement and proposed constants but deliberately
-does not add:
+Exit condition: firmware and host codecs can be tested against the same bytes.
 
-- CRC implementation.
-- Integer or signed-24 serialization helpers.
-- Record encoders or decoders.
-- Stream parser state machine.
-- Numeric magic values, message identifiers, or public status codes.
-- UART task or queue behavior.
-- Bluetooth service, task, or bandwidth policy.
-- Synthetic or real ADC streaming.
-- Host serial dependencies or executable commands.
-
-## Implementation phases after approval
-
-### Phase 1: Freeze bytes and vectors
-
-1. Resolve every checkbox in the shared protocol proposals.
-2. Assign stable magic values, versions, message identifiers, and status codes.
-3. Freeze exact CRC-32C parameters and a standard check vector.
-4. Freeze all control payload offsets and units.
-5. Generate valid and invalid golden vectors.
-
-Exit condition: independent firmware and host decoders can be judged against
-byte-exact expected results without referring to C structure layout.
-
-### Phase 2: Portable firmware codecs
+## Phase 2: Portable firmware codecs
 
 1. Implement explicit little-endian integer helpers.
-2. Implement signed 24-bit range checking, packing, and sign extension.
-3. Implement CRC-32C.
-4. Implement fixed control-record encode/decode.
-5. Implement the incremental control RX parser.
-6. Implement the 512-byte ADC-record builder and validator.
-7. Run host-native tests against every shared vector.
+2. Implement fixed 64-byte command encoding and validation.
+3. Implement incremental `\CMD` search and collection without allocation.
+4. Implement signed 24-bit sample packing and sign extension.
+5. Implement complete 512-byte data-block construction and validation.
+6. Use the platform IEEE CRC wrapper with the protocol initial and final XOR.
+7. Pass the shared vectors in host-native tests.
 
-Exit condition: portable code passes without ESP-IDF, FreeRTOS, UART, or ADC
-hardware.
+The firmware receives only `\CMD` requests. It silently discards a request with
+an invalid CRC. It never executes a partially validated command.
 
-### Phase 3: Host reference implementation
+## Phase 3: Host reference implementation
 
-1. Implement the same codecs independently in Python.
-2. Implement a mixed-stream incremental parser.
-3. Add deterministic synthetic streams with arbitrary read fragmentation.
-4. Add a CLI for device info, status, configuration, start, stop, and capture.
-5. Save validated 512-byte ADC records byte-for-byte.
-6. Add scientific export only after raw capture is trustworthy.
+1. Implement independent Python encoders and decoders.
+2. Implement a mixed-stream parser for 64-byte `\CMD` replies and 512-byte
+   asynchronous `\DAT` blocks.
+3. Test arbitrary fragmentation, concatenation, corrupt candidates, and boot
+   garbage.
+4. Allow one outstanding command and wait for its specific named reply ID.
+5. Continue processing `\DAT` blocks while waiting for that reply.
+6. Implement the `HELLO`, configuration, diagnostic, streaming, and recording
+   workflows defined by the protocol.
+7. Save validated `\DAT` blocks byte-for-byte.
 
-Exit condition: the host passes shared vectors and can decode a fragmented
-synthetic stream containing control and ADC records.
+Exit condition: the host can validate a fragmented synthetic mixed stream and
+can identify a timeout without retrying a state-changing command blindly.
 
-### Phase 4: Firmware UART vertical slice
+## Phase 4: Firmware UART vertical slice
 
-1. Initialize UART0 at the reported achieved baud.
-2. Create `task_communication` and fixed queues/buffers.
-3. Implement `HELLO`, `DEVICE_INFO`, `GET_STATUS`, and explicit errors.
-4. Add a deterministic synthetic ADC-record source.
-5. Implement start/stop commands around the synthetic stream.
-6. Verify partial UART writes and response priority between ADC records.
+1. Initialize the UART-to-USB bridge at the selected tested baud rate.
+2. Create fixed parser, reply, and data-block buffers.
+3. Implement `HELLO` and the five-second USB-session activity rule.
+4. Implement `DEVICE_GET_CONFIG` and `DEVICE_GET_DIAGNOSTIC` using snapshots
+   from the resource-owning tasks.
+5. Implement streaming start/stop around a deterministic synthetic data source.
+6. Verify that command replies are sent between complete `\DAT` blocks and that
+   partial UART writes resume from the correct byte.
 
-Exit condition: the PC performs a handshake, commands synthetic streaming,
-detects corruption/gaps, and saves records without real ADC involvement.
+Exit condition: the host establishes a session, polls configuration, controls a
+synthetic stream, detects corruption and sequence gaps, and captures valid
+blocks.
 
-### Phase 5: Real acquisition integration
+## Phase 5: Real acquisition
 
-1. Complete AD7779 start, frame-read, and stop transitions.
-2. Implement the minimal DRDY ISR and timestamp ring.
-3. Implement bounded acquisition blocks and counters.
-4. Replace the synthetic source with encoded real acquisition frames.
-5. Route stopped-state configuration and pulse requests through queues.
+1. Complete the minimal DRDY ISR and timestamp path.
+2. Complete bounded acquisition queues and counters.
+3. Replace synthetic conversions with AD7779 conversions.
+4. Build exactly 20-conversion eight-channel blocks or 40-conversion
+   four-channel blocks.
+5. Apply the requested stream decimation without changing the recording
+   acquisition configuration.
 6. Verify that UART backpressure never blocks acquisition.
 
-Exit condition: all eight channels stream at 1 kSPS with timestamps, sequences,
-validity, counters, and command handling.
+## Phase 6: Recording and Bluetooth
 
-### Phase 6: Future Bluetooth reuse
+1. Route recording commands to `task_storage`, the sole filesystem owner.
+2. Store the same complete `\DAT` block representation used by live streaming.
+3. Add Bluetooth as another byte transport without changing command meanings.
+4. Preserve USB priority and the five-second USB inactivity rule.
+5. Fragment and reassemble complete protocol records below the application
+   protocol when required by Bluetooth.
 
-1. Add the Bluetooth connection adapter without duplicating command handling.
-2. Reuse the approved control and ADC-record codecs.
-3. Measure usable bandwidth and transport fragmentation on the selected
-   Bluetooth mode and peer devices.
-4. Implement explicit stream-profile negotiation for channel selection and, if
-   approved, decimation or a separate preview format.
-5. Verify that every enabled command has the same meaning and result through
-   UART and Bluetooth.
+## Verification matrix
 
-Exit condition: Bluetooth can issue the common command set and deliver its
-reported stream profile without silent truncation or acquisition backpressure.
-
-This phase remains milestone 2 unless the product requirements are explicitly
-changed.
-
-### Phase 7: Future SD reuse
-
-1. Reuse the approved ADC-record encoder without changing its byte format.
-2. Keep logical 512-byte records separate from acquisition block sizing.
-3. Select multi-record filesystem write size from measurements.
-4. Add session/file metadata and power-loss recovery.
-
-This phase remains milestone 2 unless the product requirements are explicitly
-changed.
-
-## Initial verification matrix
-
-| Area | First verification |
+| Area | Required verification |
 |---|---|
-| Control codec | Golden vectors, invalid CRC, padding, and unknown type |
-| ADC codec | Signed limits, channel masks, partial record, and invalid CRC |
+| Command codec | Every command vector, invalid CRC, reserved bytes, length, and padding |
+| Data codec | Both supported masks, signed limits, all defined status values, and invalid CRC |
 | Parser | Fragmented, concatenated, corrupt, and boot-garbage streams |
-| Request handling | Exactly one correlated response per accepted request |
-| UART | Partial reads/writes and achieved baud report |
-| Bluetooth | Packet fragmentation, reconnects, and command parity when implemented |
-| Stream profile | Applied mask/rate/sequence step exactly match the command result |
-| Backpressure | Slow/disconnected host without acquisition blocking |
-| Data loss | Visible sequence gap and counters for every forced overflow |
-| Long run | Eight channels at 1 kSPS for eight hours |
+| Command handling | One outstanding command and exact named reply matching |
+| Retry handling | Read-only retry and state reconciliation before a state-changing retry |
+| UART | Partial reads/writes and measured achieved baud rate |
+| Streaming | Correct mask, decimation, sample period, timestamps, and source sequence |
+| Backpressure | Slow or disconnected host without acquisition blocking |
+| Recording | Same validated 512-byte blocks recovered from the SD card |
+| Bluetooth | Command parity, fragmentation, USB priority, and reconnect behavior |
 
-## Review gate
-
-No codec or runtime implementation should begin until the following are
-approved or revised:
-
-- [ ] Fixed 128-byte control-record size.
-- [ ] Fixed 512-byte ADC-record size and layout.
-- [ ] Direct coexistence of both record classes on one UART byte stream.
-- [ ] Common command semantics for UART and future Bluetooth.
-- [ ] Explicit reduced-stream negotiation and decimated-sequence representation.
-- [ ] Timestamp reconstruction policy.
-- [ ] Rare-error event and missing-conversion policy.
-- [ ] Message inventory and largest required control payload.
-- [ ] Proposed module placement and dependency direction.
+No implementation phase may add a command ID, result value, diagnostic value,
+or alternate frame without first updating and approving `protocol.md`.

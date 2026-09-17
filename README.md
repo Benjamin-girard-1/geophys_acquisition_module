@@ -17,17 +17,15 @@ AD7779 register, lifecycle, channel/gain, fixed output-rate, signed sample
 decoding, and conversion-frame validation foundations are implemented.
 Acquisition, protocol, and host integration remain in progress, and hardware
 verification is being completed incrementally.
-Draft scaffolding now documents common UART/future-Bluetooth command semantics,
-a proposed fixed 128-byte control record, and a portable 512-byte ADC record
-shared by live capture and future SD recording. These formats are not approved
-or implemented yet.
+The authoritative protocol now defines fixed 64-byte command messages and
+portable 512-byte ADC data blocks shared by live capture and SD recording. The
+wire contract is defined, while its firmware and host implementations remain
+scaffolded.
 
-Protocol review starts with
-[shared/protocol/protocol_code.md](shared/protocol/protocol_code.md), followed by
-the detailed command catalog in
-[shared/protocol/protocol_commands.md](shared/protocol/protocol_commands.md).
-The message registry, framing proposal, and ADC record are separate documents in
-the same directory.
+The complete wire contract is
+[shared/protocol/protocol.md](shared/protocol/protocol.md). It is the sole
+authority for framing, identifiers, results, command payloads, and ADC data
+blocks.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for module responsibilities, dependency
 rules, initialization order, and the detailed implementation-status table.

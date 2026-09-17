@@ -1,4 +1,5 @@
-"""UART-to-USB connection and request-correlation scaffold.
+r"""UART-to-USB connection and named-reply matching scaffold.
 
-Serial dependencies and runtime behavior are intentionally not selected yet.
+Only one command may be outstanding. Asynchronous ``\DAT`` blocks do not
+complete it. Serial dependencies and runtime behavior are not selected yet.
 """
