@@ -119,19 +119,19 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
 | FW-40 | Freeze frame fields, message identifiers, stable error codes, and payload layouts in `shared/protocol` | [ ] | [ ] | |
-| FW-41 | Implement fixed 64-byte `\CMD` messages, fixed 512-byte `\DAT` blocks, explicit little-endian serialization, and CRC-32/ISO-HDLC | [ ] | [ ] | |
-| FW-42 | Implement incremental parsing and recovery from partial, concatenated, corrupt, and unknown frames | [ ] | [ ] | |
+| FW-41 | Implement fixed 64-byte `\CMD` messages, fixed 512-byte `\DAT` blocks, explicit little-endian serialization, and CRC-32/ISO-HDLC | [ ] | [ ] | Partial 2026-09-17: 64-byte command codec and CRC verified natively and on Rev-1; `\DAT` remains open. |
+| FW-42 | Implement incremental parsing and recovery from partial, concatenated, corrupt, and unknown frames | [ ] | [ ] | Partial 2026-09-17: command parser passed every two-fragment split, concatenation, boot-garbage, and corrupt-CRC recovery tests. |
 | FW-43 | Pack each selected ADC code into exactly three little-endian two's-complement bytes | [ ] | [ ] | |
-| FW-44 | Implement the command and named-reply inventory defined by `shared/protocol/protocol.md` without adding wire values | [ ] | [ ] | |
-| FW-45 | Add shared valid/invalid golden vectors consumed independently by firmware and host tests | [ ] | [ ] | |
-| FW-46 | Verify one outstanding command, named replies, silent discard of CRC-invalid requests, and no partial state change | [ ] | [ ] | |
+| FW-44 | Implement the command and named-reply inventory defined by `shared/protocol/protocol.md` without adding wire values | [ ] | [ ] | Partial 2026-09-17: `HELLO`/`DEVICE_INFO` implemented. |
+| FW-45 | Add shared valid/invalid golden vectors consumed independently by firmware and host tests | [ ] | [ ] | Partial 2026-09-17: shared `HELLO`, `DEVICE_INFO`, and bad-CRC vectors consumed by C and Python tests. |
+| FW-46 | Verify one outstanding command, named replies, silent discard of CRC-invalid requests, and no partial state change | [ ] | [ ] | Partial 2026-09-17: CRC-invalid `HELLO` silently discarded on Rev-1; fragmented and concatenated requests passed. |
 
 ## 8. UART streaming and host application
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
-| FW-47 | Configure UART0 on GPIO43/GPIO44 at the reported target baud without power-management clock changes | [ ] | [ ] | |
-| FW-48 | Implement `task_communication` as the sole protocol/UART owner and return every consumed ADC block | [ ] | [ ] | |
+| FW-47 | Configure UART0 on GPIO43/GPIO44 at the reported target baud without power-management clock changes | [x] | [x] | 2026-09-17: flashed Rev-1 and completed CRC-valid `HELLO` exchanges at 921600 baud over `/dev/cu.usbserial-114120`. |
+| FW-48 | Implement `task_communication` as the sole protocol/UART owner and return every consumed ADC block | [ ] | [ ] | Partial 2026-09-17: task owns UART parsing/replies; ADC-block ownership remains open. |
 | FW-49 | Negotiate/reject stream configurations that exceed measured link capacity; never silently thin data | [ ] | [ ] | |
 | FW-50 | Adapt the proven V1 host workflow to the V2 protocol without importing an absolute local-path dependency | [ ] | [ ] | |
 | FW-51 | Display both cards' axes and thermistors, validity, counters, and visible sequence gaps | [ ] | [ ] | |

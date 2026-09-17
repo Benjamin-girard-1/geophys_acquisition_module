@@ -17,10 +17,12 @@ AD7779 register, lifecycle, channel/gain, fixed output-rate, signed sample
 decoding, and conversion-frame validation foundations are implemented.
 Acquisition, protocol, and host integration remain in progress, and hardware
 verification is being completed incrementally.
-The authoritative protocol now defines fixed 64-byte command messages and
-portable 512-byte ADC data blocks shared by live capture and SD recording. The
-wire contract is defined, while its firmware and host implementations remain
-scaffolded.
+The authoritative protocol defines fixed 64-byte command messages and portable
+512-byte ADC data blocks shared by live capture and SD recording. Fixed command
+framing, incremental stream recovery, CRC validation, and the
+`HELLO`/`DEVICE_INFO` UART vertical slice are implemented and verified on
+Rev-1 hardware. The remaining commands and ADC data blocks are still in
+progress.
 
 The complete wire contract is
 [shared/protocol/protocol.md](shared/protocol/protocol.md). It is the sole

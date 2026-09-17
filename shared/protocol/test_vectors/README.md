@@ -1,9 +1,12 @@
 # Protocol Test-Vector Plan
 
-This directory will contain byte-exact examples derived from the authoritative
-layout in `../protocol.md`. Firmware and host tests must consume the same files.
+This directory contains byte-exact examples derived from the authoritative
+layout in `../protocol.md`. Firmware and host tests consume the same files.
 
-Planned structure:
+The initial checked-in set covers `HELLO`, `DEVICE_INFO`, and CRC-invalid
+`HELLO`. Additional command and data-block vectors remain planned below.
+
+Structure:
 
 ```text
 test_vectors/
@@ -20,7 +23,7 @@ Each manifest entry will identify the command or data-block type, decoded
 fields, expected validation result, and purpose. It will not define values that
 are absent from `protocol.md`.
 
-The first command-vector set will cover:
+The complete command-vector set will cover:
 
 - Every request and named reply currently defined in `protocol.md`.
 - Empty and populated 48-byte payload areas.

@@ -2,9 +2,21 @@
 
 ## Status
 
-This directory contains organization-only scaffolding. There is no serial or
-Bluetooth connection, protocol codec, capture path, command-line interface,
-plot, or dependency configuration yet.
+This directory contains an initial independent 64-byte command codec, stream
+parser, serial `HELLO` client, and command-line `DEVICE_INFO` probe. Shared
+vectors and optional Rev-1 hardware smoke tests cover the implemented slice.
+Configuration, diagnostics, streaming, recording, Bluetooth, capture, and UI
+behavior remain scaffolded.
+
+Run the implemented probe with:
+
+```sh
+PYTHONPATH=version_2/host_app \
+python3 -m geophys_host.cli hello /dev/cu.usbserial-PORT
+```
+
+The serial client imports `pyserial` only when a physical connection is used;
+the portable codec and shared-vector tests have no third-party dependency.
 
 The first host milestone is a command-line reference implementation, not a
 graphical application. It will validate the shared protocol vectors, exercise a

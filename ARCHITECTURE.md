@@ -596,7 +596,7 @@ or implementation.
 | Acquisition task | Yes | No | No | No |
 | Processing task | Yes | No | No | No |
 | Storage task and fixed SD ownership | Partial | No | No | No |
-| Communication task | Yes | No | No | No |
+| Communication task | Yes | Partial: startup and `HELLO` dispatch | Partial: UART `HELLO`/`DEVICE_INFO` session | Partial: Rev-1 UART reply at 921600 baud |
 | Bluetooth task | Yes | No | No | No |
 | AD7779 driver | Yes | Partial | Partial: register map, lifecycle, channel/gain, fixed output-rate configuration, signed frame decoding, and header/status/pair-CRC validation | No |
 | LSM6DSV driver | Yes | No | No | No |
@@ -607,11 +607,11 @@ or implementation.
 | Geophysical accelerometer card | Yes | No | No | No |
 | Shared protocol specification | Yes | Defined in `protocol.md` | No | N/A |
 | Portable ADC-record format | Yes | Defined in `protocol.md` | No | N/A |
-| Firmware protocol implementation | Yes | No | No | No |
-| UART transport | Yes | Yes | Yes | No |
+| Firmware protocol implementation | Yes | Partial: command frame and `HELLO` codecs | Partial: incremental `\CMD` parser and `HELLO`/`DEVICE_INFO` | Partial: `HELLO` vectors exercised over Rev-1 UART |
+| UART transport | Yes | Yes | Yes | Partial: 921600-baud `HELLO` exchange |
 | USB transport | Yes | No | No | No |
-| Host application | Yes | Organization only | No | No |
-| Automated tests and continuous integration | No | No | No | No |
+| Host application | Yes | Partial: command codec and `HELLO` CLI | Partial: `DEVICE_INFO` probe and shared-vector tests | Partial: Rev-1 UART probe |
+| Automated tests and continuous integration | Partial | Partial: protocol-vector tests | Partial: native C and Python `HELLO` tests | N/A |
 
 Update this table when an interface becomes usable, an implementation builds and
 passes its software tests, or behavior has been verified on the Rev-1 hardware.

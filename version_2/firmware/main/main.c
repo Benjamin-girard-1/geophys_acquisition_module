@@ -1,5 +1,6 @@
 #include <stddef.h>
 
+#include "app.h"
 #include "board.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,6 +22,10 @@ void app_main(void)
     }
 
     if (board_init(&error) != FW_STATUS_OK) {
+        stop_in_safe_state();
+    }
+
+    if (app_start(&error) != FW_STATUS_OK) {
         stop_in_safe_state();
     }
 }

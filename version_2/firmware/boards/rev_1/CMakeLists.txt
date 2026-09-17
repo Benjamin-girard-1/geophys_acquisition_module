@@ -5,10 +5,10 @@ idf_component_register(
         "."
     REQUIRES
         adc
+        esp32s3_devkit
     PRIV_REQUIRES
         analog_cards
         magnetic
         acc_geoph
         shift_register
-        esp32s3_devkit
 )

@@ -6,6 +6,10 @@
 
 #include "ad7779.h"
 #include "fw_error.h"
+#include "platform_uart.h"
+
+#define BOARD_HARDWARE_VERSION UINT16_C(2)
+#define BOARD_HARDWARE_REVISION UINT16_C(1)
 
 typedef enum {
     BOARD_POWER_RAIL_3V3A = 0,
@@ -62,6 +66,14 @@ fw_status_t board_measure_card_id(
     board_card_slot_t slot,
     board_card_id_measurement_t *measurement,
     fw_error_context_t *error);
+
+/**
+ * @brief Bind and initialize the Rev-1 host UART without exposing its pins.
+ *
+ * The caller owns the returned UART instance and its runtime byte movement.
+ */
+fw_status_t board_host_uart_initialize(platform_uart_t **uart,
+                                       fw_error_context_t *error);
 
 /**
  * @brief Create the Rev-1 SPI2 connection and initialize one AD7779 instance.

@@ -115,6 +115,19 @@ Answer payload:
 | 27 | 1 | - | Protocol version |
 | 28 | 32 | 0x00...00 | Empty padding |
 
+Identity-field conventions:
+
+- The MAC address is serialized in canonical display order: the first octet
+  returned by the ESP32 factory base-MAC API is stored at offset 13.
+- Hardware version is the numeric product generation. V2 hardware reports
+  `0x0002`.
+- Hardware revision is the numeric PCB revision. Rev-1 reports `0x0001`.
+- Firmware version is an opaque unsigned 32-bit application version. The
+  current unreleased development firmware reports zero; no semantic-version
+  bit packing is implied by this field.
+- The current wire-protocol version is `0x01`. It changes only when an
+  incompatible wire-contract revision requires host compatibility handling.
+
 ### `DEVICE_GET_CONFIG` / `DEVICE_SET_CONFIG` -> `DEVICE_CONFIG`
 
 The command `GET_CONFIG` is used to read the current config and has an empty request. It return the structure as shown below. The command `SET_CONFIG` use the same structure as the answer but the payload is applied where applicable. The read only registers are not considered. After a `SET_CONFIG` command the device answer back with a `CONFIG` echo to see the applied values.

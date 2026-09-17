@@ -3,7 +3,8 @@
 ## Document status
 
 - Status: Active implementation plan
-- Runtime implementation: Not started
+- Runtime implementation: `HELLO` UART vertical slice verified on Rev-1;
+  remaining commands and streaming not started
 - Wire authority: `shared/protocol/protocol.md`
 
 This document describes how to implement the approved protocol without

@@ -3,7 +3,8 @@
 
 #include <stdint.h>
 
-/* Stable serialized values defined by shared/protocol/protocol.md. */
+#include "protocol_frame.h"
+
 typedef uint16_t protocol_command_id_t;
 typedef uint8_t protocol_command_result_t;
 
@@ -49,5 +50,36 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_RESULT_HARDWARE_FAULT        UINT8_C(0x0D)
 #define PROTOCOL_RESULT_INTERNAL_ERROR        UINT8_C(0x0E)
 #define PROTOCOL_RESULT_LIMIT_REACHED         UINT8_C(0x0F)
+
+#define PROTOCOL_VERSION_CURRENT              UINT8_C(0x01)
+#define PROTOCOL_DEVICE_INFO_PAYLOAD_SIZE_BYTES UINT8_C(16)
+#define PROTOCOL_DEVICE_MAC_SIZE_BYTES        UINT8_C(6)
+
+typedef enum {
+    PROTOCOL_MESSAGE_OK = 0,
+    PROTOCOL_MESSAGE_INVALID_ARGUMENT,
+    PROTOCOL_MESSAGE_UNEXPECTED_ID,
+    PROTOCOL_MESSAGE_UNEXPECTED_DIRECTION,
+    PROTOCOL_MESSAGE_UNEXPECTED_LENGTH,
+    PROTOCOL_MESSAGE_INVALID_RESULT,
+} protocol_message_status_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    uint8_t mac_address[PROTOCOL_DEVICE_MAC_SIZE_BYTES];
+    uint16_t hardware_version;
+    uint16_t hardware_revision;
+    uint32_t firmware_version;
+    uint8_t protocol_version;
+} protocol_device_info_t;
+
+protocol_message_status_t protocol_decode_hello_request(
+    const protocol_command_t *command);
+
+protocol_message_status_t protocol_encode_device_info_reply(
+    const protocol_device_info_t *device_info,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
 
 #endif /* GEOPHYS_PROTOCOL_MESSAGES_H */

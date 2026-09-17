@@ -12,6 +12,7 @@ idf_component_register(
         common
     PRIV_REQUIRES
         data_format
+        esp32s3_devkit
         freertos
         rev_1
         magnetic

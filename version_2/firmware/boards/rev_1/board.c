@@ -10,6 +10,7 @@
 #include "platform_gpio.h"
 #include "platform_spi.h"
 #include "platform_time.h"
+#include "platform_uart.h"
 
 static hc595_t s_shift_register;
 static platform_spi_bus_t *s_adc_spi_bus;
@@ -440,6 +441,36 @@ fw_status_t board_measure_card_id(
     measurement->maximum_mv = card_measurement.maximum_mv;
     measurement->sample_count = card_measurement.sample_count;
     return FW_STATUS_OK;
+}
+
+fw_status_t board_host_uart_initialize(platform_uart_t **uart,
+                                       fw_error_context_t *error)
+{
+    clear_error(error);
+    if (!s_board_initialized) {
+        return set_board_error(
+            error, FW_STATUS_NOT_INITIALIZED,
+            FW_ERROR_OPERATION_INITIALIZE,
+            (uint32_t)BOARD_REV1_HOST_UART_PORT);
+    }
+    if (uart == NULL) {
+        return set_board_error(
+            error, FW_STATUS_INVALID_ARGUMENT,
+            FW_ERROR_OPERATION_INITIALIZE,
+            (uint32_t)BOARD_REV1_HOST_UART_PORT);
+    }
+
+    const platform_uart_config_t config = {
+        .port = BOARD_REV1_HOST_UART_PORT,
+        .tx_pin = BOARD_REV1_GPIO_HOST_UART_TX,
+        .rx_pin = BOARD_REV1_GPIO_HOST_UART_RX,
+        .requested_baud_rate = BOARD_REV1_HOST_UART_DEFAULT_BAUD,
+        .rx_buffer_size_bytes = BOARD_REV1_HOST_UART_RX_BUFFER_SIZE_BYTES,
+        .data_bits = BOARD_REV1_HOST_UART_DATA_BITS,
+        .parity = BOARD_REV1_HOST_UART_PARITY,
+        .stop_bits = BOARD_REV1_HOST_UART_STOP_BITS,
+    };
+    return platform_uart_initialize(&config, uart, error);
 }
 
 static fw_status_t set_adc_shift_output(board_rev1_shift_output_t output,
