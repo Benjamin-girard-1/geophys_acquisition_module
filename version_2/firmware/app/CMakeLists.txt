@@ -11,6 +11,7 @@ idf_component_register(
     REQUIRES
         common
     PRIV_REQUIRES
+        data_format
         freertos
         rev_1
         magnetic

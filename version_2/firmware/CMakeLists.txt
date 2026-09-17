@@ -11,6 +11,7 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/drivers/gnss"
     "${CMAKE_CURRENT_LIST_DIR}/drivers/imu"
     "${CMAKE_CURRENT_LIST_DIR}/drivers/gpio_expansion/shift_register"
+    "${CMAKE_CURRENT_LIST_DIR}/data_format"
     "${CMAKE_CURRENT_LIST_DIR}/protocol"
     "${CMAKE_CURRENT_LIST_DIR}/transports"
     "${CMAKE_CURRENT_LIST_DIR}/platform/esp32s3_devkit"
