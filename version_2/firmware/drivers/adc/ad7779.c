@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "platform_crc.h"
+
 typedef struct {
     uint8_t address;
     uint8_t expected;
@@ -14,6 +16,8 @@ typedef struct {
 
 _Static_assert(AD7779_RAW_FRAME_BYTES == AD7779_FRAME_BYTES_TOTAL,
                "public and private AD7779 frame sizes must agree");
+_Static_assert(AD7779_CRC_POLYNOMIAL == PLATFORM_CRC8_BE_POLYNOMIAL,
+               "AD7779 CRC must match the platform CRC-8 polynomial");
 
 static const ad7779_reset_register_t s_reset_registers[] = {
     {AD7779_REG_CH_DISABLE, AD7779_CH_DISABLE_RESET_VALUE},
@@ -1027,25 +1031,6 @@ fw_status_t ad7779_decode_frame(
     return FW_STATUS_OK;
 }
 
-static uint8_t crc8(const uint8_t *data, size_t length)
-{
-    uint8_t crc = AD7779_CRC_INITIAL_VALUE;
-    size_t byte_index;
-
-    for (byte_index = 0U; byte_index < length; ++byte_index) {
-        uint8_t bit;
-
-        crc ^= data[byte_index];
-        for (bit = 0U; bit < 8U; ++bit) {
-            crc = (crc & UINT8_C(0x80)) != 0U
-                      ? (uint8_t)((uint8_t)(crc << 1) ^
-                                  AD7779_CRC_POLYNOMIAL)
-                      : (uint8_t)(crc << 1);
-        }
-    }
-    return crc;
-}
-
 static uint8_t frame_pair_crc(const uint8_t *even_channel_frame,
                               const uint8_t *odd_channel_frame)
 {
@@ -1064,7 +1049,8 @@ static uint8_t frame_pair_crc(const uint8_t *even_channel_frame,
     input[5] = odd_channel_frame[2];
     input[6] = odd_channel_frame[3];
 
-    return crc8(input, sizeof(input));
+    return platform_crc8_be(
+        AD7779_CRC_INITIAL_VALUE, input, sizeof(input));
 }
 
 static void validate_status_header(uint8_t header,

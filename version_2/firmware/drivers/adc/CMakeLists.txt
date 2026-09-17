@@ -5,4 +5,6 @@ idf_component_register(
         "."
     REQUIRES
         common
+    PRIV_REQUIRES
+        esp32s3_devkit
 )
