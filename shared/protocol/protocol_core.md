@@ -41,29 +41,6 @@ A limited Bluetooth link must not silently change the ADC acquisition that an
 SD recording or another consumer relies on. It may deliver a reduced view only
 after the requested stream profile is explicitly accepted or negotiated.
 
-## Stream-profile negotiation
-
-`START_STREAMING` identifies the requested delivery profile and whether a
-reduced profile is acceptable. The result reports the profile that will
-actually be delivered.
-
-The device has three valid outcomes:
-
-1. Accept the requested profile exactly.
-2. Accept a specifically reported reduced profile when the host allowed
-   negotiation.
-3. Reject the request with a stable reason when no acceptable profile fits.
-
-A reduced profile may use an explicit channel subset, a documented decimation
-factor, or a future preview representation. It must never be produced by
-cutting bytes from a valid record, silently omitting conversions, or presenting
-dropped data as a full-rate stream. Sequence numbers, delivered rate, channel
-mask, and overflow counters remain truthful.
-
-The current 512-byte ADC-record draft assumes consecutive source conversions.
-Before decimated Bluetooth streaming is approved, `adc_record.md` must define
-how the source sequence step is represented. Channel selection alone does not
-have this ambiguity.
 
 ## Request and response rules
 
@@ -111,7 +88,7 @@ have this ambiguity.
 
 | Document | Authority |
 |---|---|
-| `protocol_code.md` | Common principles, transport parity, lifecycle, and invariants |
+| `protocol_core.md` | Common principles, transport parity, lifecycle, and invariants |
 | `protocol_frame.md` | Record boundaries, headers, CRC coverage, parsing, and resynchronization |
 | `protocol_types.md` | Reusable wire types and the stable message/code registry |
 | `protocol_commands.md` | Detailed request, response, state, and error semantics for each command |
