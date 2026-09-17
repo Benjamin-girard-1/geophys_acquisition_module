@@ -33,7 +33,7 @@ A recording continues if its host connection disappears; live streaming stops.
 
 After a `HELLO` command the host will send `DEVICE_GET_CONFIG`. After that the host will send `RECORDING_GET_NUMBER` and will send the command `RECORDING_GET_INFO` a number of time require to get information about all the files.
 
-The command `DEVICE_GET_STATUS` is run every second to keep connection established.
+The command `DEVICE_GET_CONFIG` is run every second to keep connection established.
 
 This is the CRC-32 enforced in this protocol:
 |---|---|
@@ -167,7 +167,7 @@ Config payload structure:
 | 42 | 2 | R  | IMU roll: signed 16 bits, 0.01° per count, 0° being perfectly leveled |
 | 44 | 2 | R  | IMU pitch: signed 16 bits, 0.01° per count, 0° being perfectly leveled |
 | 46 | 2 | R  | IMU temperature: signed 16 bits, 0.01°C per count |
-| 47 | 1 | R  | SD card present: 0x00 not present; 0x01 present; 0x02 faulted |
+| 48 | 1 | R  | SD card present: 0x00 not present; 0x01 present; 0x02 faulted |
 | 49 | 2 | R  | ESP32 temperature: signed 16 bits, 0.01°C per count |
 | 51 | 1 | R  | Error! Check command diagnostic: 0x00 no error; 0x01 check diagnostic |
 | 52 | 8 | -  | Empty padding |
@@ -198,7 +198,7 @@ Using this command clears the byte 51 of config.
 | 4 | 2 | 0x00a4 | Command ID |
 | 6 | 1 | 0x01   | Command direction: 0x1 goes to the host |
 | 7 | 4 | 0x00000000 | Reserved |
-| 11 | 1 | 0x2a | Number of bytes in the payload |
+| 11 | 1 | 0x2c | Number of bytes in the payload |
 | 12 | 48 | - | Payload |
 | 60 | 4  | - | CRC32 byte 0 to 59 |
 
@@ -220,8 +220,8 @@ Answer payload:
 | 36 | 4 | ADC header-error counter |
 | 40 | 4 | Acquisition-overrun counter |
 | 44 | 4 | Dropped-conversion counter |
-| 46 | 4 | Storage-error counter |
-| 50 | 10 | Empty padding |
+| 48 | 4 | Storage-error counter |
+| 52 | 8 | Empty padding |
 
 ## Live streaming
 
@@ -489,9 +489,16 @@ The cache should be refreshed after:
 | 4 | 2 | 0x000a | Command ID |
 | 6 | 1 | 0x00 | Command direction: 0x0 goes to the device |
 | 7 | 4 | 0x00000000 | Reserved |
-| 11 | 1 | 0x00 | Number of bytes in the payload |
+| 11 | 1 | 0x03 | Number of bytes in the payload |
 | 12 | 48 | - | Payload |
 | 60 | 4 | - | CRC32 byte 0 to 59 |
+
+Command payload:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 12 | 1 | - | Command result |
+| 13 | 2 | - | Requested recording indice |
 
 #### Recording info semantics:
 
@@ -504,6 +511,8 @@ The cache should be refreshed after:
 | 11 | 1 | 0x30 | Number of bytes in the payload |
 | 12 | 48 | - | Payload |
 | 60 | 4 | - | CRC32 byte 0 to 59 |
+
+Recording info payload:
 
 | Offset | Size | Value | Notes |
 |---:|---:|:---|---|
