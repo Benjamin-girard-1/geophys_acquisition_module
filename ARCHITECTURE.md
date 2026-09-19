@@ -237,10 +237,10 @@ or explicit request interfaces.
 
 | Task | Intended responsibility | Current status |
 |---|---|---|
-| `task_acquisition` | Configure acquisition devices, wait for data-ready events, read samples or FIFOs, and timestamp data | Scaffolded |
+| `task_acquisition` | Configure acquisition devices, wait for data-ready events, read samples or FIFOs, and timestamp data | SD-recording and bounded UART live-record paths hardware exercised; DRDY-rate/sample-validity verification open |
 | `task_processing` | Calibration, filtering, derived channels, and event processing when workload justifies a separate task | Provisional scaffold |
-| `task_storage` | Own filesystem operations, recordings, buffered writes, flushes, and storage faults | Scaffolded |
-| `task_communication` | Decode protocol messages, dispatch commands, and encode responses | Scaffolded |
+| `task_storage` | Own filesystem operations, recordings, buffered writes, flushes, and storage faults | Implemented for SD recording; fault-injection tests open |
+| `task_communication` | Decode protocol messages, dispatch commands, encode responses, and send complete live records | Discovery, configuration, streaming, and recording commands implemented |
 | `task_bluetooth` | Manage Bluetooth connection state and asynchronous radio events without duplicating protocol behavior | Provisional scaffold |
 
 `task_processing` should remain an ordinary application module unless its CPU
@@ -396,8 +396,7 @@ The storage architecture crosses several layers:
   ownership and holds the USB2641 reset/isolated.
 - `platform` performs ESP-IDF SDMMC and filesystem operations.
 
-When milestone-2 storage is implemented, the firmware must model at least these
-storage states:
+The storage implementation models these states:
 
 - Unavailable or uninitialized.
 - Owned by the ESP32 for recording or playback.
@@ -410,9 +409,9 @@ verified against the schematic and datasheets.
 
 ### Portable ADC records
 
-`firmware/data_format/` owns the proposed portable 512-byte ADC record shared by
-milestone-1 UART capture, future Bluetooth capture, and future milestone-2 SD
-recording. It explicitly serializes record metadata and packed signed 24-bit
+`firmware/data_format/` owns the portable 512-byte ADC record shared by UART
+capture, future Bluetooth capture, and SD recording. It explicitly serializes
+record metadata and packed signed 24-bit
 samples without depending on the AD7779 driver, application queues, UART,
 Bluetooth, ESP-IDF, FatFs, or SD hardware.
 
@@ -593,12 +592,12 @@ or implementation.
 | ESP32-S3 DevKit platform services | Partial | Partial | Partial | Partial |
 | Rev-1 custom board integration | Yes | Partial | Partial | No |
 | Application startup and shared types | Partial | Partial | Partial: acquisition data contracts and stopped-device configuration state | Partial: configuration state exercised through Rev-1 UART |
-| Acquisition task | Yes | No | No | No |
+| Acquisition task | Yes | Partial | Partial: shared recording/live ADC lifecycle, minimal DRDY ISR, timestamp/sequence ring, bounded event batches, independent fixed live-record pool, decimation, and DAT production | Partial: Rev-1 delivered CRC-valid live and stored records while remaining command-responsive; captures settled to 1 kSPS, but startup still contained sequence loss, critical status, and saturated channels |
 | Processing task | Yes | No | No | No |
-| Storage task and fixed SD ownership | Partial | No | No | No |
-| Communication task | Yes | Partial: startup, discovery, and configuration dispatch | Partial: UART `HELLO`/`DEVICE_INFO` and `DEVICE_GET_CONFIG`/`DEVICE_SET_CONFIG` session | Partial: discovery and configuration replies at 921600 baud |
+| Storage task and fixed SD ownership | Yes | Yes | SDMMC/FatFs mount, catalog, fixed record pool, create/write/sync/close/delete/read, failure cleanup, and notification-driven bounded record draining | Partial: Rev-1 enumerated and deleted two existing files, then created, downloaded, and deleted a fresh ten-record file; catalog/count/info/delete behavior passed, while long-duration/removal tests remain open |
+| Communication task | Yes | Partial: startup, discovery, configuration, streaming, recording dispatch, complete DAT writes, and temporary file extraction | Partial: UART discovery, device configuration, live start/stop and bounded block ownership, all recording commands, and test-only `0xf000` closed-file reads | Partial: live start/stop, CRC-valid DAT delivery, disconnect expiry/reconnect, discovery/configuration, recording control, and stored-block extraction passed on Rev-1 |
 | Bluetooth task | Yes | No | No | No |
-| AD7779 driver | Yes | Partial | Partial: register map, lifecycle, channel/gain, fixed output-rate configuration, signed frame decoding, and header/status/pair-CRC validation | No |
+| AD7779 driver | Yes | Partial | Partial: register map, lifecycle, hardware plus SPI reset, tolerant post-reset polling with strict response validation, expected reset acknowledgement, channel/gain/reference setup, synchronized fixed output-rate configuration, one-line subordinate reads, signed frame decoding, and header/status/pair-CRC validation | Partial: after restoring the missing main +5 V supply, Rev-1 passed initialization and produced recording frames; actual DRDY rate and recorded frame status/data remain to be verified |
 | LSM6DSV driver | Yes | No | No | No |
 | MAX-M10S driver | Yes | No | No | No |
 | 74HC/HCT595 driver | Yes | Yes | Yes | No |
@@ -606,11 +605,11 @@ or implementation.
 | Magnetic analog card | Yes | No | No | No |
 | Geophysical accelerometer card | Yes | No | No | No |
 | Shared protocol specification | Yes | Defined in `protocol.md` | No | N/A |
-| Portable ADC-record format | Yes | Defined in `protocol.md` | No | N/A |
-| Firmware protocol implementation | Yes | Partial: command frame, discovery, and configuration codecs | Partial: incremental `\CMD` parser, `HELLO`/`DEVICE_INFO`, and device configuration messages | Partial: discovery and configuration vectors exercised over Rev-1 UART |
+| Portable ADC-record format | Yes | Defined in `protocol.md` | Complete encoder/validator plus host decoder and shared golden vector | Native C/Python tests |
+| Firmware protocol implementation | Yes | Partial: command frame, discovery, configuration, streaming, recording, and temporary extraction codecs | Partial: incremental `\CMD` parser, discovery/configuration/streaming/recording messages, and test-only `0xf000` file chunks | Partial: live start/stop plus interleaved DAT, discovery, configuration, recording commands, and stored-block retrieval exercised over Rev-1 UART |
 | UART transport | Yes | Yes | Yes | Partial: 921600-baud discovery and configuration exchange |
 | USB transport | Yes | No | No | No |
-| Host application | Yes | Partial: discovery/configuration command codecs and `HELLO` CLI | Partial: `DEVICE_INFO`/`DEVICE_CONFIG` probe and shared-vector tests | Partial: Rev-1 UART probe |
+| Host application | Yes | Partial: discovery/configuration/streaming/recording/extraction codecs, mixed-stream parsing, capture, and desktop GUI | Partial: manual USB/COM connection, recording catalog/actions, separate embedded live plots, named replies during interleaved data, continuity counters, and byte-exact capture | Partial: desktop recording actions and live transport passed on Rev-1, including CRC-valid blocks, decimation, simultaneous recording, and reconnect; physical channel labels/calibration remain open |
 | Automated tests and continuous integration | Partial | Partial: protocol-vector tests | Partial: native C and Python discovery/configuration tests | N/A |
 
 Update this table when an interface becomes usable, an implementation builds and

@@ -6,7 +6,7 @@
 - Hardware target: V2-Rev-1 with ESP32-S3 DevKitC
 - Scope: staged implementation and validation
 - Status: Active planning checklist
-- Last updated: 2026-09-17
+- Last updated: 2026-09-19
 
 ## How to use this checklist
 
@@ -105,25 +105,25 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 
 | ID | Deliverable and acceptance condition | Complete |
 |---|---|:---:|
-| FW-32 | Define ADC frame, block, status, flags, pulse request/result, and counter types from the interface contract | [ ] |
-| FW-33 | Implement the 64-entry DRDY timestamp ring and minimal falling-edge ISR | [ ] |
-| FW-34 | Implement eight fixed 32-frame blocks with free and ready queues; allocate everything before streaming | [ ] |
+| FW-32 | Define ADC frame, block, status, flags, pulse request/result, and counter types from the interface contract | [x] |
+| FW-33 | Implement the 64-entry DRDY event ring and minimal falling-edge ISR | [x] |
+| FW-34 | Implement 64 fixed 512-byte SD records with free and ready queues; allocate everything before recording | [x] |
 | FW-35 | Make `task_acquisition` the sole owner of ADC configuration, streaming, and pulse timing | [ ] |
-| FW-36 | Assign one timestamp and monotonically increasing sequence to each simultaneous conversion frame | [ ] |
+| FW-36 | Assign one timestamp and monotonically increasing sequence to each simultaneous conversion frame | [x] |
 | FW-37 | Preserve invalid frames, dropped counts, sequence gaps, ISR overflow, and pool exhaustion visibly | [ ] |
 | FW-38 | Apply configuration changes atomically during stopped acquisition or live streaming, and reject them while recording | [ ] |
 | FW-39 | Demonstrate that acquisition continues servicing DRDY while UART output is blocked or disconnected | [ ] |
 
-## 7. V2 protocol
+## 7. Wire protocol
 
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
 | FW-40 | Freeze frame fields, message identifiers, stable error codes, and payload layouts in `shared/protocol` | [ ] | [ ] | |
-| FW-41 | Implement fixed 64-byte `\CMD` messages, fixed 512-byte `\DAT` blocks, explicit little-endian serialization, and CRC-32/ISO-HDLC | [ ] | [ ] | Partial 2026-09-17: 64-byte command codec and CRC verified natively and on Rev-1; `\DAT` remains open. |
+| FW-41 | Implement fixed 64-byte `\CMD` messages, fixed 512-byte `\DAT` blocks, explicit little-endian serialization, and CRC-32/ISO-HDLC | [x] | [x] | 2026-09-19: native C/Python codecs pass; Rev-1 delivered complete CRC-valid 512-byte live blocks at eight-channel 1 kSPS and four-channel decimation by 5 with zero host parser errors. |
 | FW-42 | Implement incremental parsing and recovery from partial, concatenated, corrupt, and unknown frames | [ ] | [ ] | Partial 2026-09-17: command parser passed every two-fragment split, concatenation, boot-garbage, and corrupt-CRC recovery tests. |
-| FW-43 | Pack each selected ADC code into exactly three little-endian two's-complement bytes | [ ] | [ ] | |
-| FW-44 | Implement the command and named-reply inventory defined by `shared/protocol/protocol.md` without adding wire values | [ ] | [ ] | Partial 2026-09-17: `HELLO`/`DEVICE_INFO` and `DEVICE_GET_CONFIG`/`DEVICE_SET_CONFIG`/`DEVICE_CONFIG` implemented. |
-| FW-45 | Add shared valid/invalid golden vectors consumed independently by firmware and host tests | [ ] | [ ] | Partial 2026-09-17: shared discovery/configuration and bad-CRC vectors consumed by C and Python tests. |
+| FW-43 | Pack each selected ADC code into exactly three little-endian two's-complement bytes | [x] | [x] | 2026-09-17: signed extrema and shared eight-channel record pass independent C/Python decoding tests. |
+| FW-44 | Implement the command and named-reply inventory defined by `shared/protocol/protocol.md` without adding wire values | [ ] | [ ] | Partial 2026-09-19: discovery, configuration, streaming start/stop, all five recording commands, and temporary extraction are implemented; diagnostics remain open. |
+| FW-45 | Add shared valid/invalid golden vectors consumed independently by firmware and host tests | [ ] | [ ] | Partial 2026-09-17: command vectors plus a complete CRC-valid eight-channel `\DAT` vector are consumed by C and Python tests. |
 | FW-46 | Verify one outstanding command, named replies, silent discard of CRC-invalid requests, and no partial state change | [ ] | [ ] | Partial 2026-09-17: CRC-invalid `HELLO` silently discarded; fragmented/concatenated discovery and atomic ADC configuration echo passed on Rev-1. |
 
 ## 8. UART streaming and host application
@@ -131,12 +131,12 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | ID | Deliverable and acceptance condition | Complete | Tested | Evidence |
 |---|---|:---:|:---:|---|
 | FW-47 | Configure UART0 on GPIO43/GPIO44 at the reported target baud without power-management clock changes | [x] | [x] | 2026-09-17: flashed Rev-1 and completed CRC-valid `HELLO` exchanges at 921600 baud over `/dev/cu.usbserial-114120`. |
-| FW-48 | Implement `task_communication` as the sole protocol/UART owner and return every consumed ADC block | [ ] | [ ] | Partial 2026-09-17: task owns UART parsing and discovery/configuration replies; ADC-block ownership remains open. |
+| FW-48 | Implement `task_communication` as the sole protocol/UART owner and return every consumed ADC block | [x] | [x] | 2026-09-19: communication owns UART command/data writes and returns records to the independent 16-block live pool. Rev-1 delivered CRC-valid blocks with zero parser errors in full-rate and decimated probes. |
 | FW-49 | Negotiate/reject stream configurations that exceed measured link capacity; never silently thin data | [ ] | [ ] | |
-| FW-50 | Adapt the proven V1 host workflow to the V2 protocol without importing an absolute local-path dependency | [ ] | [ ] | |
-| FW-51 | Display both cards' axes and thermistors, validity, counters, and visible sequence gaps | [ ] | [ ] | |
-| FW-52 | Support host configuration, streaming, diagnostic polling, recording commands, and PC-side live capture | [ ] | [ ] | Partial 2026-09-17: independent host configuration codec and Rev-1 GET/SET/restore probe passed. |
-| FW-53 | Reconnect and restart safely after host disconnect without requiring a reboot | [ ] | [ ] | |
+| FW-50 | Adapt the proven earlier host workflow to the shared protocol without importing an absolute local-path dependency | [ ] | [ ] | Partial 2026-09-19: repository-local Python client implements exact named replies while interleaved `\DAT` blocks remain in flight; synthetic serial tests pass without an absolute path dependency. Hardware workflow verification remains open. |
+| FW-51 | Display both cards' axes and thermistors, validity, counters, and visible sequence gaps | [ ] | [ ] | Partial 2026-09-19: a dedicated desktop Live Stream tab shows all active raw channels, block status counts, corrupt-block counts, payload discontinuities, and missing source conversions. Verified physical axis/thermistor labels and calibration remain open. |
+| FW-52 | Support host configuration, streaming, diagnostic polling, recording commands, and PC-side live capture | [ ] | [ ] | Partial 2026-09-19: 30 Python tests pass. Rev-1 returned live start/stop replies and CRC-valid blocks at eight-channel 1 kSPS and four-channel decimation-by-5; streaming remained active while `livefix_test` was opened/closed on SD, then the test file was deleted. Diagnostics and calibrated scientific display remain open. |
+| FW-53 | Reconnect and restart safely after host disconnect without requiring a reboot | [ ] | [x] | 2026-09-19: a live session was closed without `STREAMING_STOP`; after the five-second firmware timeout, HELLO, live restart, and stop all succeeded without rebooting. Broader disconnect fault injection remains open. |
 
 ## 9. Magnetic SET/RESET
 
@@ -157,7 +157,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-61 | Keep communication diagnosable when ADC startup fails, while all unsafe outputs remain inactive | [ ] | [ ] | |
 | FW-62 | Inject ADC CRC, timeout, queue-overflow, missing-card, unsupported-command, and disconnect faults | [ ] | [ ] | |
 | FW-63 | Acquire both magnetic cards as eight synchronized channels at the default 1 kSPS | [ ] | [ ] | |
-| FW-64 | Verify configurable ADC rates through 16 kSPS while explicitly reporting any streaming limitation | [ ] | [ ] | |
+| FW-64 | Verify configurable ADC rates through 16 kSPS while explicitly reporting any streaming limitation | [ ] | [ ] | Partial 2026-09-19: an earlier `ADC_DRDY` scope trace measured about 61.5 us (16.26 kSPS). Current stored timestamps show approximately 16 kSPS for the first 80 conversions, then the configured 1 kSPS for the final 120. Resolve the startup transient and 32-conversion gap, confirm on the oscilloscope, and test the other presets. |
 | FW-65 | Stream all eight packed channels at 1 kSPS for eight hours with no unexplained gap or silent loss | [ ] | [ ] | |
 | FW-66 | Complete the current protocol, product, and interface acceptance criteria and attach evidence | [ ] | [ ] | |
 | FW-67 | Update `README.md`, `ARCHITECTURE.md` implementation status, and affected contracts to match verified behavior | [ ] | [ ] | |
@@ -167,7 +167,8 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 The protocol already defines the host-visible behavior of these features, but
 their runtime implementation may follow the initial acquisition slice:
 
-- SD-card recording and recovery.
+- Long-duration/full-card SD recording plus removal and recovery validation
+  (short Rev-1 create/write/sync/close/catalog/delete testing passes).
 - MAX-M10S GNSS parsing and UART-only inter-device time alignment.
 - LSM6DSV orientation and movement acquisition.
 - Geophysical accelerometer card support.

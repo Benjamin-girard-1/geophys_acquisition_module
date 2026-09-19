@@ -3,8 +3,9 @@
 ## Document status
 
 - Status: Active implementation plan
-- Runtime implementation: discovery and device-configuration UART slices
-  verified on Rev-1; remaining commands and streaming not started
+- Runtime implementation: discovery, device configuration, and recording UART
+  slices verified on Rev-1; host live-stream parser/capture/view implemented
+  and tested synthetically; firmware asynchronous streaming remains open
 - Wire authority: `shared/protocol/protocol.md`
 
 This document describes how to implement the approved protocol without

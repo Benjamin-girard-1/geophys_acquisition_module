@@ -19,7 +19,7 @@ The first runnable acquisition slice uses:
 - `task_communication`
 - Rev-1 `board`
 - AD7779, 74HC595, card-detection, and magnetic-card modules
-- UART transport and V2 protocol
+- UART transport and the shared protocol
 
 Storage, GNSS, IMU, processing, and Bluetooth may remain scaffolded until their
 implementation phase. Their host-visible command meanings are nevertheless
@@ -75,7 +75,7 @@ Rules:
   on success, and its `detail` field never contains a raw ESP-IDF error value.
 - Board/card layers preserve useful lower-layer context or replace it with the product resource and
   operation at their own boundary.
-- Public protocol errors use stable V2 error codes, not ESP-IDF or private driver numbers.
+- Public protocol errors use stable wire error codes, not ESP-IDF or private driver numbers.
 - The per-call error context is internal firmware state and is not serialized directly.
 - Repeated errors may be coalesced, but their count is never lost.
 - ADC data loss is represented by sequence discontinuity and counters, never only by a text log.
@@ -299,11 +299,13 @@ Rules:
 | Resource | Sole owner | Other users | Access mechanism |
 |---|---|---|---|
 | AD7779 configuration and streaming | `task_acquisition` | Communication/status | Acquisition command queue and status snapshot |
-| ADC frame/block pool | `task_acquisition` | `task_communication` | Free-block and ready-block queues |
+| SD recording files and 512-byte record pool | `task_storage` | `task_acquisition` / recording controller | Storage commands plus nonblocking free-record and ready-record queues |
+| Live-stream block delivery | `task_acquisition` | `task_communication` | Independent fixed live-record free/ready queues; communication returns every accepted record exactly once |
 | Pulse-command serialization and ADC validity window | `task_acquisition` | Communication | Acquisition command queue |
 | Magnetic SET/RESET sequence and card-specific timing | `analog_cards/magnetic` | `task_acquisition` | Magnetic-card operation interface and bound callbacks |
 | Rev-1 GPIO, rails, and shift-register image | `board` module | Acquisition/application | Board API |
 | UART transport and protocol parser | `task_communication` | Acquisition/application | Queues and immutable snapshots |
+| Recording lifecycle | recording controller | Communication, acquisition, storage | Storage-open → acquisition-start and acquisition-stop → storage-sync/close transactions |
 | Card-detection state | `board` / `card_detect` | Acquisition/communication | Board status snapshot |
 | Application lifecycle | `app` | Both tasks | Startup calls and control events |
 
@@ -311,14 +313,18 @@ Milestone-1 task rules:
 
 - `task_acquisition` has higher priority than `task_communication`.
 - `task_acquisition` blocks on DRDY notification or its command queue, never on UART transmission.
-- `task_communication` may block on UART and returns consumed ADC blocks to the free pool.
+- `task_storage` is the sole filesystem owner. Acquisition obtains one fixed
+  512-byte buffer without waiting, submits only complete records, and never
+  waits for an SD write or sync.
+- Live streaming uses its own fixed pool and never consumes or returns an SD
+  recording buffer. Acquisition never waits for a live buffer or UART write.
 - Gain, sample-rate, and channel-mask changes are applied atomically while
   acquisition is stopped or live streaming, and are rejected while recording.
   A live-streaming change is serialized through the acquisition command queue.
 - Pulse commands may execute during acquisition so affected frames can be marked.
 - Only one acquisition reconfiguration or pulse command is active at a time.
-- `task_processing`, `task_storage`, `task_bluetooth`, `task_gnss`, and `task_imu` are not created in
-  milestone 1.
+- `task_processing`, `task_bluetooth`, `task_gnss`, and `task_imu` are not
+  created in the current slice. `task_storage` is created for SD recording.
 
 ## 9. Queue and buffer contracts
 
@@ -327,8 +333,10 @@ Initial milestone-1 sizing:
 | Queue/pool | Producer | Consumer | Capacity | Full/empty behavior |
 |---|---|---|---:|---|
 | DRDY timestamp ring | `ADC_DRDY` ISR | Acquisition | 64 timestamps | Increment overflow count; preserve visible sequence gap |
-| Free ADC block pool | Communication returns blocks | Acquisition | 8 blocks × 32 frames | If empty, count frames until a block returns and set `dropped_before` |
-| Ready ADC blocks | Acquisition | Communication | 8 block references | Never block acquisition; preserve visible overflow count |
+| Free SD-record pool | Storage returns buffers | Acquisition | 64 buffers × 512 bytes | Never block acquisition; count the dropped conversion and raise timing status when empty |
+| Ready SD records | Acquisition | Storage | 64 record references | Never block acquisition; preserve sequence gaps and timing-error status |
+| Free live records | Communication returns buffers | Acquisition | 16 buffers × 512 bytes | Never block acquisition; count loss and raise timing status when empty |
+| Ready live records | Acquisition | Communication | 16 record references | Never block acquisition; communication returns every accepted record exactly once |
 | Acquisition commands | Communication | Acquisition | 8 requests | Reject new command as `BUSY` when full |
 | Command results | Acquisition | Communication | 8 results | Communication reserves a result slot before accepting a command |
 | Status/error events | All owners | Communication | 32 events | Coalesce repeats into sticky code + count; never lose critical state |
@@ -341,11 +349,13 @@ Buffer rules:
 - A producer does not access a block after queueing it.
 - A consumer returns every accepted block exactly once.
 - An acquisition command is not queued unless capacity for its result has already been reserved.
-- Queue sizing is validated by the eight-hour 1 kSPS host-stream test.
+- Recording queue sizing still requires sustained-rate and injected-SD-latency
+  validation. The 16-record live pool passed short Rev-1 probes at 1 kSPS;
+  sustained-rate and link-capacity validation remains open.
 - At rates that exceed the negotiated transport configuration, raw frames may be intentionally
   excluded by the explicit preview policy; this is not reported as accidental data loss.
 
-## 10. V2 protocol contract
+## 10. Wire protocol contract
 
 The authoritative byte layouts, identifiers, results, and command behavior are
 defined only by `shared/protocol/protocol.md`. Byte-exact examples belong in
@@ -383,6 +393,7 @@ Interface-level decisions:
 | `RECORDING_GET_NUMBER` → `RECORDING_NUMBER` | Both | Return the number of recordings |
 | `RECORDING_GET_INFO` → `RECORDING_INFO` | Both | Return information for one zero-based recording index |
 | `RECORDING_DELETE` → `RECORDING_DELETE_RESULT` | Both | Delete one inactive recording by name |
+| `TEMP_RECORDING_READ` (`0xf000`) | Both | Temporary test-only extraction of at most 38 bytes from a closed recording; rejected during recording |
 
 UART-to-USB and Bluetooth use the same command meanings. Bluetooth transport
 binding and fragmentation may be implemented later without changing this
@@ -398,9 +409,10 @@ Startup:
 4. Shift and latch the safe 16-bit image, then enable shift outputs.
 5. Fix the SD mux toward the ESP32 and hold USB2641 reset.
 6. Detect both card slots.
-7. Create fixed buffer pools and milestone-1 queues.
-8. Start `task_acquisition`; it initializes/verifies AD7779 and reports ready or failed state.
-9. Start `task_communication` and wait for host handshake.
+7. Create the fixed 512-byte storage pool and task command queues.
+8. Start `task_acquisition`; hardware stays powered down until a recording or live-stream request.
+9. Start `task_storage`, mount the fixed ESP32 SD path, and publish media state.
+10. Start `task_communication` and wait for host handshake.
 
 Orderly stop:
 
@@ -415,7 +427,7 @@ electrically safe.
 
 ## 12. Milestone-2 extension rules
 
-- `task_storage` becomes the sole filesystem owner; acquisition still never blocks on SD writes.
+- `task_storage` remains the sole filesystem owner; acquisition never blocks on SD writes.
 - SD remains permanently connected to the ESP32. No USB2641 transition API is added.
 - `task_gnss` owns MAX-M10S UART parsing and publishes monotonic-to-UTC mappings.
 - `task_imu` owns LSM6DSV sampling and publishes low-rate orientation/movement records.
