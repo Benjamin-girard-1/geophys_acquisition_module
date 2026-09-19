@@ -14,13 +14,39 @@ from geophys_host.protocol import (  # noqa: E402
     ADC_SAMPLE_RATE_2000_SPS,
     CommandStreamParser,
     DeviceConfigUpdate,
+    DIRECTION_TO_HOST,
     ProtocolError,
+    REPLY_RECORDING_DELETE_RESULT,
+    REPLY_RECORDING_INFO,
+    REPLY_RECORDING_NUMBER,
+    REPLY_RECORDING_START_RESULT,
+    REPLY_RECORDING_STOP_RESULT,
+    REPLY_STREAMING_START_RESULT,
+    REPLY_STREAMING_STOP_RESULT,
+    REPLY_TEMP_RECORDING_READ,
     decode_command,
     decode_device_config,
     decode_device_info,
+    decode_recording_delete_result,
+    decode_recording_info,
+    decode_recording_number,
+    decode_recording_start_result,
+    decode_recording_stop_result,
+    decode_streaming_start_result,
+    decode_streaming_stop_result,
+    decode_temp_recording_read,
+    encode_command,
     encode_device_get_config,
     encode_device_set_config,
     encode_hello,
+    encode_recording_delete,
+    encode_recording_get_info,
+    encode_recording_get_number,
+    encode_recording_start,
+    encode_recording_stop,
+    encode_streaming_start,
+    encode_streaming_stop,
+    encode_temp_recording_read,
 )
 
 VECTORS = REPOSITORY / "shared" / "protocol" / "test_vectors" / "command"
@@ -40,6 +66,10 @@ class ProtocolTests(unittest.TestCase):
             VECTORS / "valid" / "device_set_config_request.txt")
         self.config = load_hex(
             VECTORS / "valid" / "device_config_reply.txt")
+        self.temp_read_request = load_hex(
+            VECTORS / "valid" / "temp_recording_read_request.txt")
+        self.temp_read_reply = load_hex(
+            VECTORS / "valid" / "temp_recording_read_reply.txt")
         self.bad_crc = load_hex(VECTORS / "invalid" / "hello_bad_crc.txt")
 
     def test_hello_matches_shared_vector(self) -> None:
@@ -99,6 +129,115 @@ class ProtocolTests(unittest.TestCase):
         for candidate in cases:
             with self.assertRaises(ProtocolError):
                 decode_command(candidate)
+
+    def test_recording_request_and_reply_codecs(self) -> None:
+        start = decode_command(encode_recording_start("Field_Test-01"))
+        self.assertEqual(start.command_id, 0x0007)
+        self.assertEqual(start.payload[:14], b"field_test-01\0")
+        self.assertEqual(len(start.payload), 32)
+        self.assertEqual(decode_command(encode_recording_stop()).command_id,
+                         0x0008)
+        self.assertEqual(
+            decode_command(encode_recording_get_number()).command_id, 0x0009)
+        self.assertEqual(
+            decode_command(encode_recording_get_info(42)).payload,
+            struct.pack("<H", 42))
+        self.assertEqual(
+            decode_command(encode_recording_delete("FIELD_TEST-01")).payload,
+            start.payload)
+
+        name = b"field_test-01\0" + bytes(18)
+        start_reply = decode_recording_start_result(decode_command(
+            encode_command(REPLY_RECORDING_START_RESULT, DIRECTION_TO_HOST,
+                           bytes((0, 1)) + name)))
+        self.assertTrue(start_reply.recording_in_progress)
+        self.assertEqual(start_reply.name, "field_test-01")
+
+        stop_reply = decode_recording_stop_result(decode_command(
+            encode_command(REPLY_RECORDING_STOP_RESULT, DIRECTION_TO_HOST,
+                           bytes((0,)) + name)))
+        self.assertEqual(stop_reply.name, "field_test-01")
+
+        number = decode_recording_number(decode_command(
+            encode_command(REPLY_RECORDING_NUMBER, DIRECTION_TO_HOST,
+                           b"\0\x03\0")))
+        self.assertEqual(number.count, 3)
+
+        info_payload = bytearray(48)
+        struct.pack_into("<BHB", info_payload, 0, 0, 2, 1)
+        info_payload[4:36] = name
+        struct.pack_into("<QI", info_payload, 36, 0, 1024)
+        info = decode_recording_info(decode_command(
+            encode_command(REPLY_RECORDING_INFO, DIRECTION_TO_HOST,
+                           bytes(info_payload))))
+        self.assertEqual(info.index, 2)
+        self.assertTrue(info.recording_in_progress)
+        self.assertEqual(info.size_bytes, 1024)
+
+        deleted = decode_recording_delete_result(decode_command(
+            encode_command(REPLY_RECORDING_DELETE_RESULT, DIRECTION_TO_HOST,
+                           bytes((0, 0)) + name)))
+        self.assertEqual(deleted.name, "field_test-01")
+
+    def test_streaming_request_and_reply_codecs(self) -> None:
+        start_request = decode_command(encode_streaming_start(5, 0xFF))
+        self.assertEqual(start_request.command_id, 0x0005)
+        self.assertEqual(start_request.payload, b"\x05\xff")
+        self.assertEqual(
+            decode_command(encode_streaming_stop()).command_id, 0x0006)
+
+        start = decode_streaming_start_result(decode_command(encode_command(
+            REPLY_STREAMING_START_RESULT,
+            DIRECTION_TO_HOST,
+            b"\x00\x05\xff\x01",
+        )))
+        self.assertEqual(start.result, 0)
+        self.assertEqual(start.decimation, 5)
+        self.assertEqual(start.channel_mask, 0xFF)
+        self.assertTrue(start.recording_in_progress)
+
+        stop = decode_streaming_stop_result(decode_command(encode_command(
+            REPLY_STREAMING_STOP_RESULT,
+            DIRECTION_TO_HOST,
+            b"\x00\x00",
+        )))
+        self.assertEqual(stop.result, 0)
+        self.assertFalse(stop.recording_in_progress)
+
+        for decimation in (1, 3, 8):
+            with self.assertRaisesRegex(ValueError, "decimation"):
+                encode_streaming_start(decimation, 0xFF)
+
+    def test_invalid_recording_names_are_rejected(self) -> None:
+        for name in ("", "has space", "dot.name", "x" * 32, "é"):
+            with self.assertRaises(ValueError, msg=name):
+                encode_recording_start(name)
+
+    def test_temporary_recording_read_codec(self) -> None:
+        encoded_request = encode_temp_recording_read("Field_01", 512)
+        self.assertEqual(encoded_request, self.temp_read_request)
+        request = decode_command(encoded_request)
+        self.assertEqual(request.command_id, 0xF000)
+        self.assertEqual(len(request.payload), 36)
+        self.assertEqual(request.payload[:9], b"field_01\0")
+        self.assertEqual(struct.unpack_from("<I", request.payload, 32)[0], 512)
+
+        data = bytes(range(38))
+        payload = bytearray(48)
+        struct.pack_into("<BII B", payload, 0, 0, 1024, 512, len(data))
+        payload[10:48] = data
+        result = decode_temp_recording_read(decode_command(
+            encode_command(REPLY_TEMP_RECORDING_READ, DIRECTION_TO_HOST,
+                           bytes(payload))))
+        self.assertEqual(result.file_size_bytes, 1024)
+        self.assertEqual(result.offset_bytes, 512)
+        self.assertEqual(result.data, data)
+        self.assertEqual(
+            decode_temp_recording_read(decode_command(self.temp_read_reply)),
+            result)
+
+        with self.assertRaisesRegex(ValueError, "uint32"):
+            encode_temp_recording_read("field_01", 1 << 32)
 
     def test_every_two_fragment_split(self) -> None:
         for split in range(len(self.hello) + 1):

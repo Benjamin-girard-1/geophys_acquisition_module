@@ -17,11 +17,45 @@ DIRECTION_TO_HOST = 1
 COMMAND_HELLO = 0x0001
 COMMAND_DEVICE_GET_CONFIG = 0x0002
 COMMAND_DEVICE_SET_CONFIG = 0x0003
+COMMAND_STREAMING_START = 0x0005
+COMMAND_STREAMING_STOP = 0x0006
+COMMAND_RECORDING_START = 0x0007
+COMMAND_RECORDING_STOP = 0x0008
+COMMAND_RECORDING_GET_NUMBER = 0x0009
+COMMAND_RECORDING_GET_INFO = 0x000A
+COMMAND_RECORDING_DELETE = 0x000B
+COMMAND_TEMP_RECORDING_READ = 0xF000
 REPLY_DEVICE_INFO = 0x00A1
 REPLY_DEVICE_CONFIG = 0x00A2
+REPLY_STREAMING_START_RESULT = 0x00A5
+REPLY_STREAMING_STOP_RESULT = 0x00A6
+REPLY_RECORDING_START_RESULT = 0x00A7
+REPLY_RECORDING_STOP_RESULT = 0x00A8
+REPLY_RECORDING_NUMBER = 0x00A9
+REPLY_RECORDING_INFO = 0x00AA
+REPLY_RECORDING_DELETE_RESULT = 0x00AB
+REPLY_TEMP_RECORDING_READ = 0xF000
 
 RESULT_SUCCESS = 0x00
+RESULT_INVALID_ARGUMENT = 0x01
+RESULT_INVALID_STATE = 0x02
+RESULT_BUSY = 0x03
 RESULT_UNSUPPORTED = 0x04
+RESULT_NOT_FOUND = 0x05
+RESULT_ALREADY_EXISTS = 0x06
+RESULT_NOT_READY = 0x07
+RESULT_TIMEOUT = 0x08
+RESULT_STORAGE_MEDIA_ABSENT = 0x09
+RESULT_STORAGE_FULL = 0x0A
+RESULT_IO_ERROR = 0x0B
+RESULT_INTEGRITY_ERROR = 0x0C
+RESULT_HARDWARE_FAULT = 0x0D
+RESULT_INTERNAL_ERROR = 0x0E
+RESULT_LIMIT_REACHED = 0x0F
+
+RECORDING_NAME_SIZE = 32
+RECORDING_NAME_MAX_LENGTH = 31
+TEMP_RECORDING_READ_DATA_SIZE = 38
 
 ADC_SAMPLE_RATE_500_SPS = 0x00
 ADC_SAMPLE_RATE_1000_SPS = 0x01
@@ -31,6 +65,7 @@ ADC_SAMPLE_RATE_8000_SPS = 0x04
 ADC_SAMPLE_RATE_16000_SPS = 0x05
 
 VALID_ADC_CHANNEL_MASKS = (0x00, 0x0F, 0xF0, 0xFF)
+VALID_STREAM_DECIMATIONS = (0, 2, 4, 5, 10, 20)
 
 
 class ProtocolError(ValueError):
@@ -95,6 +130,64 @@ class DeviceConfig:
     sd_card_state: int
     esp32_temperature_centi_c: int
     error_pending: bool
+
+
+@dataclass(frozen=True)
+class StreamingStartResult:
+    result: int
+    decimation: int
+    channel_mask: int
+    recording_in_progress: bool
+
+
+@dataclass(frozen=True)
+class StreamingStopResult:
+    result: int
+    recording_in_progress: bool
+
+
+@dataclass(frozen=True)
+class RecordingStartResult:
+    result: int
+    recording_in_progress: bool
+    name: str
+
+
+@dataclass(frozen=True)
+class RecordingStopResult:
+    result: int
+    name: str
+
+
+@dataclass(frozen=True)
+class RecordingNumber:
+    result: int
+    count: int
+
+
+@dataclass(frozen=True)
+class RecordingInfo:
+    result: int
+    index: int
+    recording_in_progress: bool
+    name: str
+    start_unix_timestamp_us: int
+    size_bytes: int
+
+
+@dataclass(frozen=True)
+class RecordingDeleteResult:
+    result: int
+    recording_in_progress: bool
+    name: str
+
+
+@dataclass(frozen=True)
+class TemporaryRecordingReadResult:
+    result: int
+    file_size_bytes: int
+    offset_bytes: int
+    data: bytes
 
 
 def _crc32(data: bytes) -> int:
@@ -176,6 +269,94 @@ def encode_device_set_config(update: DeviceConfigUpdate) -> bytes:
         COMMAND_DEVICE_SET_CONFIG, DIRECTION_TO_DEVICE, bytes(payload))
 
 
+def encode_streaming_start(decimation: int, channel_mask: int) -> bytes:
+    if decimation not in VALID_STREAM_DECIMATIONS:
+        raise ValueError("invalid stream decimation")
+    if channel_mask not in VALID_ADC_CHANNEL_MASKS:
+        raise ValueError("invalid ADC channel mask")
+    return encode_command(
+        COMMAND_STREAMING_START,
+        DIRECTION_TO_DEVICE,
+        bytes((decimation, channel_mask)),
+    )
+
+
+def encode_streaming_stop() -> bytes:
+    return encode_command(COMMAND_STREAMING_STOP, DIRECTION_TO_DEVICE)
+
+
+def _encode_recording_name(name: str) -> bytes:
+    try:
+        encoded = name.lower().encode("ascii")
+    except UnicodeEncodeError as error:
+        raise ValueError("recording name must be ASCII") from error
+    if not 1 <= len(encoded) <= RECORDING_NAME_MAX_LENGTH:
+        raise ValueError("recording name must contain 1 to 31 characters")
+    if any(not (
+        ord("a") <= value <= ord("z") or
+        ord("0") <= value <= ord("9") or
+        value in (ord("_"), ord("-"))
+    ) for value in encoded):
+        raise ValueError("recording name contains an invalid character")
+    return encoded + bytes(RECORDING_NAME_SIZE - len(encoded))
+
+
+def _decode_recording_name(encoded: bytes, *, allow_empty: bool = False) -> str:
+    if len(encoded) != RECORDING_NAME_SIZE:
+        raise ProtocolError("recording name field must be 32 bytes")
+    try:
+        terminator = encoded.index(0)
+    except ValueError as error:
+        raise ProtocolError("recording name is not NUL terminated") from error
+    if any(encoded[terminator + 1:]):
+        raise ProtocolError("recording name padding is nonzero")
+    if terminator == 0:
+        if allow_empty:
+            return ""
+        raise ProtocolError("recording name is empty")
+    value = encoded[:terminator]
+    if any(not (
+        ord("a") <= byte <= ord("z") or
+        ord("0") <= byte <= ord("9") or
+        byte in (ord("_"), ord("-"))
+    ) for byte in value):
+        raise ProtocolError("recording name is not canonical")
+    return value.decode("ascii")
+
+
+def encode_recording_start(name: str) -> bytes:
+    return encode_command(COMMAND_RECORDING_START, DIRECTION_TO_DEVICE,
+                          _encode_recording_name(name))
+
+
+def encode_recording_stop() -> bytes:
+    return encode_command(COMMAND_RECORDING_STOP, DIRECTION_TO_DEVICE)
+
+
+def encode_recording_get_number() -> bytes:
+    return encode_command(COMMAND_RECORDING_GET_NUMBER, DIRECTION_TO_DEVICE)
+
+
+def encode_recording_get_info(index: int) -> bytes:
+    if not 0 <= index <= 0xFFFF:
+        raise ValueError("recording index is outside uint16")
+    return encode_command(COMMAND_RECORDING_GET_INFO, DIRECTION_TO_DEVICE,
+                          struct.pack("<H", index))
+
+
+def encode_recording_delete(name: str) -> bytes:
+    return encode_command(COMMAND_RECORDING_DELETE, DIRECTION_TO_DEVICE,
+                          _encode_recording_name(name))
+
+
+def encode_temp_recording_read(name: str, offset_bytes: int) -> bytes:
+    if not 0 <= offset_bytes <= 0xFFFFFFFF:
+        raise ValueError("recording read offset is outside uint32")
+    payload = _encode_recording_name(name) + struct.pack("<I", offset_bytes)
+    return encode_command(
+        COMMAND_TEMP_RECORDING_READ, DIRECTION_TO_DEVICE, payload)
+
+
 def decode_device_info(command: Command) -> DeviceInfo:
     if command.command_id != REPLY_DEVICE_INFO:
         raise ProtocolError("reply is not DEVICE_INFO")
@@ -241,6 +422,143 @@ def decode_device_config(command: Command) -> DeviceConfig:
         sd_card_state=payload[36],
         esp32_temperature_centi_c=struct.unpack_from("<h", payload, 37)[0],
         error_pending=bool(payload[39]),
+    )
+
+
+def _require_reply(command: Command, command_id: int,
+                   payload_length: int, label: str) -> bytes:
+    if command.command_id != command_id:
+        raise ProtocolError(f"reply is not {label}")
+    if command.direction != DIRECTION_TO_HOST:
+        raise ProtocolError(f"{label} has the wrong direction")
+    if len(command.payload) != payload_length:
+        raise ProtocolError(
+            f"{label} payload must be {payload_length} bytes")
+    if command.payload[0] > RESULT_LIMIT_REACHED:
+        raise ProtocolError(f"{label} contains an invalid result")
+    return command.payload
+
+
+def decode_streaming_start_result(command: Command) -> StreamingStartResult:
+    payload = _require_reply(
+        command, REPLY_STREAMING_START_RESULT, 4,
+        "STREAMING_START_RESULT")
+    if payload[1] not in VALID_STREAM_DECIMATIONS:
+        raise ProtocolError(
+            "STREAMING_START_RESULT has an invalid decimation")
+    if payload[2] not in VALID_ADC_CHANNEL_MASKS:
+        raise ProtocolError(
+            "STREAMING_START_RESULT has an invalid channel mask")
+    if payload[3] not in (0, 1):
+        raise ProtocolError(
+            "STREAMING_START_RESULT has an invalid boolean")
+    return StreamingStartResult(
+        result=payload[0],
+        decimation=payload[1],
+        channel_mask=payload[2],
+        recording_in_progress=bool(payload[3]),
+    )
+
+
+def decode_streaming_stop_result(command: Command) -> StreamingStopResult:
+    payload = _require_reply(
+        command, REPLY_STREAMING_STOP_RESULT, 2,
+        "STREAMING_STOP_RESULT")
+    if payload[1] not in (0, 1):
+        raise ProtocolError(
+            "STREAMING_STOP_RESULT has an invalid boolean")
+    return StreamingStopResult(
+        result=payload[0],
+        recording_in_progress=bool(payload[1]),
+    )
+
+
+def decode_recording_start_result(command: Command) -> RecordingStartResult:
+    payload = _require_reply(
+        command, REPLY_RECORDING_START_RESULT, 34,
+        "RECORDING_START_RESULT")
+    if payload[1] not in (0, 1):
+        raise ProtocolError("RECORDING_START_RESULT has an invalid boolean")
+    return RecordingStartResult(
+        result=payload[0],
+        recording_in_progress=bool(payload[1]),
+        name=_decode_recording_name(
+            payload[2:34], allow_empty=payload[0] != RESULT_SUCCESS),
+    )
+
+
+def decode_recording_stop_result(command: Command) -> RecordingStopResult:
+    payload = _require_reply(
+        command, REPLY_RECORDING_STOP_RESULT, 33,
+        "RECORDING_STOP_RESULT")
+    return RecordingStopResult(
+        result=payload[0],
+        name=_decode_recording_name(
+            payload[1:33], allow_empty=payload[0] != RESULT_SUCCESS),
+    )
+
+
+def decode_recording_number(command: Command) -> RecordingNumber:
+    payload = _require_reply(
+        command, REPLY_RECORDING_NUMBER, 3, "RECORDING_NUMBER")
+    count = struct.unpack_from("<H", payload, 1)[0]
+    if count > 255:
+        raise ProtocolError("RECORDING_NUMBER exceeds the 255-file limit")
+    return RecordingNumber(result=payload[0], count=count)
+
+
+def decode_recording_info(command: Command) -> RecordingInfo:
+    payload = _require_reply(
+        command, REPLY_RECORDING_INFO, 48, "RECORDING_INFO")
+    if payload[3] not in (0, 1):
+        raise ProtocolError("RECORDING_INFO has an invalid boolean")
+    return RecordingInfo(
+        result=payload[0],
+        index=struct.unpack_from("<H", payload, 1)[0],
+        recording_in_progress=bool(payload[3]),
+        name=_decode_recording_name(
+            payload[4:36], allow_empty=payload[0] != RESULT_SUCCESS),
+        start_unix_timestamp_us=struct.unpack_from("<Q", payload, 36)[0],
+        size_bytes=struct.unpack_from("<I", payload, 44)[0],
+    )
+
+
+def decode_recording_delete_result(
+        command: Command) -> RecordingDeleteResult:
+    payload = _require_reply(
+        command, REPLY_RECORDING_DELETE_RESULT, 34,
+        "RECORDING_DELETE_RESULT")
+    if payload[1] not in (0, 1):
+        raise ProtocolError("RECORDING_DELETE_RESULT has an invalid boolean")
+    return RecordingDeleteResult(
+        result=payload[0],
+        recording_in_progress=bool(payload[1]),
+        name=_decode_recording_name(
+            payload[2:34], allow_empty=payload[0] != RESULT_SUCCESS),
+    )
+
+
+def decode_temp_recording_read(
+        command: Command) -> TemporaryRecordingReadResult:
+    payload = _require_reply(
+        command, REPLY_TEMP_RECORDING_READ, 48, "TEMP_RECORDING_READ")
+    file_size = struct.unpack_from("<I", payload, 1)[0]
+    offset = struct.unpack_from("<I", payload, 5)[0]
+    data_length = payload[9]
+    if data_length > TEMP_RECORDING_READ_DATA_SIZE:
+        raise ProtocolError("TEMP_RECORDING_READ data length exceeds 38 bytes")
+    if payload[0] == RESULT_SUCCESS:
+        if offset > file_size or data_length > file_size - offset:
+            raise ProtocolError("TEMP_RECORDING_READ range exceeds file size")
+    elif file_size != 0 or data_length != 0:
+        raise ProtocolError("failed TEMP_RECORDING_READ contains file data")
+    if any(payload[10 + data_length:]):
+        raise ProtocolError("TEMP_RECORDING_READ data padding is nonzero")
+    return TemporaryRecordingReadResult(
+        result=payload[0],
+        file_size_bytes=file_size,
+        offset_bytes=offset,
+        data=payload[10:10 + data_length],
     )
 
 
