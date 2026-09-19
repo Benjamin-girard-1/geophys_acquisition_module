@@ -6,6 +6,7 @@
 
 #include "ad7779.h"
 #include "fw_error.h"
+#include "platform_storage.h"
 #include "platform_uart.h"
 
 #define BOARD_HARDWARE_VERSION UINT16_C(2)
@@ -23,6 +24,8 @@ typedef enum {
     BOARD_CARD_SLOT_1,
     BOARD_CARD_SLOT_2,
 } board_card_slot_t;
+
+typedef void (*board_adc_drdy_handler_t)(void *context);
 
 /** @brief Calibrated and aggregated analog-ID voltage for one card slot. */
 typedef struct {
@@ -85,6 +88,12 @@ fw_status_t board_host_uart_initialize(platform_uart_t **uart,
 fw_status_t board_adc_initialize(ad7779_t *adc,
                                  fw_error_context_t *error);
 
+/** Apply the documented 3V3A -> 10V/9VA -> -5VA acquisition sequence. */
+fw_status_t board_adc_power_up(fw_error_context_t *error);
+
+/** Disable the acquisition rails after ADC deinitialization. */
+fw_status_t board_adc_power_down(fw_error_context_t *error);
+
 /** @brief Return the requested and achieved Rev-1 AD7779 SPI clock. */
 fw_status_t board_adc_get_spi_clock(uint32_t *requested_clock_hz,
                                     uint32_t *actual_clock_hz,
@@ -93,5 +102,17 @@ fw_status_t board_adc_get_spi_clock(uint32_t *requested_clock_hz,
 /** @brief Stop the ADC and release its Rev-1 SPI resources. */
 fw_status_t board_adc_deinitialize(ad7779_t *adc,
                                    fw_error_context_t *error);
+
+/** Attach the Rev-1 AD7779 DRDY falling-edge ISR, initially disabled. */
+fw_status_t board_adc_drdy_attach(board_adc_drdy_handler_t handler,
+                                  void *context,
+                                  fw_error_context_t *error);
+fw_status_t board_adc_drdy_enable(fw_error_context_t *error);
+fw_status_t board_adc_drdy_disable(fw_error_context_t *error);
+fw_status_t board_adc_drdy_detach(fw_error_context_t *error);
+
+/** Mount the fixed-to-ESP32 Rev-1 SDMMC interface. */
+fw_status_t board_storage_mount(platform_storage_t **storage,
+                                fw_error_context_t *error);
 
 #endif /* GEOPHYS_BOARD_REV_1_H */

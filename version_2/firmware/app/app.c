@@ -10,6 +10,8 @@
 #include "platform_device.h"
 #include "platform_uart.h"
 #include "protocol_messages.h"
+#include "recording_controller.h"
+#include "task_acquisition.h"
 #include "task_communication.h"
 #include "transport_uart.h"
 
@@ -68,6 +70,11 @@ fw_status_t app_start(fw_error_context_t *error)
         return status;
     }
 
+    status = recording_controller_initialize(error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
     status = board_host_uart_initialize(&s_host_uart, error);
     if (status != FW_STATUS_OK) {
         return status;
@@ -80,6 +87,16 @@ fw_status_t app_start(fw_error_context_t *error)
         .device_info = device_info,
         .get_device_config = device_configuration_get,
         .apply_device_config = device_configuration_apply,
+        .streaming_start = recording_controller_streaming_start,
+        .streaming_stop = recording_controller_streaming_stop,
+        .stream_record_take = task_acquisition_stream_record_take,
+        .stream_record_release = task_acquisition_stream_record_release,
+        .recording_start = recording_controller_start,
+        .recording_stop = recording_controller_stop,
+        .recording_get_number = recording_controller_get_number,
+        .recording_get_info = recording_controller_get_info,
+        .recording_delete = recording_controller_delete,
+        .recording_read = recording_controller_read_chunk,
         .read_timeout_us = APP_HOST_READ_TIMEOUT_US,
         .write_timeout_us = APP_HOST_WRITE_TIMEOUT_US,
     };

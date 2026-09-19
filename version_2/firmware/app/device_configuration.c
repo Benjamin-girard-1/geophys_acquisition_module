@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
 #include "platform_time.h"
 
 #define DEVICE_CONFIGURATION_DEFAULT_SAMPLE_RATE_SPS UINT32_C(1000)
@@ -16,6 +17,7 @@ typedef struct {
 } device_configuration_state_t;
 
 static device_configuration_state_t s_device_configuration;
+static portMUX_TYPE s_device_configuration_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void clear_error(fw_error_context_t *error)
 {
@@ -116,7 +118,9 @@ fw_status_t device_configuration_get(
                          FW_ERROR_OPERATION_READ, 0U);
     }
 
+    portENTER_CRITICAL(&s_device_configuration_lock);
     *snapshot = s_device_configuration.snapshot;
+    portEXIT_CRITICAL(&s_device_configuration_lock);
     return platform_monotonic_time_100ns(&snapshot->timestamp_100ns, error);
 }
 
@@ -149,8 +153,10 @@ fw_status_t device_configuration_apply(
                 ((uint32_t)channel << 16U) | update->adc_gains[channel]);
         }
     }
+    portENTER_CRITICAL(&s_device_configuration_lock);
     if (s_device_configuration.snapshot.recording_in_progress ||
         s_device_configuration.acquisition_active) {
+        portEXIT_CRITICAL(&s_device_configuration_lock);
         return set_error(error, FW_STATUS_INVALID_STATE,
                          FW_ERROR_OPERATION_CONFIGURE, 0U);
     }
@@ -172,6 +178,7 @@ fw_status_t device_configuration_apply(
             s_device_configuration.snapshot.rail_18v_enabled ||
         update->imu_averaging_time_ms !=
             s_device_configuration.snapshot.imu_averaging_time_ms) {
+        portEXIT_CRITICAL(&s_device_configuration_lock);
         return set_error(error, FW_STATUS_UNSUPPORTED,
                          FW_ERROR_OPERATION_CONFIGURE, 0U);
     }
@@ -183,5 +190,33 @@ fw_status_t device_configuration_apply(
     memcpy(s_device_configuration.snapshot.adc_gains,
            update->adc_gains,
            sizeof(s_device_configuration.snapshot.adc_gains));
+    portEXIT_CRITICAL(&s_device_configuration_lock);
     return FW_STATUS_OK;
+}
+
+void device_configuration_set_storage_state(device_sd_card_state_t state)
+{
+    if (!s_device_configuration.initialized ||
+        state > DEVICE_SD_CARD_FAULTED) {
+        return;
+    }
+    portENTER_CRITICAL(&s_device_configuration_lock);
+    s_device_configuration.snapshot.sd_card_state = state;
+    portEXIT_CRITICAL(&s_device_configuration_lock);
+}
+
+void device_configuration_set_acquisition_state(bool active,
+                                                bool recording)
+{
+    if (!s_device_configuration.initialized) {
+        return;
+    }
+    portENTER_CRITICAL(&s_device_configuration_lock);
+    s_device_configuration.acquisition_active = active;
+    s_device_configuration.snapshot.recording_in_progress = recording;
+    s_device_configuration.snapshot.rail_3v3_enabled = active;
+    s_device_configuration.snapshot.rail_9v_enabled = active;
+    s_device_configuration.snapshot.rail_negative_5v_enabled = active;
+    s_device_configuration.snapshot.rail_18v_enabled = false;
+    portEXIT_CRITICAL(&s_device_configuration_lock);
 }

@@ -135,4 +135,42 @@ typedef struct {
     uint64_t adc_crc_errors;
 } acquisition_counters_t;
 
+typedef struct {
+    uint32_t sample_rate_sps;
+    uint8_t channel_mask;
+    uint8_t gains[ADC_FRAME_CHANNEL_COUNT];
+} task_acquisition_recording_config_t;
+
+/** Create the sole AD7779 owner task; hardware remains powered down. */
+fw_status_t task_acquisition_initialize(fw_error_context_t *error);
+
+/** Configure and start acquisition for SD recording. */
+fw_status_t task_acquisition_recording_start(
+    const task_acquisition_recording_config_t *config,
+    fw_error_context_t *error);
+
+/** Stop DRDY, discard any partial 512-byte record, and power down ADC rails. */
+fw_status_t task_acquisition_recording_stop(fw_error_context_t *error);
+
+/** Enable live record production from the already-running acquisition. */
+fw_status_t task_acquisition_streaming_start(
+    uint8_t decimation,
+    uint8_t channel_mask,
+    fw_error_context_t *error);
+
+/** Stop live record production and return all queued live buffers. */
+fw_status_t task_acquisition_streaming_stop(fw_error_context_t *error);
+
+/** Nonblocking ownership transfer from acquisition to communication. */
+fw_status_t task_acquisition_stream_record_take(
+    uint8_t **record,
+    fw_error_context_t *error);
+
+/** Return exactly one live record previously accepted by communication. */
+void task_acquisition_stream_record_release(uint8_t *record);
+
+void task_acquisition_get_counters(acquisition_counters_t *counters);
+bool task_acquisition_is_active(void);
+bool task_acquisition_streaming_is_active(void);
+
 #endif /* GEOPHYS_TASK_ACQUISITION_H */

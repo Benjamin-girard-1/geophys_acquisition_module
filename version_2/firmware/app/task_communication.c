@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "adc_record.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "fw_time.h"
@@ -12,11 +13,13 @@
 #include "protocol_frame.h"
 
 #define TASK_COMMUNICATION_STACK_SIZE_BYTES UINT32_C(4096)
-#define TASK_COMMUNICATION_PRIORITY (tskIDLE_PRIORITY + 1U)
+#define TASK_COMMUNICATION_PRIORITY (tskIDLE_PRIORITY + 2U)
 #define TASK_COMMUNICATION_READ_BUFFER_SIZE_BYTES UINT32_C(128)
 #define TASK_COMMUNICATION_USB_SESSION_TIMEOUT_100NS \
     (UINT64_C(5) * FW_MONOTONIC_FREQUENCY_HZ)
 #define TASK_COMMUNICATION_ERROR_RETRY_MS UINT32_C(10)
+#define TASK_COMMUNICATION_STREAMING_READ_TIMEOUT_US UINT32_C(1000)
+#define TASK_COMMUNICATION_STREAMING_SEND_BATCH UINT8_C(16)
 
 typedef struct {
     task_communication_config_t config;
@@ -24,6 +27,7 @@ typedef struct {
     TaskHandle_t task_handle;
     fw_monotonic_100ns_t last_usb_activity_100ns;
     bool usb_session_active;
+    bool streaming_active;
     bool started;
 } task_communication_state_t;
 
@@ -72,34 +76,39 @@ static void refresh_usb_activity(bool establish_session)
     }
 }
 
-static void expire_usb_session_if_idle(void)
+static bool expire_usb_session_if_idle(void)
 {
     if (!s_communication.usb_session_active) {
-        return;
+        return false;
     }
 
     fw_monotonic_100ns_t timestamp;
     if (platform_monotonic_time_100ns(&timestamp, NULL) != FW_STATUS_OK) {
-        return;
+        return false;
     }
 
     if ((timestamp - s_communication.last_usb_activity_100ns) >=
         TASK_COMMUNICATION_USB_SESSION_TIMEOUT_100NS) {
         s_communication.usb_session_active = false;
+        return true;
     }
+    return false;
 }
 
-static fw_status_t write_complete_frame(
-    const uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES])
+static fw_status_t write_complete(const uint8_t *data,
+                                  size_t length_bytes)
 {
+    if (data == NULL || length_bytes == 0U) {
+        return FW_STATUS_INVALID_ARGUMENT;
+    }
     size_t offset = 0U;
-    while (offset < PROTOCOL_COMMAND_SIZE_BYTES) {
+    while (offset < length_bytes) {
         size_t bytes_written = 0U;
         const fw_status_t status =
             s_communication.config.transport.write_some(
                 s_communication.config.transport.context,
-                frame + offset,
-                PROTOCOL_COMMAND_SIZE_BYTES - offset,
+                data + offset,
+                length_bytes - offset,
                 &bytes_written,
                 s_communication.config.write_timeout_us,
                 NULL);
@@ -119,6 +128,12 @@ static fw_status_t write_complete_frame(
     return FW_STATUS_OK;
 }
 
+static fw_status_t write_complete_frame(
+    const uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES])
+{
+    return write_complete(frame, PROTOCOL_COMMAND_SIZE_BYTES);
+}
+
 static protocol_command_result_t protocol_result_from_status(
     fw_status_t status)
 {
@@ -133,10 +148,16 @@ static protocol_command_result_t protocol_result_from_status(
         return PROTOCOL_RESULT_NOT_READY;
     case FW_STATUS_NOT_FOUND:
         return PROTOCOL_RESULT_NOT_FOUND;
+    case FW_STATUS_ALREADY_EXISTS:
+        return PROTOCOL_RESULT_ALREADY_EXISTS;
     case FW_STATUS_BUSY:
         return PROTOCOL_RESULT_BUSY;
     case FW_STATUS_TIMEOUT:
         return PROTOCOL_RESULT_TIMEOUT;
+    case FW_STATUS_MEDIA_ABSENT:
+        return PROTOCOL_RESULT_STORAGE_MEDIA_ABSENT;
+    case FW_STATUS_STORAGE_FULL:
+        return PROTOCOL_RESULT_STORAGE_FULL;
     case FW_STATUS_IO:
         return PROTOCOL_RESULT_IO_ERROR;
     case FW_STATUS_INTEGRITY:
@@ -396,6 +417,231 @@ static void handle_device_set_config(const protocol_command_t *command)
     send_device_config_reply(protocol_result_from_status(apply_status));
 }
 
+static void handle_streaming_start(const protocol_command_t *command)
+{
+    protocol_streaming_start_request_t request;
+    protocol_streaming_start_result_t result;
+    memset(&request, 0, sizeof(request));
+    memset(&result, 0, sizeof(result));
+
+    fw_status_t status = FW_STATUS_INVALID_ARGUMENT;
+    if (protocol_decode_streaming_start_request(command, &request) ==
+        PROTOCOL_MESSAGE_OK) {
+        result.decimation = request.decimation;
+        result.channel_mask = request.channel_mask;
+        status = s_communication.config.streaming_start(
+            &request, &result, NULL);
+    }
+    result.result = protocol_result_from_status(status);
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_streaming_start_reply(
+            &result, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+    if (status == FW_STATUS_OK) {
+        s_communication.streaming_active = true;
+    }
+}
+
+static void handle_streaming_stop(const protocol_command_t *command)
+{
+    protocol_streaming_stop_result_t result;
+    memset(&result, 0, sizeof(result));
+    fw_status_t status = FW_STATUS_INVALID_ARGUMENT;
+    if (protocol_decode_streaming_stop_request(command) ==
+        PROTOCOL_MESSAGE_OK) {
+        status = s_communication.config.streaming_stop(&result, NULL);
+    }
+    result.result = protocol_result_from_status(status);
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_streaming_stop_reply(
+            &result, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+    if (status == FW_STATUS_OK) {
+        s_communication.streaming_active = false;
+    }
+}
+
+static void send_recording_start_reply(
+    const protocol_recording_start_result_t *result)
+{
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_recording_start_reply(
+            result, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+}
+
+static void handle_recording_start(const protocol_command_t *command)
+{
+    protocol_recording_name_t name;
+    protocol_recording_start_result_t result;
+    memset(&name, 0, sizeof(name));
+    memset(&result, 0, sizeof(result));
+    if (protocol_decode_recording_start_request(command, &name) !=
+        PROTOCOL_MESSAGE_OK) {
+        result.result = PROTOCOL_RESULT_INVALID_ARGUMENT;
+        send_recording_start_reply(&result);
+        return;
+    }
+    result.name = name;
+    const fw_status_t status = s_communication.config.recording_start(
+        &name, &result, NULL);
+    result.result = protocol_result_from_status(status);
+    send_recording_start_reply(&result);
+}
+
+static void handle_recording_stop(const protocol_command_t *command)
+{
+    protocol_recording_stop_result_t result;
+    memset(&result, 0, sizeof(result));
+    fw_status_t status = FW_STATUS_INVALID_ARGUMENT;
+    if (protocol_decode_recording_stop_request(command) ==
+        PROTOCOL_MESSAGE_OK) {
+        status = s_communication.config.recording_stop(&result, NULL);
+        s_communication.streaming_active = false;
+    }
+    result.result = protocol_result_from_status(status);
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_recording_stop_reply(
+            &result, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+}
+
+static void handle_recording_get_number(const protocol_command_t *command)
+{
+    protocol_recording_number_t number;
+    memset(&number, 0, sizeof(number));
+    fw_status_t status = FW_STATUS_INVALID_ARGUMENT;
+    if (protocol_decode_recording_get_number_request(command) ==
+        PROTOCOL_MESSAGE_OK) {
+        status = s_communication.config.recording_get_number(&number, NULL);
+    }
+    number.result = protocol_result_from_status(status);
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_recording_number_reply(
+            &number, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+}
+
+static void handle_recording_get_info(const protocol_command_t *command)
+{
+    uint16_t index = 0U;
+    protocol_recording_info_t info;
+    memset(&info, 0, sizeof(info));
+    fw_status_t status = FW_STATUS_INVALID_ARGUMENT;
+    if (protocol_decode_recording_get_info_request(command, &index) ==
+        PROTOCOL_MESSAGE_OK) {
+        info.recording_index = index;
+        status = s_communication.config.recording_get_info(
+            index, &info, NULL);
+    }
+    info.result = protocol_result_from_status(status);
+    info.recording_index = index;
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_recording_info_reply(
+            &info, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+}
+
+static void handle_recording_delete(const protocol_command_t *command)
+{
+    protocol_recording_name_t name;
+    protocol_recording_delete_result_t result;
+    memset(&name, 0, sizeof(name));
+    memset(&result, 0, sizeof(result));
+    fw_status_t status = FW_STATUS_INVALID_ARGUMENT;
+    if (protocol_decode_recording_delete_request(command, &name) ==
+        PROTOCOL_MESSAGE_OK) {
+        result.name = name;
+        status = s_communication.config.recording_delete(
+            &name, &result, NULL);
+    }
+    result.result = protocol_result_from_status(status);
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_recording_delete_reply(
+            &result, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+}
+
+static void handle_temp_recording_read(const protocol_command_t *command)
+{
+    protocol_temp_recording_read_request_t request;
+    protocol_temp_recording_read_reply_t reply_data;
+    memset(&request, 0, sizeof(request));
+    memset(&reply_data, 0, sizeof(reply_data));
+
+    fw_status_t status = FW_STATUS_INVALID_ARGUMENT;
+    if (protocol_decode_temp_recording_read_request(command, &request) ==
+        PROTOCOL_MESSAGE_OK) {
+        reply_data.offset_bytes = request.offset_bytes;
+        status = s_communication.config.recording_read(
+            &request, &reply_data, NULL);
+    }
+    reply_data.result = protocol_result_from_status(status);
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_temp_recording_read_reply(
+            &reply_data, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+}
+
+static void stop_streaming_after_disconnect(void)
+{
+    if (!s_communication.streaming_active) {
+        return;
+    }
+    protocol_streaming_stop_result_t result;
+    memset(&result, 0, sizeof(result));
+    (void)s_communication.config.streaming_stop(&result, NULL);
+    s_communication.streaming_active = false;
+}
+
+static void send_ready_stream_records(void)
+{
+    if (!s_communication.streaming_active ||
+        !s_communication.usb_session_active) {
+        return;
+    }
+    for (uint8_t sent = 0U;
+         sent < TASK_COMMUNICATION_STREAMING_SEND_BATCH;
+         sent++) {
+        uint8_t *record = NULL;
+        const fw_status_t take_status =
+            s_communication.config.stream_record_take(&record, NULL);
+        if (take_status != FW_STATUS_OK || record == NULL) {
+            return;
+        }
+        const fw_status_t write_status =
+            write_complete(record, ADC_RECORD_SIZE_BYTES);
+        s_communication.config.stream_record_release(record);
+        if (write_status != FW_STATUS_OK) {
+            return;
+        }
+    }
+}
+
 static void handle_parser_event(void *context,
                                 protocol_frame_status_t status,
                                 const protocol_command_t *command)
@@ -412,6 +658,38 @@ static void handle_parser_event(void *context,
     }
     if (command->command_id == PROTOCOL_COMMAND_DEVICE_SET_CONFIG) {
         handle_device_set_config(command);
+        return;
+    }
+    if (command->command_id == PROTOCOL_COMMAND_STREAMING_START) {
+        handle_streaming_start(command);
+        return;
+    }
+    if (command->command_id == PROTOCOL_COMMAND_STREAMING_STOP) {
+        handle_streaming_stop(command);
+        return;
+    }
+    if (command->command_id == PROTOCOL_COMMAND_RECORDING_START) {
+        handle_recording_start(command);
+        return;
+    }
+    if (command->command_id == PROTOCOL_COMMAND_RECORDING_STOP) {
+        handle_recording_stop(command);
+        return;
+    }
+    if (command->command_id == PROTOCOL_COMMAND_RECORDING_GET_NUMBER) {
+        handle_recording_get_number(command);
+        return;
+    }
+    if (command->command_id == PROTOCOL_COMMAND_RECORDING_GET_INFO) {
+        handle_recording_get_info(command);
+        return;
+    }
+    if (command->command_id == PROTOCOL_COMMAND_RECORDING_DELETE) {
+        handle_recording_delete(command);
+        return;
+    }
+    if (command->command_id == PROTOCOL_COMMAND_TEMP_RECORDING_READ) {
+        handle_temp_recording_read(command);
         return;
     }
     if (protocol_decode_hello_request(command) != PROTOCOL_MESSAGE_OK) {
@@ -438,13 +716,17 @@ static void task_communication_run(void *context)
 
     for (;;) {
         size_t bytes_read = 0U;
+        const uint32_t read_timeout_us =
+            s_communication.streaming_active ?
+            TASK_COMMUNICATION_STREAMING_READ_TIMEOUT_US :
+            s_communication.config.read_timeout_us;
         const fw_status_t status =
             s_communication.config.transport.read_some(
                 s_communication.config.transport.context,
                 read_buffer,
                 sizeof(read_buffer),
                 &bytes_read,
-                s_communication.config.read_timeout_us,
+                read_timeout_us,
                 NULL);
 
         if (bytes_read > 0U) {
@@ -456,7 +738,10 @@ static void task_communication_run(void *context)
                 NULL);
         }
 
-        expire_usb_session_if_idle();
+        if (expire_usb_session_if_idle()) {
+            stop_streaming_after_disconnect();
+        }
+        send_ready_stream_records();
         if ((status != FW_STATUS_OK) && (status != FW_STATUS_TIMEOUT)) {
             platform_delay_ms(TASK_COMMUNICATION_ERROR_RETRY_MS);
         }
@@ -472,6 +757,16 @@ fw_status_t task_communication_start(
         config->transport.write_some == NULL || config->crc32 == NULL ||
         config->get_device_config == NULL ||
         config->apply_device_config == NULL ||
+        config->streaming_start == NULL ||
+        config->streaming_stop == NULL ||
+        config->stream_record_take == NULL ||
+        config->stream_record_release == NULL ||
+        config->recording_start == NULL ||
+        config->recording_stop == NULL ||
+        config->recording_get_number == NULL ||
+        config->recording_get_info == NULL ||
+        config->recording_delete == NULL ||
+        config->recording_read == NULL ||
         config->read_timeout_us == 0U || config->write_timeout_us == 0U) {
         return set_error(error, FW_STATUS_INVALID_ARGUMENT,
                          FW_ERROR_OPERATION_INITIALIZE, 0U);

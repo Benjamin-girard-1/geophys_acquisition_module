@@ -1,7 +1,9 @@
 idf_component_register(
     SRCS
+        "adc_scope_test.c"
         "app.c"
         "device_configuration.c"
+        "recording_controller.c"
         "task_acquisition.c"
         "task_bluetooth.c"
         "task_communication.c"

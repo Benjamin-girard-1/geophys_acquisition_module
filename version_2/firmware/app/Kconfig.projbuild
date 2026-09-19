@@ -1,0 +1,12 @@
+menu "Geophys acquisition diagnostics"
+
+config GEOPHYS_ADC_SCOPE_TEST
+    bool "Run the AD7779 scope test instead of the product application"
+    default n
+    help
+        Power and configure the AD7779 for all eight channels at the 1 kSPS
+        preset, then leave it running without mounting or writing the SD card.
+        This bench-only mode intentionally disables the host protocol and
+        exists for MCLK, START, and DRDY oscilloscope measurements.
+
+endmenu

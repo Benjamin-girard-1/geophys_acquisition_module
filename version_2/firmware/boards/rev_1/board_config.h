@@ -97,7 +97,8 @@
 
 /* Zero means unresolved and therefore unavailable for initialization. */
 #define BOARD_REV1_CARD_I2C_CLOCK_HZ            UINT32_C(0)
-#define BOARD_REV1_SDMMC_CLOCK_HZ               UINT32_C(0)
+#define BOARD_REV1_SDMMC_CLOCK_HZ               UINT32_C(20000000)
+#define BOARD_REV1_SDMMC_BUS_WIDTH              UINT8_C(4)
 
 /*
  * U1 and U2 are 74HC595D devices powered at 3.3 V. A 1 us software edge delay

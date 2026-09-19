@@ -1,5 +1,6 @@
 #include <stddef.h>
 
+#include "adc_scope_test.h"
 #include "app.h"
 #include "board.h"
 #include "freertos/FreeRTOS.h"
@@ -25,7 +26,16 @@ void app_main(void)
         stop_in_safe_state();
     }
 
+#if CONFIG_GEOPHYS_ADC_SCOPE_TEST
+    if (adc_scope_test_start(&error) != FW_STATUS_OK) {
+        stop_in_safe_state();
+    }
+    for (;;) {
+        vTaskDelay(portMAX_DELAY);
+    }
+#else
     if (app_start(&error) != FW_STATUS_OK) {
         stop_in_safe_state();
     }
+#endif
 }

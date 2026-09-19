@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "74hc_hct595.h"
 #include "board_config.h"
@@ -535,6 +536,65 @@ static void release_adc_spi_best_effort(void)
     s_adc_owner = NULL;
 }
 
+fw_status_t board_adc_power_down(fw_error_context_t *error)
+{
+    clear_error(error);
+    fw_status_t first_status = FW_STATUS_OK;
+    fw_error_context_t first_error;
+    clear_error(&first_error);
+
+    const board_power_rail_t rails[] = {
+        BOARD_POWER_RAIL_NEGATIVE_5V,
+        BOARD_POWER_RAIL_10V,
+        BOARD_POWER_RAIL_3V3A,
+    };
+    for (size_t index = 0U;
+         index < sizeof(rails) / sizeof(rails[0]);
+         index++) {
+        fw_error_context_t current_error;
+        clear_error(&current_error);
+        const fw_status_t status = board_set_power_rail(
+            rails[index], false, &current_error);
+        if (first_status == FW_STATUS_OK && status != FW_STATUS_OK) {
+            first_status = status;
+            first_error = current_error;
+        }
+    }
+    if (first_status != FW_STATUS_OK && error != NULL) {
+        *error = first_error;
+    }
+    return first_status;
+}
+
+fw_status_t board_adc_power_up(fw_error_context_t *error)
+{
+    clear_error(error);
+    const board_power_rail_t rails[] = {
+        BOARD_POWER_RAIL_3V3A,
+        BOARD_POWER_RAIL_10V,
+        BOARD_POWER_RAIL_NEGATIVE_5V,
+    };
+    for (size_t index = 0U;
+         index < sizeof(rails) / sizeof(rails[0]);
+         index++) {
+        const fw_status_t status = board_set_power_rail(
+            rails[index], true, error);
+        if (status != FW_STATUS_OK) {
+            fw_error_context_t original_error;
+            if (error != NULL) {
+                original_error = *error;
+            }
+            (void)board_adc_power_down(NULL);
+            if (error != NULL) {
+                *error = original_error;
+            }
+            return status;
+        }
+        platform_delay_ms(BOARD_REV1_POWER_RAIL_SETTLING_MS);
+    }
+    return FW_STATUS_OK;
+}
+
 fw_status_t board_adc_initialize(ad7779_t *adc,
                                  fw_error_context_t *error)
 {
@@ -608,6 +668,8 @@ fw_status_t board_adc_initialize(ad7779_t *adc,
         .reset_release_us = BOARD_REV1_ADC_RESET_RELEASE_US,
         .init_timeout_us = BOARD_REV1_ADC_INIT_TIMEOUT_US,
         .init_poll_interval_us = BOARD_REV1_ADC_INIT_POLL_INTERVAL_US,
+        /* Filtered REF_OUT is routed back to the Rev-1 REF1/REF2 inputs. */
+        .reference_output_enabled = true,
         .instance = BOARD_REV1_ADC_INSTANCE,
     };
     status = ad7779_initialize(adc, &adc_config, error);
@@ -619,6 +681,8 @@ fw_status_t board_adc_initialize(ad7779_t *adc,
         }
         (void)ad7779_deinitialize(adc, NULL);
         release_adc_spi_best_effort();
+        /* The SPI callbacks are gone, so discard any retained driver fault. */
+        memset(adc, 0, sizeof(*adc));
         if (error != NULL) {
             *error = original_error;
         }
@@ -660,22 +724,104 @@ fw_status_t board_adc_deinitialize(ad7779_t *adc,
                                BOARD_REV1_ADC_INSTANCE);
     }
 
-    fw_status_t status = ad7779_deinitialize(adc, error);
+    fw_error_context_t first_error;
+    clear_error(&first_error);
+    fw_status_t first_status = ad7779_deinitialize(adc, &first_error);
+
+    fw_error_context_t current_error;
+    clear_error(&current_error);
+    fw_status_t status = platform_spi_device_remove(
+        s_adc_spi_device, BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US,
+        &current_error);
+    if (status == FW_STATUS_OK) {
+        s_adc_spi_device = NULL;
+    } else if (first_status == FW_STATUS_OK) {
+        first_status = status;
+        first_error = current_error;
+    }
+
+    if (s_adc_spi_device == NULL) {
+        clear_error(&current_error);
+        status = platform_spi_bus_deinitialize(
+            s_adc_spi_bus, BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US,
+            &current_error);
+        if (status == FW_STATUS_OK) {
+            s_adc_spi_bus = NULL;
+        } else if (first_status == FW_STATUS_OK) {
+            first_status = status;
+            first_error = current_error;
+        }
+    }
+    if (s_adc_spi_device == NULL && s_adc_spi_bus == NULL) {
+        s_adc_owner = NULL;
+        /* Platform callbacks are no longer valid after resource release. */
+        memset(adc, 0, sizeof(*adc));
+    }
+    if (first_status != FW_STATUS_OK && error != NULL) {
+        *error = first_error;
+    }
+    return first_status;
+}
+
+fw_status_t board_adc_drdy_attach(board_adc_drdy_handler_t handler,
+                                  void *context,
+                                  fw_error_context_t *error)
+{
+    clear_error(error);
+    if (!s_board_initialized || handler == NULL) {
+        return set_board_error(
+            error,
+            s_board_initialized ? FW_STATUS_INVALID_ARGUMENT :
+                                  FW_STATUS_NOT_INITIALIZED,
+            FW_ERROR_OPERATION_ATTACH, BOARD_REV1_GPIO_ADC_DRDY);
+    }
+    fw_status_t status = platform_gpio_interrupt_service_init(error);
     if (status != FW_STATUS_OK) {
         return status;
     }
-    status = platform_spi_device_remove(
-        s_adc_spi_device, BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US, error);
-    if (status != FW_STATUS_OK) {
-        return status;
+    return platform_gpio_interrupt_attach(
+        BOARD_REV1_GPIO_ADC_DRDY, PLATFORM_GPIO_INTERRUPT_FALLING_EDGE,
+        handler, context, error);
+}
+
+fw_status_t board_adc_drdy_enable(fw_error_context_t *error)
+{
+    clear_error(error);
+    return platform_gpio_interrupt_enable(
+        BOARD_REV1_GPIO_ADC_DRDY, error);
+}
+
+fw_status_t board_adc_drdy_disable(fw_error_context_t *error)
+{
+    clear_error(error);
+    return platform_gpio_interrupt_disable(
+        BOARD_REV1_GPIO_ADC_DRDY, error);
+}
+
+fw_status_t board_adc_drdy_detach(fw_error_context_t *error)
+{
+    clear_error(error);
+    return platform_gpio_interrupt_detach(
+        BOARD_REV1_GPIO_ADC_DRDY, error);
+}
+
+fw_status_t board_storage_mount(platform_storage_t **storage,
+                                fw_error_context_t *error)
+{
+    clear_error(error);
+    if (!s_board_initialized) {
+        return set_board_error(error, FW_STATUS_NOT_INITIALIZED,
+                               FW_ERROR_OPERATION_MOUNT, 0U);
     }
-    s_adc_spi_device = NULL;
-    status = platform_spi_bus_deinitialize(
-        s_adc_spi_bus, BOARD_REV1_ADC_SPI_TRANSFER_TIMEOUT_US, error);
-    if (status != FW_STATUS_OK) {
-        return status;
-    }
-    s_adc_spi_bus = NULL;
-    s_adc_owner = NULL;
-    return FW_STATUS_OK;
+    const platform_storage_config_t config = {
+        .clock_pin = BOARD_REV1_GPIO_SD_CLOCK,
+        .command_pin = BOARD_REV1_GPIO_SD_CMD,
+        .data0_pin = BOARD_REV1_GPIO_SD_D0,
+        .data1_pin = BOARD_REV1_GPIO_SD_D1,
+        .data2_pin = BOARD_REV1_GPIO_SD_D2,
+        .data3_pin = BOARD_REV1_GPIO_SD_D3,
+        .clock_hz = BOARD_REV1_SDMMC_CLOCK_HZ,
+        .bus_width = BOARD_REV1_SDMMC_BUS_WIDTH,
+    };
+    return platform_storage_mount(&config, storage, error);
 }

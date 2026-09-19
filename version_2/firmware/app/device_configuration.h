@@ -93,4 +93,9 @@ fw_status_t device_configuration_apply(
     const device_configuration_update_t *update,
     fw_error_context_t *error);
 
+/** Runtime-owner updates; these do not apply host-writable configuration. */
+void device_configuration_set_storage_state(device_sd_card_state_t state);
+void device_configuration_set_acquisition_state(bool active,
+                                                bool recording);
+
 #endif /* GEOPHYS_DEVICE_CONFIGURATION_H */

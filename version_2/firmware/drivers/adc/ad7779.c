@@ -134,7 +134,9 @@ static fw_status_t read_register(ad7779_t *device,
     if (rx_data[0] != AD7779_SPI_REGISTER_HEADER) {
         return set_error(error, FW_STATUS_INTEGRITY, FW_ERROR_OPERATION_READ,
                          device->config.instance,
-                         ((uint32_t)address << 8) | rx_data[0]);
+                         ((uint32_t)address << 16) |
+                             ((uint32_t)rx_data[0] << 8) |
+                             rx_data[1]);
     }
 
     *value = rx_data[1];
@@ -165,9 +167,67 @@ static fw_status_t write_register(ad7779_t *device,
     if (rx_data[0] != AD7779_SPI_REGISTER_HEADER) {
         return set_error(error, FW_STATUS_INTEGRITY, FW_ERROR_OPERATION_WRITE,
                          device->config.instance,
-                         ((uint32_t)address << 8) | rx_data[0]);
+                         ((uint32_t)address << 16) |
+                             ((uint32_t)rx_data[0] << 8) |
+                             rx_data[1]);
     }
 
+    if (address == AD7779_REG_GENERAL_USER_CONFIG_3) {
+        device->general_user_config_3_shadow = value;
+    } else if (address == AD7779_REG_CH_DISABLE) {
+        device->channel_disable_shadow = value;
+    }
+    return FW_STATUS_OK;
+}
+
+static fw_status_t software_reset(ad7779_t *device,
+                                  fw_error_context_t *error)
+{
+    uint8_t tx_data[AD7779_SPI_SOFT_RESET_BYTES];
+    uint8_t rx_data[AD7779_SPI_SOFT_RESET_BYTES];
+
+    memset(tx_data, AD7779_SPI_SOFT_RESET_BYTE, sizeof(tx_data));
+    memset(rx_data, 0, sizeof(rx_data));
+
+    const fw_status_t status = spi_transfer(
+        device, tx_data, rx_data, sizeof(tx_data), error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    /*
+     * The datasheet defines 64 consecutive clocks with SDI held high as an
+     * SPI software reset. The working V1 firmware used a 5 ms margin before
+     * its first register access; retain that proven settling interval here.
+     */
+    device->config.delay_us(device->config.delay_context,
+                            AD7779_SPI_SOFT_RESET_SETTLING_US);
+    return FW_STATUS_OK;
+}
+
+/* In subordinate readback mode SDO contains conversion data, not 0x20. */
+static fw_status_t write_register_while_streaming(
+    ad7779_t *device,
+    uint8_t address,
+    uint8_t value,
+    fw_error_context_t *error)
+{
+    uint8_t tx_data[AD7779_SPI_REGISTER_FRAME_BYTES] = {
+        (uint8_t)(AD7779_SPI_WRITE | (address & AD7779_SPI_ADDRESS_MASK)),
+        value,
+    };
+    uint8_t rx_data[AD7779_SPI_REGISTER_FRAME_BYTES] = {0U, 0U};
+
+    if (address > AD7779_REG_SRC_UPDATE) {
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_WRITE, device->config.instance,
+                         address);
+    }
+    const fw_status_t status = spi_transfer(
+        device, tx_data, rx_data, sizeof(tx_data), error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
     if (address == AD7779_REG_GENERAL_USER_CONFIG_3) {
         device->general_user_config_3_shadow = value;
     } else if (address == AD7779_REG_CH_DISABLE) {
@@ -217,18 +277,47 @@ static fw_status_t poll_init_complete(ad7779_t *device,
                                       fw_error_context_t *error)
 {
     uint32_t elapsed_us = 0U;
+    fw_error_context_t last_integrity_error;
+    bool received_valid_response = false;
+    bool have_integrity_error = false;
+
+    clear_error(&last_integrity_error);
 
     for (;;) {
         uint8_t status_3 = 0U;
+        fw_error_context_t read_error;
+        clear_error(&read_error);
         fw_status_t status = read_register(
-            device, AD7779_REG_STATUS_REG_3, &status_3, error);
-        if (status != FW_STATUS_OK) {
+            device, AD7779_REG_STATUS_REG_3, &status_3, &read_error);
+        if (status == FW_STATUS_OK) {
+            received_valid_response = true;
+        } else if (status == FW_STATUS_INTEGRITY) {
+            /*
+             * The working V1 implementation observed that the first SPI
+             * response after reset can be stale. Keep the fixed 0x20 header
+             * validation, but allow the complete initialization window for
+             * the ADC to begin responding correctly.
+             */
+            last_integrity_error = read_error;
+            have_integrity_error = true;
+        } else {
+            if (error != NULL) {
+                *error = read_error;
+            }
             return status;
         }
-        if ((status_3 & AD7779_STAT3_INIT_COMPLETE) != 0U) {
+        if (status == FW_STATUS_OK &&
+            (status_3 & AD7779_STAT3_INIT_COMPLETE) != 0U) {
+            clear_error(error);
             return FW_STATUS_OK;
         }
         if (elapsed_us >= device->config.init_timeout_us) {
+            if (!received_valid_response && have_integrity_error) {
+                if (error != NULL) {
+                    *error = last_integrity_error;
+                }
+                return FW_STATUS_INTEGRITY;
+            }
             return set_error(error, FW_STATUS_TIMEOUT, FW_ERROR_OPERATION_WAIT,
                              device->config.instance,
                              device->config.init_timeout_us);
@@ -401,6 +490,34 @@ static fw_status_t fail_output_rate_configuration(
     return failure_status;
 }
 
+static fw_status_t latch_src_registers(ad7779_t *device,
+                                       fw_error_context_t *error)
+{
+    fw_status_t status = write_register(
+        device, AD7779_REG_SRC_UPDATE, AD7779_SRC_LOAD_UPDATE, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    status = verify_register_value(device, AD7779_REG_SRC_UPDATE,
+                                   AD7779_SRC_LOAD_UPDATE, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    const uint32_t hold_us =
+        (uint32_t)((((uint64_t)AD7779_SRC_UPDATE_MIN_MCLK_CYCLES *
+                     UINT64_C(1000000)) +
+                    device->config.mclk_hz - 1U) /
+                   device->config.mclk_hz);
+    device->config.delay_us(device->config.delay_context, hold_us);
+
+    status = write_register(device, AD7779_REG_SRC_UPDATE, 0U, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    return verify_register_value(device, AD7779_REG_SRC_UPDATE, 0U, error);
+}
+
 static ad7779_fault_flags_t normalize_general_faults(uint8_t error_1,
                                                       uint8_t error_2)
 {
@@ -518,6 +635,30 @@ static fw_status_t collect_status(ad7779_t *device,
     return FW_STATUS_OK;
 }
 
+static fw_status_t acknowledge_channel_faults(ad7779_t *device,
+                                               fw_error_context_t *error)
+{
+    uint8_t ignored = 0U;
+
+    for (uint8_t channel = 0U; channel < AD7779_CHANNEL_COUNT; ++channel) {
+        const fw_status_t status = read_register(
+            device, AD7779_REG_CH_ERR(channel), &ignored, error);
+        if (status != FW_STATUS_OK) {
+            return status;
+        }
+    }
+    for (uint8_t pair = 0U;
+         pair < AD7779_FRAME_CHANNEL_PAIR_COUNT;
+         ++pair) {
+        const fw_status_t status = read_register(
+            device, AD7779_REG_CH_PAIR_SAT_ERR(pair), &ignored, error);
+        if (status != FW_STATUS_OK) {
+            return status;
+        }
+    }
+    return FW_STATUS_OK;
+}
+
 static fw_status_t stop_hardware(ad7779_t *device,
                                  bool preserve_fault_state,
                                  fw_error_context_t *error)
@@ -531,9 +672,14 @@ static fw_status_t stop_hardware(ad7779_t *device,
     clear_error(&first_error);
     clear_error(&current_error);
 
-    fw_status_t status = write_register(
-        device, AD7779_REG_GENERAL_USER_CONFIG_3, stopped_config,
-        &current_error);
+    fw_status_t status =
+        ((device->general_user_config_3_shadow &
+          AD7779_GUC3_SPI_SUBORDINATE_MODE_EN) != 0U) ?
+        write_register_while_streaming(
+            device, AD7779_REG_GENERAL_USER_CONFIG_3, stopped_config,
+            &current_error) :
+        write_register(device, AD7779_REG_GENERAL_USER_CONFIG_3,
+                       stopped_config, &current_error);
     if (status != FW_STATUS_OK) {
         first_status = status;
         first_error = current_error;
@@ -567,6 +713,8 @@ static fw_status_t perform_reset(ad7779_t *device,
                                  fw_error_context_t *error)
 {
     fw_status_t status;
+    ad7779_status_t reset_status;
+    ad7779_status_t stopped_status;
 
     memset(&device->applied_channel_config, 0,
            sizeof(device->applied_channel_config));
@@ -618,6 +766,11 @@ static fw_status_t perform_reset(ad7779_t *device,
         goto failure;
     }
 
+    status = software_reset(device, error);
+    if (status != FW_STATUS_OK) {
+        goto failure;
+    }
+
     status = poll_init_complete(device, error);
     if (status != FW_STATUS_OK) {
         goto failure;
@@ -629,14 +782,70 @@ static fw_status_t perform_reset(ad7779_t *device,
 
     device->general_user_config_3_shadow = AD7779_GUC3_RESET_VALUE;
     device->channel_disable_shadow = AD7779_CH_DISABLE_RESET_VALUE;
-    status = collect_status(device, false, NULL, error);
+    /*
+     * The reset-detected flag is expected after the deliberate hardware and
+     * SPI reset sequence above. Reading GEN_ERR_REG_2 here acknowledges and
+     * clears it so that a later occurrence can be treated as unexpected.
+     */
+    status = collect_status(device, true, &reset_status, error);
     if (status != FW_STATUS_OK) {
-        goto failure;
+        const ad7779_fault_flags_t reset_transients =
+            AD7779_FAULT_SPI_CLOCK_COUNT |
+            AD7779_FAULT_CHANNEL_INPUT |
+            AD7779_FAULT_CHANNEL_SATURATION;
+        if (status != FW_STATUS_HARDWARE_FAULT ||
+            (reset_status.faults & ~reset_transients) != 0U) {
+            goto failure;
+        }
     }
     status = stop_hardware(device, false, error);
     if (status != FW_STATUS_OK) {
         goto failure;
     }
+    /*
+     * Reset leaves all channels enabled before their reference and gains are
+     * configured. Input/saturation flags can therefore latch during the
+     * deliberate reset sequence. GEN_ERR_REG_1/2 were acknowledged by
+     * collect_status(); disable the channels, acknowledge their diagnostic
+     * registers, then require a clean fresh status. This also proves that a
+     * reset-time SPI clock-count indication did not recur.
+     */
+    status = acknowledge_channel_faults(device, error);
+    if (status != FW_STATUS_OK) {
+        goto failure;
+    }
+    status = collect_status(device, false, &stopped_status, error);
+    if (status != FW_STATUS_OK) {
+        const ad7779_fault_flags_t unconfigured_channel_faults =
+            AD7779_FAULT_CHANNEL_INPUT |
+            AD7779_FAULT_CHANNEL_SATURATION;
+        if (status != FW_STATUS_HARDWARE_FAULT ||
+            (stopped_status.faults & ~unconfigured_channel_faults) != 0U) {
+            goto failure;
+        }
+    }
+
+    /*
+     * The power-up ROM and memory-map checks have now completed without a
+     * fault. The proven V1 sequence disabled these periodic checkers before
+     * programming runtime registers; retain the SPI framing checks while
+     * avoiding a false MEMMAP_CRC indication during intentional writes.
+     */
+    const uint8_t runtime_error_1_en =
+        AD7779_ERR1_EN_RESET_VALUE &
+        (uint8_t)~(AD7779_ERR1_EN_MEMMAP_CRC_TEST |
+                   AD7779_ERR1_EN_ROM_CRC_TEST);
+    status = write_register(device, AD7779_REG_GEN_ERR_REG_1_EN,
+                            runtime_error_1_en, error);
+    if (status != FW_STATUS_OK) {
+        goto failure;
+    }
+    status = verify_register_value(device, AD7779_REG_GEN_ERR_REG_1_EN,
+                                   runtime_error_1_en, error);
+    if (status != FW_STATUS_OK) {
+        goto failure;
+    }
+    clear_error(error);
     return FW_STATUS_OK;
 
 failure:
@@ -846,7 +1055,6 @@ fw_status_t ad7779_configure_output_rate(
     uint16_t src_n = 0U;
     uint16_t src_if = 0U;
     uint8_t general_user_config_1 = 0U;
-    uint32_t update_hold_us;
     fw_status_t status;
 
     clear_error(error);
@@ -876,7 +1084,15 @@ fw_status_t ad7779_configure_output_rate(
     if (status != FW_STATUS_OK) {
         return fail_output_rate_configuration(device, status);
     }
-    general_user_config_1 |= AD7779_GUC1_HR_MODE;
+    general_user_config_1 |= AD7779_GUC1_HR_MODE |
+                             AD7779_GUC1_PDB_VCM |
+                             AD7779_GUC1_PDB_RC_OSC;
+    if (device->config.reference_output_enabled) {
+        general_user_config_1 |= AD7779_GUC1_PDB_REFOUT_BUF;
+    } else {
+        general_user_config_1 &=
+            (uint8_t)~AD7779_GUC1_PDB_REFOUT_BUF;
+    }
     status = write_register(device, AD7779_REG_GENERAL_USER_CONFIG_1,
                             general_user_config_1, error);
     if (status != FW_STATUS_OK) {
@@ -932,29 +1148,7 @@ fw_status_t ad7779_configure_output_rate(
         return fail_output_rate_configuration(device, status);
     }
 
-    status = write_register(device, AD7779_REG_SRC_UPDATE,
-                            AD7779_SRC_LOAD_UPDATE, error);
-    if (status != FW_STATUS_OK) {
-        return fail_output_rate_configuration(device, status);
-    }
-    status = verify_register_value(device, AD7779_REG_SRC_UPDATE,
-                                   AD7779_SRC_LOAD_UPDATE, error);
-    if (status != FW_STATUS_OK) {
-        return fail_output_rate_configuration(device, status);
-    }
-
-    update_hold_us =
-        (uint32_t)((((uint64_t)AD7779_SRC_UPDATE_MIN_MCLK_CYCLES *
-                     UINT64_C(1000000)) +
-                    device->config.mclk_hz - 1U) /
-                   device->config.mclk_hz);
-    device->config.delay_us(device->config.delay_context, update_hold_us);
-
-    status = write_register(device, AD7779_REG_SRC_UPDATE, 0U, error);
-    if (status != FW_STATUS_OK) {
-        return fail_output_rate_configuration(device, status);
-    }
-    status = verify_register_value(device, AD7779_REG_SRC_UPDATE, 0U, error);
+    status = latch_src_registers(device, error);
     if (status != FW_STATUS_OK) {
         return fail_output_rate_configuration(device, status);
     }
@@ -989,6 +1183,202 @@ fw_status_t ad7779_get_output_rate(
 
     *output_rate = device->applied_output_rate;
     return FW_STATUS_OK;
+}
+
+fw_status_t ad7779_start(ad7779_t *device,
+                         fw_error_context_t *error)
+{
+    uint8_t general_user_config_2 = 0U;
+    ad7779_status_t configured_status;
+
+    clear_error(error);
+    fw_status_t status = require_bound(
+        device, FW_ERROR_OPERATION_ENABLE, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (device->state != AD7779_STATE_STOPPED) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_ENABLE, device->config.instance,
+                         device->state);
+    }
+    if (!device->channel_configured || !device->output_rate_configured ||
+        device->applied_channel_config.enabled_mask == 0U) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_ENABLE, device->config.instance,
+                         ((uint32_t)device->channel_configured << 2U) |
+                         ((uint32_t)device->output_rate_configured << 1U) |
+                         (device->applied_channel_config.enabled_mask != 0U));
+    }
+
+    const uint8_t channel_disable = (uint8_t)(
+        ~device->applied_channel_config.enabled_mask);
+    status = write_register(device, AD7779_REG_CH_DISABLE,
+                            channel_disable, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    status = verify_register_value(device, AD7779_REG_CH_DISABLE,
+                                   channel_disable, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+
+    const uint8_t dout_format = (uint8_t)(
+        (AD7779_DOUT_RESET_VALUE & (uint8_t)~AD7779_DOUT_FORMAT_MSK) |
+        AD7779_DOUT_FORMAT_1_LINE |
+        AD7779_DOUT_HEADER_FORMAT_CRC);
+    status = write_register(device, AD7779_REG_DOUT_FORMAT,
+                            dout_format, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+    status = verify_register_value(device, AD7779_REG_DOUT_FORMAT,
+                                   dout_format, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+
+    /*
+     * Gain, power-mode, and SRC changes take effect at synchronization.
+     * START is held high on Rev-1, so drive SPI_SYNC low and then high before
+     * handing SDO over to the conversion-data path.
+     */
+    status = read_register(device, AD7779_REG_GENERAL_USER_CONFIG_2,
+                           &general_user_config_2, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+    general_user_config_2 &= (uint8_t)~AD7779_GUC2_SPI_SYNC;
+    status = write_register(device, AD7779_REG_GENERAL_USER_CONFIG_2,
+                            general_user_config_2, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+    device->config.delay_us(device->config.delay_context,
+                            AD7779_SPI_SYNC_HOLD_US);
+    general_user_config_2 |= AD7779_GUC2_SPI_SYNC;
+    status = write_register(device, AD7779_REG_GENERAL_USER_CONFIG_2,
+                            general_user_config_2, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+    status = verify_register_value(device, AD7779_REG_GENERAL_USER_CONFIG_2,
+                                   general_user_config_2, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+    device->config.delay_us(device->config.delay_context,
+                            AD7779_POST_SYNC_SETTLING_US);
+
+    /* Channels are active now, so the SRC load strobe is clocked reliably. */
+    status = latch_src_registers(device, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+    const uint32_t src_settling_us =
+        (uint32_t)((((uint64_t)AD7779_SRC_UPDATE_SETTLING_CONVERSIONS *
+                     UINT64_C(1000000)) +
+                    (uint32_t)device->applied_output_rate - 1U) /
+                   (uint32_t)device->applied_output_rate);
+    device->config.delay_us(device->config.delay_context, src_settling_us);
+
+    /*
+     * Reset-time channel diagnostics are sampled before the reference and
+     * gains are configured, so validate them only after the real recording
+     * configuration has settled. Reading the detailed registers first
+     * clears stale latches when their underlying condition has recovered.
+     */
+    status = acknowledge_channel_faults(device, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+    status = collect_status(device, false, &configured_status, error);
+    if (status != FW_STATUS_OK) {
+        const ad7779_fault_flags_t channel_faults =
+            AD7779_FAULT_CHANNEL_INPUT |
+            AD7779_FAULT_CHANNEL_SATURATION;
+        if (status != FW_STATUS_HARDWARE_FAULT ||
+            (configured_status.faults & ~channel_faults) != 0U) {
+            (void)write_register(device, AD7779_REG_CH_DISABLE,
+                                 AD7779_ALL_CHANNELS_MASK, NULL);
+            return status;
+        }
+        /*
+         * The acquisition path observes the CRC-header ALERT bit and marks
+         * every affected 512-byte record invalid/critical. Do not prevent
+         * recording solely because an external analog input is presently
+         * out of range or saturated.
+         */
+        clear_error(error);
+    }
+
+    const uint8_t running_config = (uint8_t)(
+        device->general_user_config_3_shadow |
+        AD7779_GUC3_SPI_SUBORDINATE_MODE_EN);
+    status = write_register(device, AD7779_REG_GENERAL_USER_CONFIG_3,
+                            running_config, error);
+    if (status != FW_STATUS_OK) {
+        (void)write_register(device, AD7779_REG_CH_DISABLE,
+                             AD7779_ALL_CHANNELS_MASK, NULL);
+        return status;
+    }
+
+    device->state = AD7779_STATE_RUNNING;
+    device->last_status.state = AD7779_STATE_RUNNING;
+    return FW_STATUS_OK;
+}
+
+fw_status_t ad7779_read_frame(
+    ad7779_t *device,
+    uint8_t raw_frame[AD7779_RAW_FRAME_BYTES],
+    fw_error_context_t *error)
+{
+    uint8_t tx_data[AD7779_RAW_FRAME_BYTES];
+
+    clear_error(error);
+    fw_status_t status = require_bound(
+        device, FW_ERROR_OPERATION_READ, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (raw_frame == NULL) {
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_READ, device->config.instance,
+                         0U);
+    }
+    if (device->state != AD7779_STATE_RUNNING) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_READ, device->config.instance,
+                         device->state);
+    }
+
+    for (size_t offset = 0U;
+         offset < AD7779_RAW_FRAME_BYTES;
+         offset += AD7779_SPI_REGISTER_FRAME_BYTES) {
+        tx_data[offset] = AD7779_SPI_IGNORED_READ_CMD_HI;
+        tx_data[offset + 1U] = AD7779_SPI_IGNORED_READ_CMD_LO;
+    }
+    return spi_transfer(device, tx_data, raw_frame,
+                        AD7779_RAW_FRAME_BYTES, error);
 }
 
 fw_status_t ad7779_decode_frame(

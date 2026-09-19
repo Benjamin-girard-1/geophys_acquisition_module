@@ -18,6 +18,11 @@ CONFIG_SPIRAM_MEMTEST=y
 # Keep peripheral clocks fixed during milestone-1 acquisition and UART streaming.
 # CONFIG_PM_ENABLE is not set
 
+# Acquisition overload handling yields for one scheduler tick after a bounded
+# ADC batch. Keep that control-plane opportunity to 1 ms rather than the ESP-IDF
+# default 10 ms so the 64-entry DRDY timestamp ring remains useful at high ODRs.
+CONFIG_FREERTOS_HZ=1000
+
 # The ADC data-ready ISR captures the 10 MHz GPTimer while flash cache may be
 # unavailable. This also keeps the GPTimer driver object in internal memory.
 CONFIG_GPTIMER_CTRL_FUNC_IN_IRAM=y
@@ -37,3 +42,8 @@ CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT=y
 # reset-time ROM bytes until it finds a valid V2 frame; never burn an eFuse just
 # to silence this output.
 CONFIG_BOOT_ROM_LOG_ALWAYS_ON=y
+
+# Protocol recording names are up to 31 characters, so FAT long-file-name
+# support is required. Stack-backed LFN work buffers avoid heap lifetime state.
+CONFIG_FATFS_LFN_STACK=y
+CONFIG_FATFS_MAX_LFN=255

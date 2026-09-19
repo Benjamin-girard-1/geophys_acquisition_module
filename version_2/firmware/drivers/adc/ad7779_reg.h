@@ -42,9 +42,14 @@
 #define AD7779_SPI_SOFT_RESET_BYTE            UINT8_C(0xFF)
 #define AD7779_SPI_SOFT_RESET_BYTES           UINT8_C(8)
 #define AD7779_SPI_SOFT_RESET_CLOCKS          UINT8_C(64)
+#define AD7779_SPI_SOFT_RESET_SETTLING_US     UINT32_C(5000)
 #define AD7779_SPI_IGNORED_READ_COMMAND       UINT16_C(0x8000)
 #define AD7779_SPI_IGNORED_READ_CMD_HI        UINT8_C(0x80)
 #define AD7779_SPI_IGNORED_READ_CMD_LO        UINT8_C(0x00)
+
+/* Working V1 synchronization margins, pending Rev-1 waveform verification. */
+#define AD7779_SPI_SYNC_HOLD_US                UINT32_C(10)
+#define AD7779_POST_SYNC_SETTLING_US           UINT32_C(5000)
 
 /* CRC x^8 + x^2 + x + 1; the input shift register is preset to ones. */
 #define AD7779_CRC_POLYNOMIAL                 UINT8_C(0x07)
@@ -260,6 +265,7 @@
 #define AD7779_SRC_LOAD_SOURCE                (UINT8_C(1) << 7)
 #define AD7779_SRC_LOAD_UPDATE                (UINT8_C(1) << 0)
 #define AD7779_SRC_UPDATE_MIN_MCLK_CYCLES     UINT8_C(2)
+#define AD7779_SRC_UPDATE_SETTLING_CONVERSIONS UINT8_C(3)
 
 /* One simultaneous sample: 8-bit header followed by signed 24-bit data. */
 #define AD7779_FRAME_HEADER_BYTES             UINT8_C(1)

@@ -6,6 +6,7 @@ idf_component_register(
         "src/platform_error.c"
         "src/platform_gpio.c"
         "src/platform_spi.c"
+        "src/platform_storage.c"
         "src/platform_time.c"
         "src/platform_uart.c"
     INCLUDE_DIRS
@@ -17,10 +18,13 @@ idf_component_register(
         esp_driver_gpio
         esp_driver_gptimer
         esp_driver_spi
+        esp_driver_sdmmc
         esp_driver_uart
         esp_hw_support
         esp_rom
         esp_timer
         freertos
+        fatfs
         heap
+        sdmmc
 )

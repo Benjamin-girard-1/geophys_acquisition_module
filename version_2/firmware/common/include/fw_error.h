@@ -18,6 +18,7 @@ typedef enum {
     FW_ERROR_RESOURCE_MEMORY,
     FW_ERROR_RESOURCE_SYNCHRONIZATION,
     FW_ERROR_RESOURCE_ADC,
+    FW_ERROR_RESOURCE_STORAGE,
 } fw_error_resource_t;
 
 /** @brief Portable operation that was in progress when a failure occurred. */
@@ -36,6 +37,11 @@ typedef enum {
     FW_ERROR_OPERATION_DISABLE,
     FW_ERROR_OPERATION_SET_CLOCK,
     FW_ERROR_OPERATION_GET_CLOCK,
+    FW_ERROR_OPERATION_MOUNT,
+    FW_ERROR_OPERATION_OPEN,
+    FW_ERROR_OPERATION_CLOSE,
+    FW_ERROR_OPERATION_SYNC,
+    FW_ERROR_OPERATION_DELETE,
 } fw_error_operation_t;
 
 /**

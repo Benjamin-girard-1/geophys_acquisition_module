@@ -105,6 +105,8 @@ typedef struct {
     uint32_t reset_release_us;
     uint32_t init_timeout_us;
     uint32_t init_poll_interval_us;
+    /** Keep the AD7779 internal reference-output buffer powered. */
+    bool reference_output_enabled;
     uint32_t instance;
 } ad7779_config_t;
 
@@ -204,6 +206,26 @@ fw_status_t ad7779_configure_output_rate(
 fw_status_t ad7779_get_output_rate(
     const ad7779_t *device,
     ad7779_output_rate_t *output_rate,
+    fw_error_context_t *error);
+
+/**
+ * @brief Enable configured channel clocks and SPI conversion readback.
+ *
+ * Channel configuration and output rate must both have been applied while
+ * stopped. Conversion results become available on each DRDY falling edge.
+ */
+fw_status_t ad7779_start(ad7779_t *device,
+                         fw_error_context_t *error);
+
+/**
+ * @brief Read one complete simultaneous eight-channel conversion frame.
+ *
+ * Call once for each captured DRDY edge while the device is running. The
+ * transmitted 0x8000 read commands are deliberately ignored by the AD7779.
+ */
+fw_status_t ad7779_read_frame(
+    ad7779_t *device,
+    uint8_t raw_frame[AD7779_RAW_FRAME_BYTES],
     fw_error_context_t *error);
 
 /**
