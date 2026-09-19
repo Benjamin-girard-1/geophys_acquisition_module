@@ -22,6 +22,7 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_COMMAND_RECORDING_GET_NUMBER UINT16_C(0x0009)
 #define PROTOCOL_COMMAND_RECORDING_GET_INFO   UINT16_C(0x000A)
 #define PROTOCOL_COMMAND_RECORDING_DELETE     UINT16_C(0x000B)
+#define PROTOCOL_COMMAND_TEMP_RECORDING_READ  UINT16_C(0xF000)
 
 #define PROTOCOL_REPLY_DEVICE_INFO            UINT16_C(0x00A1)
 #define PROTOCOL_REPLY_DEVICE_CONFIG          UINT16_C(0x00A2)
@@ -33,6 +34,7 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_REPLY_RECORDING_NUMBER       UINT16_C(0x00A9)
 #define PROTOCOL_REPLY_RECORDING_INFO         UINT16_C(0x00AA)
 #define PROTOCOL_REPLY_RECORDING_DELETE_RESULT UINT16_C(0x00AB)
+#define PROTOCOL_REPLY_TEMP_RECORDING_READ    UINT16_C(0xF000)
 
 #define PROTOCOL_RESULT_SUCCESS               UINT8_C(0x00)
 #define PROTOCOL_RESULT_INVALID_ARGUMENT      UINT8_C(0x01)
@@ -56,6 +58,23 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_DEVICE_MAC_SIZE_BYTES        UINT8_C(6)
 #define PROTOCOL_DEVICE_SET_CONFIG_PAYLOAD_SIZE_BYTES UINT8_C(39)
 #define PROTOCOL_DEVICE_CONFIG_PAYLOAD_SIZE_BYTES UINT8_C(40)
+#define PROTOCOL_STREAMING_START_PAYLOAD_SIZE_BYTES UINT8_C(2)
+#define PROTOCOL_STREAMING_START_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(4)
+#define PROTOCOL_STREAMING_STOP_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(2)
+#define PROTOCOL_RECORDING_NAME_SIZE_BYTES     UINT8_C(32)
+#define PROTOCOL_RECORDING_NAME_MAX_LENGTH     UINT8_C(31)
+#define PROTOCOL_RECORDING_MAX_COUNT           UINT16_C(255)
+#define PROTOCOL_RECORDING_START_PAYLOAD_SIZE_BYTES UINT8_C(32)
+#define PROTOCOL_RECORDING_START_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(34)
+#define PROTOCOL_RECORDING_STOP_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(33)
+#define PROTOCOL_RECORDING_NUMBER_PAYLOAD_SIZE_BYTES UINT8_C(3)
+#define PROTOCOL_RECORDING_INFO_REQUEST_PAYLOAD_SIZE_BYTES UINT8_C(2)
+#define PROTOCOL_RECORDING_INFO_PAYLOAD_SIZE_BYTES UINT8_C(48)
+#define PROTOCOL_RECORDING_DELETE_PAYLOAD_SIZE_BYTES UINT8_C(32)
+#define PROTOCOL_RECORDING_DELETE_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(34)
+#define PROTOCOL_TEMP_RECORDING_READ_REQUEST_PAYLOAD_SIZE_BYTES UINT8_C(36)
+#define PROTOCOL_TEMP_RECORDING_READ_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(48)
+#define PROTOCOL_TEMP_RECORDING_READ_DATA_SIZE_BYTES UINT8_C(38)
 
 #define PROTOCOL_ADC_SAMPLE_RATE_500_SPS       UINT8_C(0x00)
 #define PROTOCOL_ADC_SAMPLE_RATE_1000_SPS      UINT8_C(0x01)
@@ -68,6 +87,13 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_ADC_CHANNEL_MASK_LOW          UINT8_C(0x0F)
 #define PROTOCOL_ADC_CHANNEL_MASK_HIGH         UINT8_C(0xF0)
 #define PROTOCOL_ADC_CHANNEL_MASK_ALL          UINT8_C(0xFF)
+
+#define PROTOCOL_STREAMING_DECIMATION_NONE     UINT8_C(0x00)
+#define PROTOCOL_STREAMING_DECIMATION_2        UINT8_C(0x02)
+#define PROTOCOL_STREAMING_DECIMATION_4        UINT8_C(0x04)
+#define PROTOCOL_STREAMING_DECIMATION_5        UINT8_C(0x05)
+#define PROTOCOL_STREAMING_DECIMATION_10       UINT8_C(0x0A)
+#define PROTOCOL_STREAMING_DECIMATION_20       UINT8_C(0x14)
 
 #define PROTOCOL_CARD_ABSENT                   UINT8_C(0x00)
 #define PROTOCOL_CARD_MAGNETIC                 UINT8_C(0x01)
@@ -148,6 +174,74 @@ typedef struct {
     uint8_t error_pending;
 } protocol_device_config_t;
 
+typedef struct {
+    uint8_t decimation;
+    uint8_t channel_mask;
+} protocol_streaming_start_request_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    uint8_t decimation;
+    uint8_t channel_mask;
+    uint8_t recording_in_progress;
+} protocol_streaming_start_result_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    uint8_t recording_in_progress;
+} protocol_streaming_stop_result_t;
+
+/** Canonical recording name: lowercase ASCII, NUL terminated and padded. */
+typedef struct {
+    char bytes[PROTOCOL_RECORDING_NAME_SIZE_BYTES];
+} protocol_recording_name_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    uint8_t recording_in_progress;
+    protocol_recording_name_t name;
+} protocol_recording_start_result_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    protocol_recording_name_t name;
+} protocol_recording_stop_result_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    uint16_t recording_count;
+} protocol_recording_number_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    uint16_t recording_index;
+    uint8_t recording_in_progress;
+    protocol_recording_name_t name;
+    uint64_t start_unix_timestamp_us;
+    uint32_t size_bytes;
+} protocol_recording_info_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    uint8_t recording_in_progress;
+    protocol_recording_name_t name;
+} protocol_recording_delete_result_t;
+
+/** Temporary UART-only file extraction request. */
+typedef struct {
+    protocol_recording_name_t name;
+    uint32_t offset_bytes;
+} protocol_temp_recording_read_request_t;
+
+/** Temporary UART-only file extraction reply. */
+typedef struct {
+    protocol_command_result_t result;
+    uint32_t file_size_bytes;
+    uint32_t offset_bytes;
+    uint8_t data_length_bytes;
+    uint8_t data[PROTOCOL_TEMP_RECORDING_READ_DATA_SIZE_BYTES];
+} protocol_temp_recording_read_reply_t;
+
 protocol_message_status_t protocol_decode_hello_request(
     const protocol_command_t *command);
 
@@ -166,6 +260,83 @@ protocol_message_status_t protocol_decode_device_set_config_request(
 
 protocol_message_status_t protocol_encode_device_config_reply(
     const protocol_device_config_t *device_config,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_streaming_start_request(
+    const protocol_command_t *command,
+    protocol_streaming_start_request_t *request);
+
+protocol_message_status_t protocol_encode_streaming_start_reply(
+    const protocol_streaming_start_result_t *result,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_streaming_stop_request(
+    const protocol_command_t *command);
+
+protocol_message_status_t protocol_encode_streaming_stop_reply(
+    const protocol_streaming_stop_result_t *result,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_recording_start_request(
+    const protocol_command_t *command,
+    protocol_recording_name_t *name);
+
+protocol_message_status_t protocol_encode_recording_start_reply(
+    const protocol_recording_start_result_t *result,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_recording_stop_request(
+    const protocol_command_t *command);
+
+protocol_message_status_t protocol_encode_recording_stop_reply(
+    const protocol_recording_stop_result_t *result,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_recording_get_number_request(
+    const protocol_command_t *command);
+
+protocol_message_status_t protocol_encode_recording_number_reply(
+    const protocol_recording_number_t *number,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_recording_get_info_request(
+    const protocol_command_t *command,
+    uint16_t *recording_index);
+
+protocol_message_status_t protocol_encode_recording_info_reply(
+    const protocol_recording_info_t *info,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_recording_delete_request(
+    const protocol_command_t *command,
+    protocol_recording_name_t *name);
+
+protocol_message_status_t protocol_encode_recording_delete_reply(
+    const protocol_recording_delete_result_t *result,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_temp_recording_read_request(
+    const protocol_command_t *command,
+    protocol_temp_recording_read_request_t *request);
+
+protocol_message_status_t protocol_encode_temp_recording_read_reply(
+    const protocol_temp_recording_read_reply_t *result,
     protocol_crc32_callback_t crc32,
     void *crc_context,
     uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);

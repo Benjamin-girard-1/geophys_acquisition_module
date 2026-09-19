@@ -3,9 +3,11 @@
 This directory contains byte-exact examples derived from the authoritative
 layout in `../protocol.md`. Firmware and host tests consume the same files.
 
-The checked-in command set currently covers `HELLO`, `DEVICE_INFO`,
-`DEVICE_GET_CONFIG`, `DEVICE_SET_CONFIG`, `DEVICE_CONFIG`, and CRC-invalid
-`HELLO`. Additional command and data-block vectors remain planned below.
+The checked-in vectors currently cover `HELLO`, `DEVICE_INFO`,
+`DEVICE_GET_CONFIG`, `DEVICE_SET_CONFIG`, `DEVICE_CONFIG`, CRC-invalid
+`HELLO`, the temporary `TEMP_RECORDING_READ` request/reply, and one complete
+eight-channel `\DAT` block. Additional command and data-block vectors remain
+planned below.
 
 Structure:
 

@@ -1,15 +1,11 @@
 #ifndef GEOPHYS_ADC_RECORD_H
 #define GEOPHYS_ADC_RECORD_H
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
-/*
- * Compile-only scaffold for the portable 512-byte data block defined in
- * shared/protocol/protocol.md.
- *
- * This component will not know about AD7779 registers, application queues,
- * UART, ESP-IDF, FatFs, or SD hardware.
- */
+/* Portable 512-byte data block defined in shared/protocol/protocol.md. */
 #define ADC_RECORD_SIZE_BYTES                 UINT16_C(512)
 #define ADC_RECORD_HEADER_SIZE_BYTES          UINT16_C(28)
 #define ADC_RECORD_PAYLOAD_SIZE_BYTES         UINT16_C(480)
@@ -57,12 +53,67 @@ typedef struct {
     uint32_t sample_period_100ns;
 } adc_record_metadata_t;
 
-/*
- * Planned against shared test vectors:
- * - stateful builder begin/append/finalize operations;
- * - complete-record validation and metadata decoding;
- * - signed 24-bit pack/unpack helpers;
- * - CRC-32/ISO-HDLC validation.
- */
+typedef uint32_t (*adc_record_crc32_callback_t)(
+    void *context,
+    const uint8_t *data,
+    size_t length_bytes);
+
+typedef enum {
+    ADC_RECORD_CODEC_OK = 0,
+    ADC_RECORD_CODEC_INVALID_ARGUMENT,
+    ADC_RECORD_CODEC_INVALID_STATE,
+    ADC_RECORD_CODEC_INVALID_FIELD,
+    ADC_RECORD_CODEC_INCOMPLETE,
+    ADC_RECORD_CODEC_INTEGRITY,
+} adc_record_codec_status_t;
+
+/** Stateful, allocation-free encoder for exactly one complete record. */
+typedef struct {
+    uint8_t *record;
+    adc_record_metadata_t metadata;
+    uint16_t payload_offset;
+    uint8_t required_conversions;
+    uint8_t appended_conversions;
+    bool begun;
+    bool finalized;
+} adc_record_builder_t;
+
+/** Begin a record. Only masks 0x0F, 0xF0, and 0xFF are recordable. */
+adc_record_codec_status_t adc_record_builder_begin(
+    adc_record_builder_t *builder,
+    uint8_t record[ADC_RECORD_SIZE_BYTES],
+    const adc_record_metadata_t *metadata);
+
+/** Append one simultaneous conversion in ascending selected-channel order. */
+adc_record_codec_status_t adc_record_builder_append(
+    adc_record_builder_t *builder,
+    uint32_t conversion_sequence,
+    uint64_t monotonic_timestamp_100ns,
+    const int32_t samples[ADC_RECORD_CHANNEL_COUNT]);
+
+/** Replace the block status before finalization. */
+adc_record_codec_status_t adc_record_builder_set_status(
+    adc_record_builder_t *builder,
+    adc_record_status_t status);
+
+/** Finalize only when all 480 sample bytes are populated. */
+adc_record_codec_status_t adc_record_builder_finalize(
+    adc_record_builder_t *builder,
+    adc_record_crc32_callback_t crc32,
+    void *crc_context);
+
+/** Validate a complete record and optionally decode its logical metadata. */
+adc_record_codec_status_t adc_record_validate(
+    const uint8_t record[ADC_RECORD_SIZE_BYTES],
+    adc_record_crc32_callback_t crc32,
+    void *crc_context,
+    adc_record_metadata_t *metadata);
+
+/** Encode/decode one signed 24-bit little-endian two's-complement sample. */
+adc_record_codec_status_t adc_record_pack_sample(
+    int32_t sample,
+    uint8_t destination[ADC_RECORD_PACKED_SAMPLE_SIZE_BYTES]);
+int32_t adc_record_unpack_sample(
+    const uint8_t source[ADC_RECORD_PACKED_SAMPLE_SIZE_BYTES]);
 
 #endif /* GEOPHYS_ADC_RECORD_H */

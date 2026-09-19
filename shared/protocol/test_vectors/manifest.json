@@ -73,9 +73,52 @@
       }
     },
     {
+      "name": "temp_recording_read_request",
+      "path": "command/valid/temp_recording_read_request.txt",
+      "expected": "valid",
+      "command_id": 61440,
+      "direction": 0,
+      "payload_length": 36,
+      "decoded": {
+        "name": "field_01",
+        "offset_bytes": 512
+      }
+    },
+    {
+      "name": "temp_recording_read_reply",
+      "path": "command/valid/temp_recording_read_reply.txt",
+      "expected": "valid",
+      "command_id": 61440,
+      "direction": 1,
+      "payload_length": 48,
+      "decoded": {
+        "result": 0,
+        "file_size_bytes": 1024,
+        "offset_bytes": 512,
+        "data_length_bytes": 38
+      }
+    },
+    {
       "name": "hello_bad_crc",
       "path": "command/invalid/hello_bad_crc.txt",
       "expected": "invalid_crc"
+    },
+    {
+      "name": "adc_record_8ch",
+      "path": "data_block/valid/adc_record_8ch.txt",
+      "expected": "valid",
+      "decoded": {
+        "channel_mask": 255,
+        "status": 0,
+        "packed_gain": 58596,
+        "payload_number": 16909060,
+        "first_conversion_sequence": 287454020,
+        "first_monotonic_timestamp_100ns": 72623859790382856,
+        "sample_period_100ns": 10000,
+        "conversion_count": 20,
+        "first_sample": -80,
+        "last_sample": 79
+      }
     }
   ]
 }

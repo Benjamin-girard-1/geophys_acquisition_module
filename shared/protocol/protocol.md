@@ -372,6 +372,7 @@ Answer payload:
 This command start the acquisition if not already started by the streaming and record the data on the SD card in the same block structure as shown in the `START_STREAMING` function. Configuration cannot be changed while a recording is in progress, it has to be stopped first and restarted. There should be no more than 255 different recording on a SD card by design, this is to prevent bug when reading the data in the SD card.
 
 The name of the file has the following restrictions:
+
 - only a-z, A-Z, 0-9 _ and - can be used (upper letters are converted to lower case)
 - ends by a NUL ASCII character (00), so the real writable length is 31
 - values after the name are padded to zeros
@@ -379,6 +380,13 @@ The name of the file has the following restrictions:
 - no empty name
 - all names must be different, duplicate name is rejected
 - no extension is required since the recording are saved in memory in a custom format
+
+A recording file is a direct concatenation of complete 512-byte `\DAT` blocks.
+It has no separate file header or footer, and its size is therefore always a
+multiple of 512 bytes. On stop, a partially filled block is discarded, all
+complete queued blocks are written, the filesystem is synchronized, and the
+file is closed before the reply is sent. A zero-byte recording is valid when
+recording was stopped before the first complete block was produced.
 
 #### Command semantics:
 
@@ -422,7 +430,7 @@ Answer payload:
 
 ### `RECORDING_STOP` -> `RECORDING_STOP_RESULT`
 
-Stops the recording in progress, if there is a streaming in progress it also stops it. Stop the acquisition process on all channels. Finishes the recording footer properly.
+Stops the recording in progress, if there is a streaming in progress it also stops it. Stop the acquisition process on all channels. Writes all complete queued 512-byte blocks, synchronizes the filesystem, and closes the recording file. The recording format has no footer.
 
 The result is sent after the recording has properly stopped or tried to.
 
@@ -594,6 +602,65 @@ Answer payload:
 | 46 | 14 | 0x00...00 | Empty padding |
 
 
+### `TEMP_RECORDING_READ` (temporary, command ID `0xf000`)
+
+> **Temporary test command — not part of the final product protocol.** This
+> command exists only to extract and validate SD recordings over UART when the
+> SD card cannot conveniently be removed. Host software must not depend on it
+> for normal operation. The same command ID is used for the request and reply;
+> the direction field distinguishes them.
+
+The command reads at most 38 bytes from a closed recording. The host repeats
+requests with increasing byte offsets until the returned offset plus data
+length equals the returned file size. An offset equal to the file size is a
+valid end-of-file request and returns zero data bytes. An offset greater than
+the file size is invalid. The command is rejected while any recording is in
+progress so that `task_storage` remains the sole filesystem owner and the file
+cannot change during extraction.
+
+#### Command semantics:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 0 | 4 | "\CMD" | Synchronization value |
+| 4 | 2 | 0xf000 | Temporary command ID |
+| 6 | 1 | 0x00 | Command direction: device-bound |
+| 7 | 4 | 0x00000000 | Reserved |
+| 11 | 1 | 0x24 | Number of bytes in the payload |
+| 12 | 48 | - | Payload |
+| 60 | 4 | - | CRC32 of bytes 0 through 59 |
+
+Command payload:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 12 | 32 | - | NUL-terminated, zero-padded recording name |
+| 44 | 4 | - | Little-endian byte offset |
+| 48 | 12 | 0x00...00 | Empty padding |
+
+#### Reply semantics:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 0 | 4 | "\CMD" | Synchronization value |
+| 4 | 2 | 0xf000 | Temporary command ID |
+| 6 | 1 | 0x01 | Command direction: host-bound |
+| 7 | 4 | 0x00000000 | Reserved |
+| 11 | 1 | 0x30 | Number of bytes in the payload |
+| 12 | 48 | - | Payload |
+| 60 | 4 | - | CRC32 of bytes 0 through 59 |
+
+Reply payload:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 12 | 1 | - | Command result |
+| 13 | 4 | - | Little-endian total file size; zero on failure |
+| 17 | 4 | - | Little-endian byte offset echoed from the request |
+| 21 | 1 | - | Number of valid data bytes, from 0 through 38 |
+| 22 | 38 | - | File data followed by zero padding |
+
+
 ## Magnetic SET/RESET operation
 
 ### `PULSE_REQUEST` -> `PULSE_RESULT`
@@ -603,6 +670,6 @@ This command is not implemented for now. A set-reset pulse should be sent before
 
 ## Reserved commands for testing
 
-Commands from `0xf0` to `0xff`
+Command IDs from `0xf000` to `0xf0ff`.
 
 Those commands are reserved for testing functionalities that will not be included in the final product.

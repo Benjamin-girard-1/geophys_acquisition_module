@@ -256,6 +256,198 @@ static void test_fragmentation(
     }
 }
 
+static void test_streaming_messages(void)
+{
+    protocol_command_t request = {
+        .command_id = PROTOCOL_COMMAND_STREAMING_START,
+        .direction = PROTOCOL_DIRECTION_TO_DEVICE,
+        .payload_length = PROTOCOL_STREAMING_START_PAYLOAD_SIZE_BYTES,
+        .payload = {
+            PROTOCOL_STREAMING_DECIMATION_5,
+            PROTOCOL_ADC_CHANNEL_MASK_ALL,
+        },
+    };
+    protocol_streaming_start_request_t start_request;
+    assert(protocol_decode_streaming_start_request(
+               &request, &start_request) == PROTOCOL_MESSAGE_OK);
+    assert(start_request.decimation == PROTOCOL_STREAMING_DECIMATION_5);
+    assert(start_request.channel_mask == PROTOCOL_ADC_CHANNEL_MASK_ALL);
+    request.payload[0] = 3U;
+    assert(protocol_decode_streaming_start_request(
+               &request, &start_request) == PROTOCOL_MESSAGE_INVALID_FIELD);
+
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES];
+    protocol_command_t decoded;
+    const protocol_streaming_start_result_t start_result = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .decimation = PROTOCOL_STREAMING_DECIMATION_5,
+        .channel_mask = PROTOCOL_ADC_CHANNEL_MASK_ALL,
+        .recording_in_progress = 1U,
+    };
+    assert(protocol_encode_streaming_start_reply(
+               &start_result, reference_crc32, NULL, frame) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(frame, reference_crc32, NULL, &decoded) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded.command_id == PROTOCOL_REPLY_STREAMING_START_RESULT);
+    assert(decoded.payload_length ==
+           PROTOCOL_STREAMING_START_REPLY_PAYLOAD_SIZE_BYTES);
+    assert(decoded.payload[1] == PROTOCOL_STREAMING_DECIMATION_5);
+    assert(decoded.payload[2] == PROTOCOL_ADC_CHANNEL_MASK_ALL);
+    assert(decoded.payload[3] == 1U);
+
+    request.command_id = PROTOCOL_COMMAND_STREAMING_STOP;
+    request.payload_length = 0U;
+    memset(request.payload, 0, sizeof(request.payload));
+    assert(protocol_decode_streaming_stop_request(&request) ==
+           PROTOCOL_MESSAGE_OK);
+
+    const protocol_streaming_stop_result_t stop_result = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .recording_in_progress = 0U,
+    };
+    assert(protocol_encode_streaming_stop_reply(
+               &stop_result, reference_crc32, NULL, frame) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(frame, reference_crc32, NULL, &decoded) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded.command_id == PROTOCOL_REPLY_STREAMING_STOP_RESULT);
+    assert(decoded.payload_length ==
+           PROTOCOL_STREAMING_STOP_REPLY_PAYLOAD_SIZE_BYTES);
+}
+
+static void test_recording_messages(void)
+{
+    protocol_command_t request = {
+        .command_id = PROTOCOL_COMMAND_RECORDING_START,
+        .direction = PROTOCOL_DIRECTION_TO_DEVICE,
+        .payload_length = PROTOCOL_RECORDING_START_PAYLOAD_SIZE_BYTES,
+        .payload = {'F', 'i', 'e', 'l', 'd', '_', '0', '1', 0},
+    };
+    protocol_recording_name_t name;
+    assert(protocol_decode_recording_start_request(&request, &name) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(strcmp(name.bytes, "field_01") == 0);
+    request.payload[9] = 1U;
+    assert(protocol_decode_recording_start_request(&request, &name) ==
+           PROTOCOL_MESSAGE_INVALID_FIELD);
+    request.payload[9] = 0U;
+
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES];
+    protocol_command_t decoded;
+    protocol_recording_start_result_t start = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .recording_in_progress = 1U,
+        .name = {.bytes = "field_01"},
+    };
+    assert(protocol_encode_recording_start_reply(
+               &start, reference_crc32, NULL, frame) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(frame, reference_crc32, NULL, &decoded) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded.command_id == PROTOCOL_REPLY_RECORDING_START_RESULT);
+    assert(decoded.payload_length == 34U);
+
+    protocol_recording_stop_result_t stop = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .name = {.bytes = "field_01"},
+    };
+    assert(protocol_encode_recording_stop_reply(
+               &stop, reference_crc32, NULL, frame) == PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(frame, reference_crc32, NULL, &decoded) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded.command_id == PROTOCOL_REPLY_RECORDING_STOP_RESULT);
+    assert(decoded.payload_length == 33U);
+
+    protocol_recording_number_t number = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .recording_count = 255U,
+    };
+    assert(protocol_encode_recording_number_reply(
+               &number, reference_crc32, NULL, frame) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(frame, reference_crc32, NULL, &decoded) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded.command_id == PROTOCOL_REPLY_RECORDING_NUMBER);
+    assert(decoded.payload[1] == 0xFFU && decoded.payload[2] == 0U);
+
+    request.command_id = PROTOCOL_COMMAND_RECORDING_GET_INFO;
+    request.payload_length = 2U;
+    request.payload[0] = 0x34U;
+    request.payload[1] = 0x12U;
+    uint16_t index = 0U;
+    assert(protocol_decode_recording_get_info_request(&request, &index) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(index == UINT16_C(0x1234));
+
+    protocol_recording_info_t info = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .recording_index = UINT16_C(0x1234),
+        .recording_in_progress = 1U,
+        .name = {.bytes = "field_01"},
+        .start_unix_timestamp_us = UINT64_C(0x0102030405060708),
+        .size_bytes = UINT32_C(0x11223344),
+    };
+    assert(protocol_encode_recording_info_reply(
+               &info, reference_crc32, NULL, frame) == PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(frame, reference_crc32, NULL, &decoded) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded.command_id == PROTOCOL_REPLY_RECORDING_INFO);
+    assert(decoded.payload_length == 48U);
+
+    protocol_recording_delete_result_t deleted = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .recording_in_progress = 0U,
+        .name = {.bytes = "field_01"},
+    };
+    assert(protocol_encode_recording_delete_reply(
+               &deleted, reference_crc32, NULL, frame) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(frame, reference_crc32, NULL, &decoded) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded.command_id == PROTOCOL_REPLY_RECORDING_DELETE_RESULT);
+
+    request.command_id = PROTOCOL_COMMAND_TEMP_RECORDING_READ;
+    request.payload_length =
+        PROTOCOL_TEMP_RECORDING_READ_REQUEST_PAYLOAD_SIZE_BYTES;
+    memset(request.payload, 0, sizeof(request.payload));
+    memcpy(request.payload, "Field_01", sizeof("Field_01"));
+    request.payload[32] = 0x78U;
+    request.payload[33] = 0x56U;
+    request.payload[34] = 0x34U;
+    request.payload[35] = 0x12U;
+    protocol_temp_recording_read_request_t read_request;
+    assert(protocol_decode_temp_recording_read_request(
+               &request, &read_request) == PROTOCOL_MESSAGE_OK);
+    assert(strcmp(read_request.name.bytes, "field_01") == 0);
+    assert(read_request.offset_bytes == UINT32_C(0x12345678));
+
+    protocol_temp_recording_read_reply_t read_reply = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .file_size_bytes = UINT32_C(1024),
+        .offset_bytes = UINT32_C(512),
+        .data_length_bytes = PROTOCOL_TEMP_RECORDING_READ_DATA_SIZE_BYTES,
+    };
+    for (uint8_t data_index = 0U;
+         data_index < PROTOCOL_TEMP_RECORDING_READ_DATA_SIZE_BYTES;
+         data_index++) {
+        read_reply.data[data_index] = data_index;
+    }
+    assert(protocol_encode_temp_recording_read_reply(
+               &read_reply, reference_crc32, NULL, frame) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(frame, reference_crc32, NULL, &decoded) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded.command_id == PROTOCOL_REPLY_TEMP_RECORDING_READ);
+    assert(decoded.direction == PROTOCOL_DIRECTION_TO_HOST);
+    assert(decoded.payload_length ==
+           PROTOCOL_TEMP_RECORDING_READ_REPLY_PAYLOAD_SIZE_BYTES);
+    assert(decoded.payload[9] ==
+           PROTOCOL_TEMP_RECORDING_READ_DATA_SIZE_BYTES);
+    assert(memcmp(decoded.payload + 10U, read_reply.data,
+                  sizeof(read_reply.data)) == 0);
+}
+
 static void test_garbage_concatenation_and_recovery(
     const uint8_t hello[PROTOCOL_COMMAND_SIZE_BYTES],
     const uint8_t bad_crc[PROTOCOL_COMMAND_SIZE_BYTES])
@@ -307,6 +499,8 @@ int main(int argc, char **argv)
     test_device_info_encode(device_info);
     test_device_config_requests(get_config, set_config);
     test_device_config_encode(device_config);
+    test_streaming_messages();
+    test_recording_messages();
     test_fragmentation(hello);
     test_garbage_concatenation_and_recovery(hello, bad_crc);
     assert(protocol_command_decode(
