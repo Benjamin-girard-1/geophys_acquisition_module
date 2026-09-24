@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import queue
@@ -15,6 +16,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from serial.tools import list_ports
 
+from .ble_client import BleDevice, BleHelloClient, discover_ble_devices
 from .live import LiveStreamModel
 from .protocol import (
     REPLY_DEVICE_CONFIG,
@@ -319,6 +321,55 @@ class DeviceWorker:
             self._emit("disconnected")
 
 
+class BleHelloWorker:
+    """Own a persistent BLE connection for the initial HELLO-only slice."""
+
+    def __init__(self, device: BleDevice, timeout_s: float = 3.0) -> None:
+        self.device = device
+        self.port = device.display_name
+        self.timeout_s = timeout_s
+        self.events: queue.Queue[UiEvent] = queue.Queue()
+        self.records: queue.Queue[tuple[int, AdcRecordMessage]] = queue.Queue()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="geophys-ble-device",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def shutdown(self) -> None:
+        self._stop.set()
+
+    def join(self, timeout: float | None = None) -> None:
+        self._thread.join(timeout)
+
+    async def _run_async(self) -> None:
+        client = BleHelloClient(self.device.identifier)
+        try:
+            await client.connect()
+            info = await client.hello(self.timeout_s)
+            self.events.put(UiEvent("connected", {
+                "info": info,
+                "connection_label": self.device.display_name,
+                "ble_hello_only": True,
+            }))
+            while not self._stop.is_set() and client.is_connected:
+                await asyncio.sleep(0.1)
+        finally:
+            await client.disconnect()
+
+    def _run(self) -> None:
+        try:
+            asyncio.run(self._run_async())
+        except Exception as error:
+            self.events.put(UiEvent("connection_error", str(error)))
+        finally:
+            self.events.put(UiEvent("disconnected"))
+
+
 class EmbeddedLivePlot(ttk.Frame):
     """Eight raw-channel plots embedded in the Live Stream tab."""
 
@@ -402,8 +453,9 @@ class GeophysHostApp(ttk.Frame):
     def __init__(self, root: tk.Tk) -> None:
         super().__init__(root, padding=10)
         self.root = root
-        self.worker: DeviceWorker | None = None
+        self.worker: DeviceWorker | BleHelloWorker | None = None
         self.connected = False
+        self.ble_hello_only = False
         self.recording_in_progress = False
         self.live_active = False
         self.pending_action: str | None = None
@@ -412,6 +464,9 @@ class GeophysHostApp(ttk.Frame):
         self.live_model: LiveStreamModel | None = None
         self.link_stats: dict[str, int] = {}
         self.recordings: dict[str, RecordingInfo] = {}
+        self._ble_devices: dict[str, BleDevice] = {}
+        self._ble_scan_events: queue.Queue[UiEvent] = queue.Queue()
+        self._ble_scan_running = False
         self._last_plot_update = 0.0
 
         root.title("Geophysical Acquisition Host")
@@ -430,19 +485,35 @@ class GeophysHostApp(ttk.Frame):
     def _build_connection_bar(self) -> None:
         frame = ttk.LabelFrame(self, text="Device connection", padding=8)
         frame.pack(fill=tk.X, pady=(0, 8))
-        frame.columnconfigure(1, weight=1)
+        frame.columnconfigure(3, weight=1)
 
-        ttk.Label(frame, text="USB / COM port").grid(
-            row=0, column=0, padx=(0, 8), sticky=tk.W)
+        ttk.Label(frame, text="Connection").grid(
+            row=0, column=0, padx=(0, 6), sticky=tk.W)
+        self.connection_type_var = tk.StringVar(value="USB / COM")
+        self.connection_type_combo = ttk.Combobox(
+            frame,
+            textvariable=self.connection_type_var,
+            values=("USB / COM", "Bluetooth LE"),
+            state="readonly",
+            width=13,
+        )
+        self.connection_type_combo.grid(row=0, column=1, padx=(0, 12))
+        self.connection_type_combo.bind(
+            "<<ComboboxSelected>>", self._connection_type_changed)
+
+        self.device_label = ttk.Label(frame, text="USB / COM port")
+        self.device_label.grid(
+            row=0, column=2, padx=(0, 8), sticky=tk.W)
         self.port_var = tk.StringVar()
         self.port_combo = ttk.Combobox(
             frame, textvariable=self.port_var, state="readonly", width=42)
-        self.port_combo.grid(row=0, column=1, sticky=tk.EW)
+        self.port_combo.grid(row=0, column=3, sticky=tk.EW)
         self.refresh_ports_button = ttk.Button(
-            frame, text="Refresh", command=self.refresh_ports)
-        self.refresh_ports_button.grid(row=0, column=2, padx=6)
+            frame, text="Refresh", command=self.refresh_devices)
+        self.refresh_ports_button.grid(row=0, column=4, padx=6)
 
-        ttk.Label(frame, text="Baud").grid(row=0, column=3, padx=(12, 6))
+        self.baud_label = ttk.Label(frame, text="Baud")
+        self.baud_label.grid(row=0, column=5, padx=(12, 6))
         self.baud_var = tk.StringVar(value="921600")
         self.baud_combo = ttk.Combobox(
             frame,
@@ -450,10 +521,10 @@ class GeophysHostApp(ttk.Frame):
             values=("921600", "460800", "115200"),
             width=10,
         )
-        self.baud_combo.grid(row=0, column=4)
+        self.baud_combo.grid(row=0, column=6)
         self.connect_button = ttk.Button(
             frame, text="Connect", command=self._toggle_connection)
-        self.connect_button.grid(row=0, column=5, padx=(8, 0))
+        self.connect_button.grid(row=0, column=7, padx=(8, 0))
 
     def _build_tabs(self) -> None:
         self.notebook = ttk.Notebook(self)
@@ -600,6 +671,74 @@ class GeophysHostApp(ttk.Frame):
         ), "")
         self.port_var.set(preferred or (devices[0] if devices else ""))
 
+    def refresh_devices(self) -> None:
+        if self.connection_type_var.get() == "Bluetooth LE":
+            self._start_ble_scan()
+        else:
+            self.refresh_ports()
+
+    def _connection_type_changed(self, _event=None) -> None:
+        if self.connection_type_var.get() == "Bluetooth LE":
+            self.device_label.configure(text="Bluetooth device")
+            self.baud_combo.configure(state=tk.DISABLED)
+            self.port_var.set("")
+            self.port_combo.configure(values=())
+            self._start_ble_scan()
+        else:
+            self.device_label.configure(text="USB / COM port")
+            self.baud_combo.configure(state=tk.NORMAL)
+            self._ble_devices.clear()
+            self.refresh_ports()
+
+    def _start_ble_scan(self) -> None:
+        if self._ble_scan_running or self.worker is not None:
+            return
+        self._ble_scan_running = True
+        self.port_var.set("")
+        self.port_combo.configure(values=())
+        self.refresh_ports_button.configure(state=tk.DISABLED)
+        self.connection_status_var.set("Scanning for Bluetooth devices…")
+
+        def scan() -> None:
+            try:
+                devices = asyncio.run(discover_ble_devices())
+                self._ble_scan_events.put(UiEvent("ble_scan", devices))
+            except Exception as error:
+                self._ble_scan_events.put(
+                    UiEvent("ble_scan_error", str(error)))
+
+        threading.Thread(
+            target=scan,
+            name="geophys-ble-scan",
+            daemon=True,
+        ).start()
+
+    def _poll_ble_scan(self) -> None:
+        while True:
+            try:
+                event = self._ble_scan_events.get_nowait()
+            except queue.Empty:
+                return
+            self._ble_scan_running = False
+            self.refresh_ports_button.configure(
+                state=tk.NORMAL if self.worker is None else tk.DISABLED)
+            if self.connection_type_var.get() != "Bluetooth LE":
+                continue
+            if event.name == "ble_scan_error":
+                self.connection_status_var.set("Bluetooth scan failed")
+                messagebox.showerror("Bluetooth scan", event.payload)
+                continue
+
+            devices = event.payload
+            self._ble_devices = {
+                device.display_name: device for device in devices
+            }
+            labels = tuple(self._ble_devices)
+            self.port_combo.configure(values=labels)
+            self.port_var.set(labels[0] if labels else "")
+            self.connection_status_var.set(
+                f"Found {len(labels)} Bluetooth device(s)")
+
     def _toggle_connection(self) -> None:
         if self.worker is not None:
             self.connection_status_var.set("Disconnecting…")
@@ -607,20 +746,35 @@ class GeophysHostApp(ttk.Frame):
             self.connect_button.configure(state=tk.DISABLED)
             return
 
-        port = self.port_var.get().strip()
-        if not port:
-            messagebox.showerror("Connection", "Select a USB / COM port.")
+        selected = self.port_var.get().strip()
+        if not selected:
+            messagebox.showerror("Connection", "Select a device.")
             return
-        try:
-            baud_rate = int(self.baud_var.get())
-        except ValueError:
-            messagebox.showerror("Connection", "Baud rate must be an integer.")
-            return
-        self.connection_status_var.set(f"Connecting to {port}…")
+
+        if self.connection_type_var.get() == "Bluetooth LE":
+            device = self._ble_devices.get(selected)
+            if device is None:
+                messagebox.showerror(
+                    "Connection", "Refresh and select a Bluetooth device.")
+                return
+            self.connection_status_var.set(
+                f"Connecting to {device.display_name}…")
+            self.worker = BleHelloWorker(device)
+        else:
+            try:
+                baud_rate = int(self.baud_var.get())
+            except ValueError:
+                messagebox.showerror(
+                    "Connection", "Baud rate must be an integer.")
+                return
+            self.connection_status_var.set(f"Connecting to {selected}…")
+            self.worker = DeviceWorker(selected, baud_rate)
+
         self.connect_button.configure(state=tk.DISABLED)
+        self.connection_type_combo.configure(state=tk.DISABLED)
         self.port_combo.configure(state=tk.DISABLED)
         self.refresh_ports_button.configure(state=tk.DISABLED)
-        self.worker = DeviceWorker(port, baud_rate)
+        self.baud_combo.configure(state=tk.DISABLED)
         self.worker.start()
 
     def _submit(self, action: str, **payload: Any) -> None:
@@ -688,10 +842,12 @@ class GeophysHostApp(ttk.Frame):
         self._submit("stop_stream")
 
     def _update_controls(self) -> None:
-        ready = self.connected and self.pending_action is None
+        command_access = self.connected and not getattr(
+            self, "ble_hello_only", False)
+        ready = command_access and self.pending_action is None
         selected = self._selected_recording() is not None
         self.refresh_recordings_button.configure(
-            state=tk.NORMAL if self.connected and
+            state=tk.NORMAL if command_access and
             not self.catalog_loading else tk.DISABLED)
         self.delete_recording_button.configure(
             state=tk.NORMAL if ready and selected and
@@ -748,11 +904,23 @@ class GeophysHostApp(ttk.Frame):
             self.pending_action = None
             info = event.payload["info"]
             mac = ":".join(f"{byte:02x}" for byte in info.mac_address)
-            self.connection_status_var.set(
-                f"Connected to {self.worker.port}  •  device {mac}")
             self.connect_button.configure(text="Disconnect", state=tk.NORMAL)
-            self._apply_config(event.payload["config"])
-            self._refresh_recordings()
+            self.ble_hello_only = event.payload.get(
+                "ble_hello_only", False)
+            if self.ble_hello_only:
+                label = event.payload["connection_label"]
+                self.connection_status_var.set(
+                    f"BLE connected to {label}  •  device {mac}")
+                self.recordings_status_var.set(
+                    "Bluetooth connected — HELLO only")
+                self.live_status_var.set(
+                    "Bluetooth connected — live streaming not implemented")
+                self._update_controls()
+            else:
+                self.connection_status_var.set(
+                    f"Connected to {self.worker.port}  •  device {mac}")
+                self._apply_config(event.payload["config"])
+                self._refresh_recordings()
         elif event.name == "config":
             self._apply_config(event.payload)
         elif event.name == "recordings_loading":
@@ -821,6 +989,7 @@ class GeophysHostApp(ttk.Frame):
             messagebox.showerror("Connection", event.payload)
         elif event.name == "disconnected":
             self.connected = False
+            self.ble_hello_only = False
             self.pending_action = None
             self.catalog_loading = False
             self.live_active = False
@@ -829,12 +998,18 @@ class GeophysHostApp(ttk.Frame):
             self.recordings_status_var.set("Not connected")
             self.live_status_var.set("Not connected")
             self.connect_button.configure(text="Connect", state=tk.NORMAL)
+            self.connection_type_combo.configure(state="readonly")
             self.port_combo.configure(state="readonly")
             self.refresh_ports_button.configure(state=tk.NORMAL)
+            self.baud_combo.configure(
+                state=tk.DISABLED
+                if self.connection_type_var.get() == "Bluetooth LE"
+                else tk.NORMAL)
             self.worker = None
             self._update_controls()
 
     def _poll_worker(self) -> None:
+        self._poll_ble_scan()
         worker = self.worker
         if worker is not None:
             while True:

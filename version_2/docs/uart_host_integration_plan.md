@@ -38,7 +38,7 @@ host -> byte transport -> task_communication -> validated command
 - `transports/transport_uart.*` moves bytes and handles partial reads/writes.
 - `app/task_communication.*` owns the UART session, parser, dispatch, reply
   scheduling, and `\DAT` routing.
-- `host_app/` independently implements the same codecs and connection policy.
+- `software/apps/host/` independently implements the same codecs and connection policy.
 
 Protocol and data-format code do not directly operate UART, FreeRTOS, FatFs,
 board GPIO, or component drivers.
@@ -114,7 +114,8 @@ blocks.
 1. Route recording commands to `task_storage`, the sole filesystem owner.
 2. Store the same complete `\DAT` block representation used by live streaming.
 3. Add Bluetooth as another byte transport without changing command meanings.
-4. Preserve USB priority and the five-second USB inactivity rule.
+4. Keep BLE advertising and `HELLO` available during USB sessions while
+   preserving USB priority for state-changing command ownership.
 5. Fragment and reassemble complete protocol records below the application
    protocol when required by Bluetooth.
 

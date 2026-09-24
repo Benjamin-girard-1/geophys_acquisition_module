@@ -135,7 +135,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-49 | Negotiate/reject stream configurations that exceed measured link capacity; never silently thin data | [ ] | [ ] | |
 | FW-50 | Adapt the proven earlier host workflow to the shared protocol without importing an absolute local-path dependency | [ ] | [ ] | Partial 2026-09-19: repository-local Python client implements exact named replies while interleaved `\DAT` blocks remain in flight; synthetic serial tests pass without an absolute path dependency. Hardware workflow verification remains open. |
 | FW-51 | Display both cards' axes and thermistors, validity, counters, and visible sequence gaps | [ ] | [ ] | Partial 2026-09-19: a dedicated desktop Live Stream tab shows all active raw channels, block status counts, corrupt-block counts, payload discontinuities, and missing source conversions. Verified physical axis/thermistor labels and calibration remain open. |
-| FW-52 | Support host configuration, streaming, diagnostic polling, recording commands, and PC-side live capture | [ ] | [ ] | Partial 2026-09-19: 30 Python tests pass. Rev-1 returned live start/stop replies and CRC-valid blocks at eight-channel 1 kSPS and four-channel decimation-by-5; streaming remained active while `livefix_test` was opened/closed on SD, then the test file was deleted. Diagnostics and calibrated scientific display remain open. |
+| FW-52 | Support host configuration, streaming, diagnostic polling, recording commands, and PC-side live capture | [ ] | [ ] | Partial 2026-09-19: 32 Python tests pass. Rev-1 returned live start/stop replies and CRC-valid blocks at eight-channel 1 kSPS and four-channel decimation-by-5; streaming remained active while `livefix_test` was opened/closed on SD, then the test file was deleted. Diagnostics and calibrated scientific display remain open. |
 | FW-53 | Reconnect and restart safely after host disconnect without requiring a reboot | [ ] | [x] | 2026-09-19: a live session was closed without `STREAMING_STOP`; after the five-second firmware timeout, HELLO, live restart, and stop all succeeded without rebooting. Broader disconnect fault injection remains open. |
 
 ## 9. Magnetic SET/RESET
@@ -161,6 +161,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-65 | Stream all eight packed channels at 1 kSPS for eight hours with no unexplained gap or silent loss | [ ] | [ ] | |
 | FW-66 | Complete the current protocol, product, and interface acceptance criteria and attach evidence | [ ] | [ ] | |
 | FW-67 | Update `README.md`, `ARCHITECTURE.md` implementation status, and affected contracts to match verified behavior | [ ] | [ ] | |
+| FW-68 | Advertise a BLE GATT service independently of USB and support connection plus `HELLO`/`DEVICE_INFO` only | [x] | [x] | 2026-09-19: Rev-1 advertised as `Geophys Acquisition`; macOS discovered it and completed a CRC-valid BLE `HELLO` while a separate USB command session remained active. |
 
 ## Later implementation phases
 
@@ -172,5 +173,6 @@ their runtime implementation may follow the initial acquisition slice:
 - MAX-M10S GNSS parsing and UART-only inter-device time alignment.
 - LSM6DSV orientation and movement acquisition.
 - Geophysical accelerometer card support.
-- Bluetooth transport.
+- Bluetooth commands beyond the implemented advertising, connection, and
+  `HELLO`/`DEVICE_INFO` slice.
 - Any USB2641 mass-storage or runtime SD-ownership switching; these remain unsupported on V2 Rev-1.

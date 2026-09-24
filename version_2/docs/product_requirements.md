@@ -163,8 +163,8 @@ Behavior to reuse:
 
 Compatibility requirements:
 
-- V1 binary-protocol compatibility is not required.
-- A V2 protocol decoder is required.
+- Compatibility with the legacy product's binary protocol is not required.
+- A decoder for the shared wire protocol is required.
 - A protocol-version and capability handshake is required.
 - The handshake reports firmware version, protocol version, hardware revision, detected cards,
   available channels, supported gains/rates, and enabled features.
@@ -175,7 +175,7 @@ Compatibility requirements:
 
 - Raw ADC values are represented on persistent or bandwidth-sensitive interfaces as packed signed
   24-bit samples.
-- Byte order is fixed by the V2 protocol specification.
+- Byte order is fixed by the shared protocol specification.
 - The ESP32 may sign-extend samples to `int32_t` internally.
 - Default transmitted and, in milestone 2, recorded channel mask: all eight channels.
 - Thermistor channels are acquired and transmitted at the same rate as their corresponding magnetic
@@ -227,7 +227,7 @@ Compatibility requirements:
 ## 10. Fault and error behavior
 
 All errors have a stable error code, a timestamp, a severity, and relevant counters or context. Errors
-are emitted through the V2 protocol when the host is connected and are included in milestone-2
+are emitted through the shared protocol when the host is connected and are included in milestone-2
 recordings.
 
 | Fault | Required response | User-visible indication | Automatic recovery |

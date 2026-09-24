@@ -8,7 +8,7 @@ import unittest
 import zlib
 
 HOST_APP = Path(__file__).resolve().parents[1]
-REPOSITORY = Path(__file__).resolve().parents[3]
+REPOSITORY = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(HOST_APP))
 
 from geophys_host.capture import RawRecordCapture  # noqa: E402

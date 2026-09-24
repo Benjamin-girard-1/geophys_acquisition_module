@@ -12,6 +12,7 @@
 #include "protocol_messages.h"
 #include "recording_controller.h"
 #include "task_acquisition.h"
+#include "task_bluetooth.h"
 #include "task_communication.h"
 #include "transport_uart.h"
 
@@ -112,6 +113,16 @@ fw_status_t app_start(fw_error_context_t *error)
         if (error != NULL) {
             *error = original_error;
         }
+        return status;
+    }
+
+    const task_bluetooth_config_t bluetooth_config = {
+        .crc32 = protocol_crc32,
+        .crc_context = NULL,
+        .device_info = device_info,
+    };
+    status = task_bluetooth_start(&bluetooth_config, error);
+    if (status != FW_STATUS_OK) {
         return status;
     }
 

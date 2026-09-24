@@ -1,10 +1,13 @@
 idf_component_register(
     SRCS
+        "transport_ble.c"
         "transport_uart.c"
         "transport_usb.c"
     INCLUDE_DIRS
         "."
     REQUIRES
         common
+        bt
         esp32s3_devkit
+        nvs_flash
 )

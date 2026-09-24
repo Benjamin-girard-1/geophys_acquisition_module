@@ -64,6 +64,13 @@ recording was opened, and reconnect succeeded after the five-second session
 timeout. The live blocks still expose the known ADC critical status and startup
 sequence loss, so scientific-data validation remains open.
 
+The first Bluetooth Low Energy slice is also implemented. The ESP32-S3
+advertises `Geophys Acquisition` even while UART-to-USB is connected, accepts
+one BLE central, and answers `HELLO` with the existing `DEVICE_INFO` message.
+The desktop host can scan, connect, and display that identity; other commands
+and live data remain disabled on Bluetooth for now. Rev-1 bench verification
+passed BLE discovery and `HELLO` while a USB command session remained active.
+
 The complete wire contract is
 [shared/protocol/protocol.md](shared/protocol/protocol.md). It is the sole
 authority for framing, identifiers, results, command payloads, and ADC data
@@ -103,7 +110,7 @@ Milestone-1 execution and verification are tracked in
     ├── hardware/
     │   ├── pcb/                 KiCad projects organized by revision
     │   └── mechanical/          Mechanical design files
-    └── host_app/                Host acquisition and calibration software
+    └── software/apps/host/                Host acquisition and calibration software
 ```
 
 ## Firmware boundaries
@@ -153,6 +160,15 @@ idf.py flash monitor
 
 Run `idf.py set-target esp32s3` first only when creating a fresh local build
 configuration or changing targets.
+
+An existing local `sdkconfig` created before BLE support will not automatically
+pick up the new Bluetooth defaults. Back it up once and regenerate it before
+the first BLE-enabled build:
+
+```sh
+mv sdkconfig sdkconfig.pre-ble
+idf.py set-target esp32s3
+```
 
 Generated `build/`, `sdkconfig`, managed components, binaries, KiCad local state,
 editor files, and locally stored vendor datasheet PDFs are excluded by the root

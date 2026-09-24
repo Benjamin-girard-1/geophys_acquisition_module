@@ -323,8 +323,9 @@ Milestone-1 task rules:
   A live-streaming change is serialized through the acquisition command queue.
 - Pulse commands may execute during acquisition so affected frames can be marked.
 - Only one acquisition reconfiguration or pulse command is active at a time.
-- `task_processing`, `task_bluetooth`, `task_gnss`, and `task_imu` are not
-  created in the current slice. `task_storage` is created for SD recording.
+- `task_bluetooth` owns BLE connection events and the initial `HELLO` handler.
+  `task_processing`, `task_gnss`, and `task_imu` are not created in the current
+  slice. `task_storage` is created for SD recording.
 
 ## 9. Queue and buffer contracts
 
@@ -395,9 +396,10 @@ Interface-level decisions:
 | `RECORDING_DELETE` → `RECORDING_DELETE_RESULT` | Both | Delete one inactive recording by name |
 | `TEMP_RECORDING_READ` (`0xf000`) | Both | Temporary test-only extraction of at most 38 bytes from a closed recording; rejected during recording |
 
-UART-to-USB and Bluetooth use the same command meanings. Bluetooth transport
-binding and fragmentation may be implemented later without changing this
-command set.
+UART-to-USB and Bluetooth use the same command meanings. The BLE GATT binding
+and byte fragmentation are defined in `shared/protocol/protocol.md`. The first
+Bluetooth slice enables only `HELLO`; later commands reuse this binding without
+changing the command set.
 
 ## 11. Initialization and shutdown order
 
@@ -412,7 +414,8 @@ Startup:
 7. Create the fixed 512-byte storage pool and task command queues.
 8. Start `task_acquisition`; hardware stays powered down until a recording or live-stream request.
 9. Start `task_storage`, mount the fixed ESP32 SD path, and publish media state.
-10. Start `task_communication` and wait for host handshake.
+10. Start `task_communication` for UART-to-USB commands.
+11. Start BLE advertising and its `HELLO` handler independently of USB state.
 
 Orderly stop:
 

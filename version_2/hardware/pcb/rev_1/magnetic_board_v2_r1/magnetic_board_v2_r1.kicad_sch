@@ -1,0 +1,1119 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "b5f9ef85-43f0-43d8-a1fd-ed489b1654c1")
+	(paper "A4")
+	(lib_symbols)
+	(text "Expension card detect\n-------------------\nMagnetic sensor	= 20k\nAccelerometer	= 10k\nResistivity		= 5k\n-------------------"
+		(exclude_from_sim no)
+		(at 136.906 171.196 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.254)
+				(bold yes)
+			)
+			(justify left)
+		)
+		(uuid "3a1c5d12-a2c9-4a44-bcf2-3cc8da4a8f10")
+	)
+	(wire
+		(pts
+			(xy 179.07 118.11) (xy 213.36 118.11)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "0259ff1e-ba23-4643-89e7-5ee99bd7a60d")
+	)
+	(wire
+		(pts
+			(xy 179.07 133.35) (xy 228.6 133.35)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "04c6c32a-be1d-4ac0-b703-878a0e166058")
+	)
+	(wire
+		(pts
+			(xy 179.07 125.73) (xy 220.98 125.73)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "15f42b9a-8023-4fa7-859a-e3aac0a12562")
+	)
+	(wire
+		(pts
+			(xy 207.01 63.5) (xy 226.06 63.5)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "1d6a2f7a-747a-42b3-a0a2-58cfa9658347")
+	)
+	(wire
+		(pts
+			(xy 77.47 66.04) (xy 77.47 124.46)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "1e643ff3-e2be-4499-97be-9adafa847a7a")
+	)
+	(wire
+		(pts
+			(xy 218.44 76.2) (xy 218.44 123.19)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "1f4a0071-55e9-430e-a10a-938813798162")
+	)
+	(wire
+		(pts
+			(xy 207.01 73.66) (xy 220.98 73.66)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "31ab463d-7737-40f1-a054-1de60e11f903")
+	)
+	(wire
+		(pts
+			(xy 92.71 66.04) (xy 77.47 66.04)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "373ac149-eefe-4041-81a8-b957ea9fad98")
+	)
+	(wire
+		(pts
+			(xy 179.07 115.57) (xy 210.82 115.57)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3a1d5c21-6551-471c-900c-dfadeb010b37")
+	)
+	(wire
+		(pts
+			(xy 207.01 76.2) (xy 218.44 76.2)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3ab825f9-4684-4acd-b3d0-df2113c67f66")
+	)
+	(wire
+		(pts
+			(xy 179.07 130.81) (xy 226.06 130.81)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "47124185-0453-41ff-a8b7-32ca2cd14247")
+	)
+	(wire
+		(pts
+			(xy 213.36 86.36) (xy 213.36 118.11)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "49dba587-bbdd-4e31-bb2c-cb88c19de852")
+	)
+	(wire
+		(pts
+			(xy 228.6 60.96) (xy 228.6 133.35)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "533c4181-23dc-45ac-a032-75f012f17901")
+	)
+	(wire
+		(pts
+			(xy 170.18 60.96) (xy 176.53 60.96)
+		)
+		(stroke
+			(width 0)
+			(type default)
+			(color 255 0 255 1)
+		)
+		(uuid "65cfd115-6859-461a-bee2-cbb1f60545c9")
+	)
+	(wire
+		(pts
+			(xy 170.18 73.66) (xy 176.53 73.66)
+		)
+		(stroke
+			(width 0)
+			(type default)
+			(color 255 0 255 1)
+		)
+		(uuid "82c25ea7-811e-4d2b-8d59-d189386afbe0")
+	)
+	(wire
+		(pts
+			(xy 161.29 106.68) (xy 161.29 111.76)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "8bd9eba6-5de4-4f0f-ad13-97cfdb748718")
+	)
+	(wire
+		(pts
+			(xy 170.18 88.9) (xy 176.53 88.9)
+		)
+		(stroke
+			(width 0)
+			(type default)
+			(color 255 0 255 1)
+		)
+		(uuid "8d321a61-1ee7-4bc3-9ace-d664d8047f80")
+	)
+	(wire
+		(pts
+			(xy 207.01 60.96) (xy 228.6 60.96)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "8fe4916a-f148-4ba8-90fa-9f81b0149b0e")
+	)
+	(wire
+		(pts
+			(xy 170.18 63.5) (xy 176.53 63.5)
+		)
+		(stroke
+			(width 0)
+			(type default)
+			(color 255 0 255 1)
+		)
+		(uuid "9339edee-d8ad-4cb1-b2c3-1b3cef87ea31")
+	)
+	(wire
+		(pts
+			(xy 207.01 86.36) (xy 213.36 86.36)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "94b300cf-bb10-4dc0-88ae-fc12baac4f56")
+	)
+	(wire
+		(pts
+			(xy 163.83 106.68) (xy 163.83 111.76)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9fd62d37-b842-4d7d-9eb3-15e2c46de63f")
+	)
+	(wire
+		(pts
+			(xy 226.06 63.5) (xy 226.06 130.81)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a19f18e4-2672-47b8-8e63-6ec115adb0c3")
+	)
+	(wire
+		(pts
+			(xy 170.18 86.36) (xy 176.53 86.36)
+		)
+		(stroke
+			(width 0)
+			(type default)
+			(color 255 0 255 1)
+		)
+		(uuid "b702962b-cc86-465c-8c38-5a84ea455fb2")
+	)
+	(wire
+		(pts
+			(xy 80.01 69.85) (xy 80.01 121.92)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bbfc03e1-2642-4586-8e7e-9cbe64687f91")
+	)
+	(wire
+		(pts
+			(xy 170.18 76.2) (xy 176.53 76.2)
+		)
+		(stroke
+			(width 0)
+			(type default)
+			(color 255 0 255 1)
+		)
+		(uuid "cc183fa3-1a8e-48cb-b6d2-9f284381d0a3")
+	)
+	(wire
+		(pts
+			(xy 134.62 66.04) (xy 138.43 66.04)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ce01aca5-848f-4677-b200-a5fc056b7d19")
+	)
+	(wire
+		(pts
+			(xy 179.07 123.19) (xy 218.44 123.19)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d1377fda-f46e-461c-9bd2-6efbcc3e79ac")
+	)
+	(wire
+		(pts
+			(xy 133.35 124.46) (xy 77.47 124.46)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d3e415e8-4a5c-4bad-9727-09aa0eb90f39")
+	)
+	(wire
+		(pts
+			(xy 133.35 121.92) (xy 80.01 121.92)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ef5ca1a2-cfc1-43d0-b2c7-3952ebd45f06")
+	)
+	(wire
+		(pts
+			(xy 210.82 88.9) (xy 210.82 115.57)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f00e024a-ac01-40d0-b8da-07ebaf1f269c")
+	)
+	(wire
+		(pts
+			(xy 220.98 73.66) (xy 220.98 125.73)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f3d511d7-398c-46a3-b163-0fce3d7ea24a")
+	)
+	(wire
+		(pts
+			(xy 92.71 69.85) (xy 80.01 69.85)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f9e215aa-c257-4252-b05f-03314a8ad9ca")
+	)
+	(wire
+		(pts
+			(xy 207.01 88.9) (xy 210.82 88.9)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "fd984a22-4b02-4a15-aa85-5cb724029e80")
+	)
+	(sheet
+		(at 133.35 111.76)
+		(size 45.72 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.3048)
+			(type solid)
+			(color 0 0 0 1)
+		)
+		(fill
+			(color 255 229 191 1)
+		)
+		(uuid "0a13a391-065e-4b36-b802-09a3f1325672")
+		(property "Sheetname" "CONNECTOR"
+			(at 133.35 110.7182 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.778 1.778)
+					(thickness 0.3556)
+					(bold yes)
+					(color 0 0 0 1)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "schematics/CONN.kicad_sch"
+			(at 133.35 137.8208 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "SENSOR_RESET_CTRL" output
+			(at 133.35 124.46 180)
+			(uuid "702783bb-49bc-4090-9d85-47d0ee2d00fb")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "SENSOR_SET_CTRL" output
+			(at 133.35 121.92 180)
+			(uuid "6cd9458d-5c71-46d7-955f-18e87a3521c1")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "X_CONN+" input
+			(at 179.07 133.35 0)
+			(uuid "0dabb55a-5b5c-402c-bd18-92ca12f0ba70")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "X_CONN-" input
+			(at 179.07 130.81 0)
+			(uuid "f41ed814-ced9-4313-a475-b0ca83cb6676")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "Y_CONN+" input
+			(at 179.07 125.73 0)
+			(uuid "2850dfda-3543-4c5e-b536-c3c121ab6420")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "Y_CONN-" input
+			(at 179.07 123.19 0)
+			(uuid "3ab346c3-e872-406e-9dec-5a021a39c450")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "Z_CONN+" input
+			(at 179.07 118.11 0)
+			(uuid "f839fc8b-3cfe-43e1-8e6c-870ea3d31ee9")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "Z_CONN-" input
+			(at 179.07 115.57 0)
+			(uuid "70a5a915-64d6-4dbd-8447-d876b56c3a54")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "I2C{SDA SCL}" output
+			(at 133.35 130.81 180)
+			(uuid "154e80a5-318b-4885-9cf0-e46ab10c60f1")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "TH+" input
+			(at 161.29 111.76 90)
+			(uuid "18e1f87e-8b46-4ac4-b5b2-539489970829")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "TH-" input
+			(at 163.83 111.76 90)
+			(uuid "f42704ef-642b-49da-be0e-23a1009c7bf3")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(instances
+			(project "magnetic_board_v2_r1"
+				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1"
+					(page "5")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 92.71 58.42)
+		(size 41.91 15.24)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.3048)
+			(type solid)
+			(color 0 0 0 1)
+		)
+		(fill
+			(color 255 167 241 0.49)
+		)
+		(uuid "209adda1-10e4-4d62-92d8-b16a998ad2d8")
+		(property "Sheetname" "SENSOR_SET_RESET_DRIVER"
+			(at 92.71 57.3782 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.778 1.778)
+					(thickness 0.3556)
+					(bold yes)
+					(color 0 0 0 1)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "schematics/sensor_set_reset_driver.kicad_sch"
+			(at 92.71 74.3208 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "SETRESET_STRAP" output
+			(at 134.62 66.04 0)
+			(uuid "bfbefd3c-607d-4121-8c12-cdb46f18ad9b")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "SENSOR_RESET_CTRL" input
+			(at 92.71 66.04 180)
+			(uuid "c964ac46-4bc8-4687-b3b5-36d09836f534")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "SENSOR_SET_CTRL" input
+			(at 92.71 69.85 180)
+			(uuid "b8b4e23d-4f2e-4e67-86a6-ed8cd8189ba8")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(instances
+			(project "magnetic_board_v2_r1"
+				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 133.35 143.51)
+		(size 19.05 10.16)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.3048)
+			(type solid)
+			(color 0 0 0 1)
+		)
+		(fill
+			(color 255 0 0 0.5215686275)
+		)
+		(uuid "29e64148-4746-4643-871d-373ba0c98650")
+		(property "Sheetname" "VOLTAGE_REF"
+			(at 133.35 142.4682 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.778 1.778)
+					(thickness 0.3556)
+					(bold yes)
+					(color 0 0 0 1)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "schematics/VOLTAGE_REF.kicad_sch"
+			(at 133.35 154.3308 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "magnetic_board_v2_r1"
+				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 176.53 58.42)
+		(size 30.48 7.62)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.3048)
+			(type solid)
+			(color 0 0 0 1)
+		)
+		(fill
+			(color 255 255 255 1)
+		)
+		(uuid "2f72c18a-a65d-4f68-838f-842cfa15a9ad")
+		(property "Sheetname" "X_BALANCING"
+			(at 176.53 57.3782 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.778 1.778)
+					(thickness 0.3556)
+					(bold yes)
+					(color 0 0 0 1)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "schematics/ANALOG_BALANCING.kicad_sch"
+			(at 176.53 66.7008 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "ERR_OUT+" output
+			(at 207.01 60.96 0)
+			(uuid "5d297241-181d-47ae-bd7e-6c23fb724d42")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "ERR_OUT-" output
+			(at 207.01 63.5 0)
+			(uuid "14e33ceb-dc95-45fb-9afd-8b3ce16bd1d6")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "BRIDGE+" input
+			(at 176.53 60.96 180)
+			(uuid "9af96c77-fd88-4a27-bdf8-99d6ec02404b")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "BRIDGE-" input
+			(at 176.53 63.5 180)
+			(uuid "133572a1-76d9-4b05-8271-c7f59c47f40b")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(instances
+			(project "magnetic_board_v2_r1"
+				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1"
+					(page "6")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 176.53 71.12)
+		(size 30.48 7.62)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.3048)
+			(type solid)
+			(color 0 0 0 1)
+		)
+		(fill
+			(color 255 255 255 1)
+		)
+		(uuid "4f533156-88b9-4bfe-82f0-c47a5b2aac8d")
+		(property "Sheetname" "Y_BALANCING"
+			(at 176.53 70.0782 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.778 1.778)
+					(thickness 0.3556)
+					(bold yes)
+					(color 0 0 0 1)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "schematics/ANALOG_BALANCING.kicad_sch"
+			(at 176.53 79.4008 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "BRIDGE+" input
+			(at 176.53 73.66 180)
+			(uuid "9310c1e0-d912-4119-99e3-1c4f4a21b733")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "BRIDGE-" input
+			(at 176.53 76.2 180)
+			(uuid "6718e0c8-d0e9-4f0a-be0a-dacf22839fdc")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "ERR_OUT+" output
+			(at 207.01 73.66 0)
+			(uuid "636725af-c547-468e-bc94-106456e90fad")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "ERR_OUT-" output
+			(at 207.01 76.2 0)
+			(uuid "830472df-403d-418c-9284-d9b29f8d0b1e")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(instances
+			(project "magnetic_board_v2_r1"
+				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1"
+					(page "7")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 138.43 58.42)
+		(size 31.75 33.02)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.3048)
+			(type solid)
+			(color 0 0 0 1)
+		)
+		(fill
+			(color 255 252 136 0.4)
+		)
+		(uuid "95fd4708-3510-44cf-9b01-8535361ee411")
+		(property "Sheetname" "SENSOR_3AXIS_HMC100X"
+			(at 137.414 57.658 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.778 1.778)
+					(thickness 0.3556)
+					(bold yes)
+					(color 0 0 0 1)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "schematics/sensor_hmc100x_3axis.kicad_sch"
+			(at 138.43 97.1808 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "BR_X+" output
+			(at 170.18 60.96 0)
+			(uuid "d1ab830a-dfef-4c51-bd7b-56a193afd18d")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "BR_X-" output
+			(at 170.18 63.5 0)
+			(uuid "0a03edc0-d04e-4615-91ba-37759e7734d9")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "BR_Y+" output
+			(at 170.18 73.66 0)
+			(uuid "d814de03-a7ec-489e-903d-682d0dbdab29")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "BR_Y-" output
+			(at 170.18 76.2 0)
+			(uuid "4398f969-6fa8-4191-812f-a8a88c657830")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "BR_Z+" output
+			(at 170.18 86.36 0)
+			(uuid "ed4d427d-3e65-421e-b1a4-e1f1ce2b82f5")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "BR_Z-" output
+			(at 170.18 88.9 0)
+			(uuid "8cd62aa4-08a5-43ea-b046-e5d8dabf4036")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "SETRESET_STRAP" input
+			(at 138.43 66.04 180)
+			(uuid "e05f2dba-99ae-486e-8b36-9b4d4d397a87")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(instances
+			(project "magnetic_board_v2_r1"
+				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 176.53 83.82)
+		(size 30.48 7.62)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.3048)
+			(type solid)
+			(color 0 0 0 1)
+		)
+		(fill
+			(color 255 255 255 1)
+		)
+		(uuid "ea9d6db9-74f1-4097-998a-baf1e5ad252c")
+		(property "Sheetname" "Z_BALANCING"
+			(at 176.53 82.7782 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.778 1.778)
+					(thickness 0.3556)
+					(bold yes)
+					(color 0 0 0 1)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "schematics/ANALOG_BALANCING.kicad_sch"
+			(at 176.53 92.1008 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "BRIDGE+" input
+			(at 176.53 86.36 180)
+			(uuid "f3a4649e-62e9-4185-b7bb-19b60df5f410")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "BRIDGE-" input
+			(at 176.53 88.9 180)
+			(uuid "9cbe57e4-c542-4a6a-8101-599d240859b6")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "ERR_OUT+" output
+			(at 207.01 86.36 0)
+			(uuid "20bff73b-1a6b-412c-81ad-0869e58b82f5")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "ERR_OUT-" output
+			(at 207.01 88.9 0)
+			(uuid "fdd00cf1-57f9-4b9b-b47b-8c4ed30f360c")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(instances
+			(project "magnetic_board_v2_r1"
+				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1"
+					(page "8")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 154.94 99.06)
+		(size 15.24 7.62)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.3048)
+			(type solid)
+			(color 0 0 0 1)
+		)
+		(fill
+			(color 0 255 0 0.3019607843)
+		)
+		(uuid "f7e02cce-8a51-4faa-9c15-48c14ee6ed55")
+		(property "Sheetname" "THERMISTOR"
+			(at 153.924 98.552 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.778 1.778)
+					(thickness 0.3556)
+					(bold yes)
+					(color 0 0 0 1)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "schematics/thermistor.kicad_sch"
+			(at 170.8408 106.68 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "TH+" input
+			(at 161.29 106.68 270)
+			(uuid "275855b5-df00-42b2-9ed4-a642fc6ffaa8")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "TH-" input
+			(at 163.83 106.68 270)
+			(uuid "529483ee-d038-4291-a348-99c1ff6436a5")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(instances
+			(project "magnetic_board_v2_r1"
+				(path "/b5f9ef85-43f0-43d8-a1fd-ed489b1654c1"
+					(page "9")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+	(embedded_fonts no)
+)

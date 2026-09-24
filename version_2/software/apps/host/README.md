@@ -11,6 +11,12 @@ recording catalog and controls in one tab and embedded raw-channel plots with
 live Start/Stop controls in a separate tab. Serial work runs on a background
 thread so the window remains responsive.
 
+The connection selector also supports the first Bluetooth Low Energy slice.
+It scans for `Geophys Acquisition`, connects, sends `HELLO`, and displays the
+returned device identity. Recording controls and live streaming remain
+disabled for BLE connections until those commands are implemented on that
+transport.
+
 The firmware and host now support live start/stop and asynchronous `\DAT`
 delivery over the USB/UART link. Rev-1 hardware returned CRC-valid eight-channel
 blocks at 1 kSPS and four-channel blocks with decimation by 5. Streaming was
@@ -26,13 +32,13 @@ From the repository root:
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -r version_2/host_app/requirements.txt
+python3 -m pip install -r version_2/software/apps/host/requirements.txt
 ```
 
 Launch the desktop application from the repository root:
 
 ```sh
-python3 version_2/host_app/launch_host_app.py
+python3 version_2/software/apps/host/launch_host_app.py
 ```
 
 Select the device's USB/COM port, leave the baud rate at `921600`, and click
@@ -40,30 +46,42 @@ Select the device's USB/COM port, leave the baud rate at `921600`, and click
 Stream** tab to select channels and decimation, then click **Start live
 streaming**.
 
+For Bluetooth, select **Bluetooth LE**, click **Refresh**, select the advertised
+device, and click **Connect**. USB may remain plugged in for power or debugging;
+BLE advertising and the `HELLO` exchange remain available at the same time.
+
 The same application can also be launched as a module:
 
 ```sh
-PYTHONPATH=version_2/host_app python3 -m geophys_host
+PYTHONPATH=version_2/software/apps/host python3 -m geophys_host
 ```
 
 The command-line connection probe remains available:
 
 ```sh
-PYTHONPATH=version_2/host_app \
+PYTHONPATH=version_2/software/apps/host \
 python3 -m geophys_host.cli hello /dev/cu.usbserial-PORT
+```
+
+Scan for BLE devices and perform the same identity request with:
+
+```sh
+PYTHONPATH=version_2/software/apps/host python3 -m geophys_host.cli ble-scan
+PYTHONPATH=version_2/software/apps/host \
+python3 -m geophys_host.cli ble-hello DEVICE-IDENTIFIER
 ```
 
 The earlier command-line live view also remains available:
 
 ```sh
-PYTHONPATH=version_2/host_app \
+PYTHONPATH=version_2/software/apps/host \
 python3 -m geophys_host.cli live /dev/cu.usbserial-PORT
 ```
 
 Capture every validated 512-byte block byte-for-byte while plotting:
 
 ```sh
-PYTHONPATH=version_2/host_app \
+PYTHONPATH=version_2/software/apps/host \
 python3 -m geophys_host.cli live /dev/cu.usbserial-PORT \
   --channels all --decimation 2 --capture capture.dat
 ```
@@ -81,8 +99,8 @@ defined and verified.
 Run the portable tests with:
 
 ```sh
-PYTHONPATH=version_2/host_app \
-python3 -m unittest discover -s version_2/host_app/tests -v
+PYTHONPATH=version_2/software/apps/host \
+python3 -m unittest discover -s version_2/software/apps/host/tests -v
 ```
 
 ## Modules
@@ -93,6 +111,7 @@ geophys_host/
 ├── adc_record.py     Independent 512-byte `\DAT` decoder
 ├── stream_parser.py  Incremental mixed `\CMD`/`\DAT` recovery
 ├── serial_client.py  Serial connection and named-reply matching
+├── ble_client.py     BLE discovery, connection, and HELLO exchange
 ├── capture.py        Raw validated-record capture
 ├── live.py           Stream counters, rolling data model, and plot
 ├── gui.py            Desktop connection, recordings, and live-stream tabs
@@ -114,9 +133,9 @@ will consume the byte-exact vectors under `shared/protocol/test_vectors/`.
 - Connection adapters move bytes and handle transport-specific fragmentation
   without redefining commands or interpreting scientific samples. The client
   permits one outstanding command and waits for its defined reply ID.
-- UART and future Bluetooth clients use the same protocol and ADC-record codecs.
-  A Bluetooth stream may use the explicit channel mask and decimation accepted
-  by `STREAMING_START_RESULT`.
+- UART and Bluetooth clients use the same command codec. The current BLE client
+  intentionally exposes only `HELLO`; recording and sample streaming remain
+  USB/UART-only.
 - `capture.py` persists only complete, validated records. Session metadata and
   scientific exports remain future work.
 - Plotting consumes decoded data and never changes the raw capture bytes.

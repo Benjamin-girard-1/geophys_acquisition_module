@@ -5,7 +5,7 @@
 - Product: Geophysical Acquisition Module V2
 - Hardware: V2 Rev-1 with ESP32-S3 DevKitC
 - Status: Draft implementation plan
-- Purpose: Track card-aware ADC recording to SD and the common V2 protocol over Bluetooth
+- Purpose: Track card-aware ADC recording to SD and the shared protocol over Bluetooth
 
 This plan is not a wire-format authority. Optional file containers, event logs,
 and recovery mechanisms described here must not alter the commands or `\DAT`
@@ -410,14 +410,14 @@ Host decoder and scientific export
 
 ## Phase 11: Implement the Bluetooth protocol transport
 
-### Step 29: Bind Bluetooth to the common V2 protocol
+### Step 29: Bind Bluetooth to the shared protocol
 
 - [ ] Reuse `shared/protocol/protocol.md`; do not define Bluetooth-only command meanings.
 - [ ] Support the `HELLO`, configuration, diagnostic, streaming, and recording
       commands defined there when their corresponding product features are enabled.
 - [ ] Return the same stable result for the same command and device state over
       UART and Bluetooth.
-- [ ] Define the Bluetooth service/channel binding and transport fragmentation.
+- [x] Define the Bluetooth service/channel binding and transport fragmentation.
 - [ ] Measure usable bandwidth on representative peer devices.
 - [ ] Negotiate or reject the requested stream profile explicitly; never cut a
       512-byte record or silently omit conversions.

@@ -2,9 +2,7 @@
 
 ## Document status
 
-- Status: Authoritative wire protocol
-- Scope: Commands and data blocks shared by UART-to-USB and future Bluetooth control
-- Authority: This is the sole protocol-definition document
+This is the sole protocol-definition document
 
 This document defines the complete wire protocol, including framing, byte order,
 CRC, command identifiers, command results, payload layouts, data blocks, command
@@ -31,17 +29,37 @@ The synchronization value for the standard commands is "\CMD" in ASCII (5C 43 4D
 
 The counters can overflow and it's okay, the monotonic timer will never overflow so it can be used to keep track of the data order.
 
-The device can only be connected to one host at the time. If there is a USB connection the device should not engage in Bluetooth connectivity. However, USB has priority and if connected it will disconnect the Bluetooth and use USB instead.
+The BLE advertisement remains active regardless of UART-to-USB connection or session state. A BLE central may connect and exchange the read-only `HELLO` command while a USB session is active. USB retains priority for state-changing commands until explicit multi-transport command arbitration is implemented.
 
 A valid `HELLO` received over USB establishes the USB session.
 
-After five seconds without valid USB activity, USB loses priority and Bluetooth may connect again.
+After five seconds without valid USB activity, USB loses priority and a future Bluetooth command session may become the active control session. Advertising, BLE connection establishment, and `HELLO` do not wait for that timeout.
+
+## Bluetooth LE GATT binding
+
+The ESP32-S3 advertises as `Geophys Acquisition` with this transport binding:
+
+| Purpose | UUID | GATT operation |
+|---|---|---|
+| Primary service | `3809d383-3dc8-4280-b537-2bfeab1b8acb` | Service discovery |
+| Host to device | `181481bc-cb34-43be-864f-54d9453afe22` | Write or write without response |
+| Device to host | `7201ba3a-7799-4409-9f59-bd3711612354` | Notification |
+
+GATT operations carry ordered fragments of the same byte stream used by the
+UART transport. They do not add an envelope, command identifier, or protocol
+version. The receiver concatenates fragments and recovers complete 64-byte
+`\CMD` messages using the normal incremental parser. A device reply may span
+multiple notifications according to the negotiated ATT MTU.
 
 A recording continues if its host connection disappears; live streaming stops.
 
-After a `HELLO` command the host will send `DEVICE_GET_CONFIG`. After that the host will send `RECORDING_GET_NUMBER` and will send the command `RECORDING_GET_INFO` a number of time require to get information about all the files.
+After a `HELLO` command over USB, the host sends `DEVICE_GET_CONFIG`. It then
+sends `RECORDING_GET_NUMBER` followed by the required number of
+`RECORDING_GET_INFO` commands. The initial BLE slice stops after
+`DEVICE_INFO`.
 
-The command `DEVICE_GET_CONFIG` is run every second to keep connection established.
+The USB host runs `DEVICE_GET_CONFIG` every second to keep its command session
+established.
 
 This is the CRC-32 enforced in this protocol:
 |---|---|

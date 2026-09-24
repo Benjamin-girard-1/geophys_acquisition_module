@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from contextlib import ExitStack
 from pathlib import Path
 import sys
 import time
 
 from .capture import RawRecordCapture
+from .ble_client import BleHelloClient, discover_ble_devices
 from .live import LiveStreamModel, MatplotlibLiveView
 from .protocol import (
     REPLY_DEVICE_CONFIG,
@@ -35,6 +37,25 @@ CHANNEL_MASK_ARGUMENTS = {
     "4-7": 0xF0,
     "all": 0xFF,
 }
+
+
+def _print_device_info(info) -> None:
+    print(f"result={info.result}")
+    print("mac=" + ":".join(f"{byte:02x}" for byte in info.mac_address))
+    print(f"hardware_version={info.hardware_version}")
+    print(f"hardware_revision={info.hardware_revision}")
+    print(f"firmware_version={info.firmware_version}")
+
+
+async def _run_ble_hello(identifier: str, timeout_s: float) -> int:
+    client = BleHelloClient(identifier)
+    await client.connect()
+    try:
+        info = await client.hello(timeout_s)
+    finally:
+        await client.disconnect()
+    _print_device_info(info)
+    return 0
 
 
 def _require_success(label: str, result: int) -> None:
@@ -224,6 +245,15 @@ def main() -> int:
     hello.add_argument("--baud", type=int, default=921_600)
     hello.add_argument("--timeout", type=_positive_float, default=2.0)
 
+    ble_scan = subparsers.add_parser(
+        "ble-scan", help="scan for the device's BLE advertisement")
+    ble_scan.add_argument("--timeout", type=_positive_float, default=3.0)
+
+    ble_hello = subparsers.add_parser(
+        "ble-hello", help="connect over BLE and request DEVICE_INFO")
+    ble_hello.add_argument("device", help="BLE address or macOS identifier")
+    ble_hello.add_argument("--timeout", type=_positive_float, default=3.0)
+
     live = subparsers.add_parser(
         "live", help="plot or print the live ADC stream")
     live.add_argument("port")
@@ -256,12 +286,16 @@ def main() -> int:
     if arguments.command == "hello":
         info = request_device_info(
             arguments.port, arguments.baud, arguments.timeout)
-        print(f"result={info.result}")
-        print("mac=" + ":".join(f"{byte:02x}" for byte in info.mac_address))
-        print(f"hardware_version={info.hardware_version}")
-        print(f"hardware_revision={info.hardware_revision}")
-        print(f"firmware_version={info.firmware_version}")
+        _print_device_info(info)
         return 0
+    if arguments.command == "ble-scan":
+        devices = asyncio.run(discover_ble_devices(arguments.timeout))
+        for device in devices:
+            print(f"{device.identifier}\t{device.name}")
+        return 0
+    if arguments.command == "ble-hello":
+        return asyncio.run(_run_ble_hello(
+            arguments.device, arguments.timeout))
     if arguments.command == "live":
         return _run_live(arguments)
     return 2

@@ -19,6 +19,7 @@ typedef enum {
     FW_ERROR_RESOURCE_SYNCHRONIZATION,
     FW_ERROR_RESOURCE_ADC,
     FW_ERROR_RESOURCE_STORAGE,
+    FW_ERROR_RESOURCE_BLUETOOTH,
 } fw_error_resource_t;
 
 /** @brief Portable operation that was in progress when a failure occurred. */
