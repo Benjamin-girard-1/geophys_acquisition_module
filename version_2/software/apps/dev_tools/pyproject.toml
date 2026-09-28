@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geophys-dev-tools"
+version = "0.1.0"
+description = "Developer diagnostics for Geophys SD-card recordings"
+requires-python = ">=3.10"
+dependencies = [
+    "geophys-data>=0.1,<0.2",
+    "matplotlib>=3.8,<4",
+    "numpy>=1.26,<3",
+    "pyobjc-framework-Cocoa>=10,<13; sys_platform == 'darwin'",
+]
+
+[project.scripts]
+geophys-plot = "geophys_dev_tools.plot:entrypoint"
+geophys-bin-to-csv = "geophys_dev_tools.convert:entrypoint"
+
+[tool.setuptools]
+packages = ["geophys_dev_tools"]
