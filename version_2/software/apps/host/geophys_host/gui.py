@@ -28,6 +28,7 @@ from .protocol import (
     REPLY_RECORDING_STOP_RESULT,
     REPLY_STREAMING_START_RESULT,
     REPLY_STREAMING_STOP_RESULT,
+    RESULT_STORAGE_MEDIA_ABSENT,
     RESULT_SUCCESS,
     DeviceConfig,
     RecordingInfo,
@@ -160,6 +161,9 @@ class DeviceWorker:
                 REPLY_RECORDING_NUMBER,
                 self.STORAGE_TIMEOUT_S,
             ))
+            if number.result == RESULT_STORAGE_MEDIA_ABSENT:
+                self._emit("storage_media_absent")
+                return
             _require_success("RECORDING_GET_NUMBER", number.result)
             recordings = []
             for index in range(number.count):
@@ -531,10 +535,13 @@ class GeophysHostApp(ttk.Frame):
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self.recordings_tab = ttk.Frame(self.notebook, padding=10)
         self.live_tab = ttk.Frame(self.notebook, padding=10)
+        self.config_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.recordings_tab, text="Recordings")
         self.notebook.add(self.live_tab, text="Live Stream")
+        self.notebook.add(self.config_tab, text="Config")
         self._build_recordings_tab()
         self._build_live_tab()
+        self._build_config_tab()
 
     def _build_recordings_tab(self) -> None:
         self.recordings_tab.columnconfigure(0, weight=1)
@@ -643,6 +650,155 @@ class GeophysHostApp(ttk.Frame):
 
         self.live_plot = EmbeddedLivePlot(self.live_tab)
         self.live_plot.grid(row=1, column=0, sticky=tk.NSEW)
+
+    @staticmethod
+    def _add_config_value(parent: ttk.Frame, row: int, label: str,
+                          value: str = "—") -> None:
+        ttk.Label(parent, text=label).grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 16), pady=4)
+        ttk.Label(parent, text=value).grid(
+            row=row, column=1, sticky=tk.E, pady=4)
+
+    def _build_config_slot(self, parent: ttk.Frame, row: int,
+                           slot_number: int, first_channel: int) -> None:
+        slot = ttk.LabelFrame(
+            parent, text=f"Slot {slot_number}", padding=10)
+        slot.grid(row=row, column=0, sticky=tk.EW, pady=(0, 10))
+        slot.columnconfigure(1, weight=1)
+
+        self._add_config_value(slot, 0, "Detected card")
+        ttk.Checkbutton(
+            slot,
+            text="Acquire this slot",
+            state=tk.DISABLED,
+        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(5, 8))
+
+        for offset in range(4):
+            channel = first_channel + offset
+            ttk.Label(slot, text=f"Channel {channel} gain").grid(
+                row=2 + offset, column=0, sticky=tk.W,
+                padx=(16, 12), pady=3)
+            gain = ttk.Combobox(
+                slot,
+                values=("×1", "×2", "×4", "×8"),
+                state=tk.DISABLED,
+                width=8,
+            )
+            gain.set("×1")
+            gain.grid(row=2 + offset, column=1, sticky=tk.E, pady=3)
+
+    def _build_config_tab(self) -> None:
+        """Build the mobile-first configuration preview without data wiring."""
+        self.config_tab.columnconfigure(0, weight=1)
+        self.config_tab.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(
+            self.config_tab, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(
+            self.config_tab, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky=tk.NSEW)
+        scrollbar.grid(row=0, column=1, sticky=tk.NS)
+
+        content = ttk.Frame(canvas, padding=12)
+        content.columnconfigure(0, weight=1)
+        content_window = canvas.create_window(
+            (0, 0), window=content, anchor=tk.NW)
+
+        def resize_content(event) -> None:
+            canvas.itemconfigure(content_window, width=event.width)
+
+        def update_scroll_region(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def scroll(event) -> str:
+            if event.num == 4:
+                direction = -1
+            elif event.num == 5:
+                direction = 1
+            else:
+                direction = -1 if event.delta > 0 else 1
+            canvas.yview_scroll(direction, "units")
+            return "break"
+
+        canvas.bind("<Configure>", resize_content)
+        content.bind("<Configure>", update_scroll_region)
+        canvas.bind("<MouseWheel>", scroll)
+        canvas.bind("<Button-4>", scroll)
+        canvas.bind("<Button-5>", scroll)
+
+        ttk.Label(
+            content,
+            text="Device status and configuration",
+            font=("TkDefaultFont", 16, "bold"),
+        ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(
+            content,
+            text=("Layout preview — values and controls are not connected "
+                  "to the device yet."),
+            wraplength=650,
+        ).grid(row=1, column=0, sticky=tk.W, pady=(2, 12))
+
+        device = ttk.LabelFrame(content, text="Device", padding=10)
+        device.grid(row=2, column=0, sticky=tk.EW, pady=(0, 10))
+        device.columnconfigure(1, weight=1)
+        self._add_config_value(device, 0, "Uptime")
+        self._add_config_value(device, 1, "UTC time", "Unavailable")
+        self._add_config_value(device, 2, "Recording", "○ Unknown")
+        self._add_config_value(device, 3, "SD card", "○ Unknown")
+        self._add_config_value(device, 4, "USB 5 V", "○ Unknown")
+        self._add_config_value(device, 5, "Solar input", "○ Unknown")
+        self._add_config_value(device, 6, "ESP32 temperature")
+        self._add_config_value(device, 7, "Error status", "Unknown")
+
+        power = ttk.LabelFrame(content, text="Power rails", padding=10)
+        power.grid(row=3, column=0, sticky=tk.EW, pady=(0, 10))
+        power.columnconfigure(1, weight=1)
+        self._add_config_value(power, 0, "+3.3 VA", "○ Unknown")
+        self._add_config_value(power, 1, "+5 VA", "○ Unknown")
+        self._add_config_value(power, 2, "+10 V / 9 VA", "○ Unknown")
+        self._add_config_value(power, 3, "−5 VA", "○ Unknown")
+        self._add_config_value(power, 4, "+18 V", "○ Unknown")
+
+        navigation = ttk.LabelFrame(
+            content, text="GNSS and IMU", padding=10)
+        navigation.grid(row=4, column=0, sticky=tk.EW, pady=(0, 10))
+        navigation.columnconfigure(1, weight=1)
+        self._add_config_value(navigation, 0, "GNSS state", "Unknown")
+        self._add_config_value(navigation, 1, "Satellites")
+        self._add_config_value(navigation, 2, "IMU state", "Unknown")
+        self._add_config_value(navigation, 3, "IMU averaging")
+        self._add_config_value(navigation, 4, "Roll")
+        self._add_config_value(navigation, 5, "Pitch")
+        self._add_config_value(navigation, 6, "IMU temperature")
+
+        acquisition = ttk.LabelFrame(
+            content, text="Acquisition", padding=10)
+        acquisition.grid(row=5, column=0, sticky=tk.EW, pady=(0, 10))
+        acquisition.columnconfigure(1, weight=1)
+        ttk.Label(acquisition, text="Sampling rate").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, 16), pady=4)
+        sample_rate = ttk.Combobox(
+            acquisition,
+            values=("0.5 kS/s", "1 kS/s", "2 kS/s", "4 kS/s",
+                    "8 kS/s", "16 kS/s"),
+            state=tk.DISABLED,
+            width=12,
+        )
+        sample_rate.set("1 kS/s")
+        sample_rate.grid(row=0, column=1, sticky=tk.E, pady=4)
+        self._add_config_value(acquisition, 1, "ADC temperature")
+        self._add_config_value(acquisition, 2, "Active channel mask")
+
+        slots = ttk.Frame(content)
+        slots.grid(row=6, column=0, sticky=tk.EW)
+        slots.columnconfigure(0, weight=1)
+        self._build_config_slot(slots, 0, 1, 0)
+        self._build_config_slot(slots, 1, 2, 4)
+
+        ttk.Button(
+            content, text="Apply changes", state=tk.DISABLED
+        ).grid(row=7, column=0, sticky=tk.EW, pady=(2, 12))
 
     def _build_status_bar(self) -> None:
         self.connection_status_var = tk.StringVar(value="Disconnected")
@@ -931,6 +1087,14 @@ class GeophysHostApp(ttk.Frame):
             self.catalog_loading = False
             self._show_recordings(event.payload)
             self._update_controls()
+        elif event.name == "storage_media_absent":
+            self.catalog_loading = False
+            self.recordings_tree.delete(
+                *self.recordings_tree.get_children())
+            self.recordings.clear()
+            self.recordings_status_var.set("SD card is not connected")
+            self._update_controls()
+            messagebox.showinfo("SD card", "SD card is not connected.")
         elif event.name == "recordings_error":
             self.catalog_loading = False
             self.recordings_status_var.set("Could not read recording catalog")

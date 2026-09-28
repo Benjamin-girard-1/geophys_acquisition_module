@@ -7,6 +7,7 @@ import sys
 import time
 from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
 HOST_APP = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOST_APP))
@@ -14,6 +15,7 @@ sys.path.insert(0, str(HOST_APP))
 from geophys_host.gui import (  # noqa: E402
     DeviceWorker,
     GeophysHostApp,
+    UiEvent,
     format_size,
     format_timestamp,
 )
@@ -105,6 +107,47 @@ class GuiSupportTests(unittest.TestCase):
             [("first", 512), ("second", 1024)],
         )
         self.assertEqual(len(client.requests), 3)
+
+    def test_worker_reports_absent_sd_card_separately(self) -> None:
+        client = FakeClient([
+            reply(REPLY_RECORDING_NUMBER, b"\x09\0\0"),
+        ])
+        worker = DeviceWorker("unused", 921_600)
+        worker._client = client
+
+        worker._refresh_recordings()
+
+        self.assertEqual(worker.events.get_nowait().name,
+                         "recordings_loading")
+        self.assertEqual(worker.events.get_nowait().name,
+                         "storage_media_absent")
+        self.assertTrue(worker.events.empty())
+
+    @patch("geophys_host.gui.messagebox.showinfo")
+    def test_gui_notifies_when_sd_card_is_absent(self, showinfo) -> None:
+        recordings_tree = Mock()
+        recordings_tree.get_children.return_value = ("0",)
+        recordings_status = Mock()
+        update_controls = Mock()
+        app = SimpleNamespace(
+            catalog_loading=True,
+            recordings={"0": object()},
+            recordings_tree=recordings_tree,
+            recordings_status_var=recordings_status,
+            _update_controls=update_controls,
+        )
+
+        GeophysHostApp._handle_event(
+            app, UiEvent("storage_media_absent"))
+
+        self.assertFalse(app.catalog_loading)
+        self.assertEqual(app.recordings, {})
+        recordings_tree.delete.assert_called_once_with("0")
+        recordings_status.set.assert_called_once_with(
+            "SD card is not connected")
+        update_controls.assert_called_once_with()
+        showinfo.assert_called_once_with(
+            "SD card", "SD card is not connected.")
 
     def test_successful_request_postpones_keepalive(self) -> None:
         client = FakeClient([

@@ -32,13 +32,14 @@ From the repository root:
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -r version_2/software/apps/host/requirements.txt
+python3 -m pip install -e version_2/software/packages/data \
+  -e version_2/software/apps/host
 ```
 
 Launch the desktop application from the repository root:
 
 ```sh
-python3 version_2/software/apps/host/launch_host_app.py
+python3 version_2/software/apps/host/launch_host.py
 ```
 
 Select the device's USB/COM port, leave the baud rate at `921600`, and click
@@ -53,35 +54,31 @@ BLE advertising and the `HELLO` exchange remain available at the same time.
 The same application can also be launched as a module:
 
 ```sh
-PYTHONPATH=version_2/software/apps/host python3 -m geophys_host
+python3 -m geophys_host
 ```
 
 The command-line connection probe remains available:
 
 ```sh
-PYTHONPATH=version_2/software/apps/host \
 python3 -m geophys_host.cli hello /dev/cu.usbserial-PORT
 ```
 
 Scan for BLE devices and perform the same identity request with:
 
 ```sh
-PYTHONPATH=version_2/software/apps/host python3 -m geophys_host.cli ble-scan
-PYTHONPATH=version_2/software/apps/host \
+python3 -m geophys_host.cli ble-scan
 python3 -m geophys_host.cli ble-hello DEVICE-IDENTIFIER
 ```
 
 The earlier command-line live view also remains available:
 
 ```sh
-PYTHONPATH=version_2/software/apps/host \
 python3 -m geophys_host.cli live /dev/cu.usbserial-PORT
 ```
 
 Capture every validated 512-byte block byte-for-byte while plotting:
 
 ```sh
-PYTHONPATH=version_2/software/apps/host \
 python3 -m geophys_host.cli live /dev/cu.usbserial-PORT \
   --channels all --decimation 2 --capture capture.dat
 ```
@@ -99,7 +96,6 @@ defined and verified.
 Run the portable tests with:
 
 ```sh
-PYTHONPATH=version_2/software/apps/host \
 python3 -m unittest discover -s version_2/software/apps/host/tests -v
 ```
 
@@ -108,7 +104,7 @@ python3 -m unittest discover -s version_2/software/apps/host/tests -v
 ```text
 geophys_host/
 ├── protocol.py       Fixed 64-byte command codecs
-├── adc_record.py     Independent 512-byte `\DAT` decoder
+├── adc_record.py     Compatibility imports for the shared data decoder
 ├── stream_parser.py  Incremental mixed `\CMD`/`\DAT` recovery
 ├── serial_client.py  Serial connection and named-reply matching
 ├── ble_client.py     BLE discovery, connection, and HELLO exchange
@@ -121,12 +117,13 @@ tests/
 └── shared vectors, stream fragmentation, and named-reply tests
 ```
 
-The host decoder is intentionally independent from the C encoder. Both sides
-will consume the byte-exact vectors under `shared/protocol/test_vectors/`.
+The Python decoder lives in `software/packages/data/geophys_data/` and remains
+independent from the C encoder. Both sides consume the byte-exact vectors under
+`shared/protocol/test_vectors/`.
 
 ## Dependency boundary
 
-- `protocol.py`, `adc_record.py`, and `stream_parser.py` do not open serial
+- The shared `geophys_data` package and `stream_parser.py` do not open serial
   ports or update a UI.
 - The GUI sends device operations to one background serial owner and updates
   Tk widgets only from the GUI thread.
