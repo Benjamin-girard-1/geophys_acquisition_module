@@ -110,7 +110,12 @@ Milestone-1 execution and verification are tracked in
     ├── hardware/
     │   ├── pcb/                 KiCad projects organized by revision
     │   └── mechanical/          Mechanical design files
-    └── software/apps/host/                Host acquisition and calibration software
+    └── software/
+        ├── apps/
+        │   ├── host/            Device control and live monitoring
+        │   └── dev_tools/       Developer-only recording diagnostics
+        └── packages/
+            └── data/            Shared Python data-format decoder
 ```
 
 ## Firmware boundaries
@@ -185,3 +190,16 @@ encoding independent of UART, USB, or Bluetooth.
 Update the architecture implementation-status table when an interface becomes
 usable, an implementation passes its software tests, or functionality is
 verified on hardware.
+
+## Plotting an extracted recording
+
+The small developer tool opens a file chooser in the sibling
+`geophys_acquisition_data/` directory, then validates and plots the selected
+recording:
+
+```sh
+.venv/bin/python version_2/software/apps/dev_tools/launch_plot.py
+```
+
+Pass a path as the first argument to plot a different recording. The application
+reads the binary file without modifying it and displays raw ADC counts.

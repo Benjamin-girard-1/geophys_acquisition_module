@@ -50,7 +50,9 @@ Preserve the existing layered structure:
 - `protocol/`: transport-independent firmware framing and serialization.
 - `transports/`: byte movement only; transports do not interpret commands.
 - `shared/protocol/`: wire contract shared by firmware and host software.
-- `version_2/software/apps/host/`: host-only acquisition and validation software.
+- `version_2/software/apps/host/`: device control and live monitoring software.
+- `version_2/software/apps/dev_tools/`: developer-only recording diagnostics.
+- `version_2/software/packages/data/`: shared Python recording-format code.
 
 ## Current protocol boundary
 
