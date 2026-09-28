@@ -192,7 +192,7 @@ Config payload structure:
 | 24 | 1 | RW | ADC sampling rate: 0x00 0.5kHz; 0x01 1kHz; 0x02 2kHz; 0x03 4kHz; 0x04 8kHz; 0x05 16kHz |
 | 25 | 1 | RW | ADC channel active mask: 0x00 no active channels; 0x0f channels 0 to 3 active; 0xf0 channels 4 to 7 active; 0xff channels 0 to 7 active, only those mask are valid |
 | 26 | 2 | RW | ADC gain: 0b00 x1; 0b01 x2; 0b10 x4; 0b11 x8. Each channel is shifted  by 2 times the number of the channel (<<(2*id)) |
-| 28 | 2 | R  | ADC temperature: signed 16 bits, 0.01°C per count|
+| 28 | 2 | R  | ADC temperature: signed 16 bits, 0.01°C per count (Unemplemented for now 0x0000)|
 | 30 | 1 | RW | 0x00 +3.3VA off; 0x01 +3.3VA on |
 | 31 | 1 | RW | 0x00 +5VA off; 0x01 +5VA on |
 | 32 | 1 | RW | 0x00 +9VA off; 0x01 +9VA on |
@@ -204,11 +204,11 @@ Config payload structure:
 | 38 | 1 | R  | GNSS Satellite count |
 | 39 | 1 | R  | IMU state: 0x00 disabled/not present; 0x01 ready; 0x02 faulted/invalid data |
 | 40 | 2 | RW | IMU averaging time ms |
-| 42 | 2 | R  | IMU roll: signed 16 bits, 0.01° per count, 0° being perfectly leveled |
-| 44 | 2 | R  | IMU pitch: signed 16 bits, 0.01° per count, 0° being perfectly leveled |
-| 46 | 2 | R  | IMU temperature: signed 16 bits, 0.01°C per count |
+| 42 | 2 | R  | IMU roll: signed 16 bits, 0.01° per count, 0° being perfectly leveled (not implemented yet 0x0000) |
+| 44 | 2 | R  | IMU pitch: signed 16 bits, 0.01° per count, 0° being perfectly leveled (not implemented yet 0x0000) |
+| 46 | 2 | R  | IMU temperature: signed 16 bits, 0.01°C per count (not implemented yet 0x0000) |
 | 48 | 1 | R  | SD card present: 0x00 not present; 0x01 present; 0x02 faulted |
-| 49 | 2 | R  | ESP32 temperature: signed 16 bits, 0.01°C per count |
+| 49 | 2 | R  | ESP32 temperature: signed 16 bits, 0.01°C per count (not implemented yet 0x0000) |
 | 51 | 1 | R  | Error! Check command diagnostic: 0x00 no error; 0x01 check diagnostic |
 | 52 | 8 | -  | Empty padding |
 
