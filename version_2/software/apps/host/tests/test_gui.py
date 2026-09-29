@@ -16,17 +16,28 @@ from geophys_host.gui import (  # noqa: E402
     DeviceWorker,
     GeophysHostApp,
     UiEvent,
+    build_device_config_update,
     format_size,
     format_timestamp,
+    format_uptime,
+    pack_adc_gains,
+    unexpected_recording_stop_message,
+    unpack_adc_gains,
 )
 from geophys_host.protocol import (  # noqa: E402
+    ADC_SAMPLE_RATE_1000_SPS,
+    ADC_SAMPLE_RATE_2000_SPS,
     DIRECTION_TO_HOST,
     REPLY_DEVICE_CONFIG,
     REPLY_DEVICE_INFO,
     REPLY_RECORDING_INFO,
     REPLY_RECORDING_NUMBER,
+    REPLY_RECORDING_STOP_RESULT,
     REPLY_STREAMING_START_RESULT,
+    RESULT_STORAGE_FULL,
+    DeviceConfigUpdate,
     decode_command,
+    decode_device_config,
     encode_command,
     encode_hello,
 )
@@ -48,10 +59,24 @@ class FakeClient:
 class FakeControl:
     def __init__(self) -> None:
         self.state = None
+        self.values = None
 
     def configure(self, **options) -> None:
         if "state" in options:
             self.state = options["state"]
+        if "values" in options:
+            self.values = options["values"]
+
+
+class FakeVariable:
+    def __init__(self, value=None) -> None:
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value) -> None:
+        self.value = value
 
 
 class FakeWorker:
@@ -76,12 +101,120 @@ def recording_info_payload(index: int, name: str, size: int) -> bytes:
     return bytes(payload)
 
 
+def device_config_payload(
+        *, sample_rate: int = ADC_SAMPLE_RATE_1000_SPS,
+        channel_mask: int = 0xFF,
+        packed_gain: int = 0,
+        rail_3v3: bool = False,
+        rail_9v: bool = False,
+        imu_averaging_ms: int = 0) -> bytes:
+    payload = bytearray(40)
+    payload[12] = sample_rate
+    payload[13] = channel_mask
+    struct.pack_into("<H", payload, 14, packed_gain)
+    payload[18] = rail_3v3
+    payload[20] = rail_9v
+    struct.pack_into("<H", payload, 28, imu_averaging_ms)
+    return bytes(payload)
+
+
 class GuiSupportTests(unittest.TestCase):
     def test_display_formatters(self) -> None:
         self.assertEqual(format_size(512), "512 B")
         self.assertEqual(format_size(1536), "1.5 KiB")
         self.assertEqual(format_size(2 * 1024 * 1024), "2.0 MiB")
         self.assertEqual(format_timestamp(0), "—")
+        self.assertEqual(format_uptime(90_061 * 10_000_000),
+                         "1 d 01:01:01")
+        self.assertEqual(
+            unexpected_recording_stop_message(2, RESULT_STORAGE_FULL),
+            "Recording stopped — the SD card is full",
+        )
+        self.assertEqual(
+            unexpected_recording_stop_message(2),
+            "Recording stopped unexpectedly — the SD card reported a fault",
+        )
+
+    def test_adc_gain_pack_and_unpack(self) -> None:
+        gains = (1, 2, 4, 8, 1, 2, 4, 8)
+
+        packed = pack_adc_gains(gains)
+
+        self.assertEqual(packed, 0xE4E4)
+        self.assertEqual(unpack_adc_gains(packed), gains)
+
+    def test_config_update_preserves_unsupported_device_fields(self) -> None:
+        current = decode_device_config(reply(
+            REPLY_DEVICE_CONFIG,
+            device_config_payload(
+                rail_3v3=True,
+                rail_9v=True,
+                imu_averaging_ms=250,
+            ),
+        ))
+
+        update = build_device_config_update(
+            current,
+            ADC_SAMPLE_RATE_2000_SPS,
+            0x0F,
+            (1, 2, 4, 8, 1, 2, 4, 8),
+        )
+
+        self.assertEqual(update.adc_sample_rate, ADC_SAMPLE_RATE_2000_SPS)
+        self.assertEqual(update.adc_channel_mask, 0x0F)
+        self.assertEqual(update.adc_gain, 0xE4E4)
+        self.assertTrue(update.rail_3v3_enabled)
+        self.assertTrue(update.rail_9v_enabled)
+        self.assertEqual(update.imu_averaging_time_ms, 250)
+
+    def test_config_update_requires_at_least_one_slot(self) -> None:
+        current = decode_device_config(reply(
+            REPLY_DEVICE_CONFIG, device_config_payload()))
+
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            build_device_config_update(
+                current, ADC_SAMPLE_RATE_1000_SPS, 0, (1,) * 8)
+
+    def test_config_controls_build_channels_zero_to_three_update(self) -> None:
+        current = decode_device_config(reply(
+            REPLY_DEVICE_CONFIG,
+            device_config_payload(rail_3v3=True, imu_averaging_ms=100),
+        ))
+        gain_labels = ("×1", "×2", "×4", "×8") * 2
+        app = SimpleNamespace(
+            current_config=current,
+            config_sample_rate_var=FakeVariable("2 kS/s"),
+            config_slot_enabled_vars={
+                1: FakeVariable(True),
+                2: FakeVariable(False),
+            },
+            config_gain_vars={
+                channel: FakeVariable(label)
+                for channel, label in enumerate(gain_labels)
+            },
+        )
+
+        update = GeophysHostApp._config_update_from_controls(app)
+
+        self.assertEqual(update.adc_sample_rate, ADC_SAMPLE_RATE_2000_SPS)
+        self.assertEqual(update.adc_channel_mask, 0x0F)
+        self.assertEqual(update.adc_gain, 0xE4E4)
+        self.assertTrue(update.rail_3v3_enabled)
+        self.assertEqual(update.imu_averaging_time_ms, 100)
+
+    def test_four_channel_config_limits_live_channel_choices(self) -> None:
+        channels = FakeControl()
+        selected = FakeVariable("All channels")
+        app = SimpleNamespace(
+            CHANNELS=GeophysHostApp.CHANNELS,
+            channels_combo=channels,
+            channels_var=selected,
+        )
+
+        GeophysHostApp._sync_live_channel_options(app, 0x0F)
+
+        self.assertEqual(channels.values, ("Channels 0–3",))
+        self.assertEqual(selected.get(), "Channels 0–3")
 
     def test_worker_reads_complete_recording_catalog(self) -> None:
         client = FakeClient([
@@ -161,6 +294,58 @@ class GuiSupportTests(unittest.TestCase):
 
         self.assertGreaterEqual(worker._next_keepalive, before + 1.0)
 
+    def test_worker_applies_device_configuration(self) -> None:
+        client = FakeClient([
+            reply(
+                REPLY_DEVICE_CONFIG,
+                device_config_payload(
+                    sample_rate=ADC_SAMPLE_RATE_2000_SPS,
+                    channel_mask=0x0F,
+                    packed_gain=0xE4E4,
+                ),
+            ),
+        ])
+        worker = DeviceWorker("unused", 921_600)
+        worker._client = client
+        update = DeviceConfigUpdate(
+            adc_sample_rate=ADC_SAMPLE_RATE_2000_SPS,
+            adc_channel_mask=0x0F,
+            adc_gain=0xE4E4,
+        )
+
+        worker._set_config(update)
+
+        event = worker.events.get_nowait()
+        self.assertEqual(event.name, "config_applied")
+        self.assertEqual(event.payload.adc_channel_mask, 0x0F)
+        command, reply_id, _on_record = client.requests[0]
+        self.assertEqual(command.command_id, 0x0003)
+        self.assertEqual(reply_id, REPLY_DEVICE_CONFIG)
+
+    def test_worker_recovers_asynchronous_recording_failure(self) -> None:
+        failure_payload = bytes((RESULT_STORAGE_FULL,)) + \
+            b"failed_recording\0" + bytes(15)
+        client = FakeClient([
+            reply(
+                REPLY_DEVICE_CONFIG,
+                device_config_payload(channel_mask=0x0F),
+            ),
+            reply(REPLY_RECORDING_STOP_RESULT, failure_payload),
+        ])
+        worker = DeviceWorker("unused", 921_600)
+        worker._client = client
+        worker._recording_in_progress = True
+
+        config = worker._read_config()
+
+        self.assertFalse(config.recording_in_progress)
+        failure_event = worker.events.get_nowait()
+        config_event = worker.events.get_nowait()
+        self.assertEqual(failure_event.name, "recording_failed")
+        self.assertEqual(failure_event.payload.result, RESULT_STORAGE_FULL)
+        self.assertEqual(config_event.name, "config")
+        self.assertEqual(client.requests[1][0].command_id, 0x0008)
+
     def test_catalog_refresh_does_not_disable_unrelated_controls(self) -> None:
         controls = {
             name: FakeControl()
@@ -174,14 +359,30 @@ class GuiSupportTests(unittest.TestCase):
                 "decimation_combo",
                 "start_live_button",
                 "stop_live_button",
+                "config_sample_rate_combo",
+                "config_apply_button",
             )
+        }
+        config_slot_checkbuttons = {
+            slot: FakeControl() for slot in (1, 2)
+        }
+        config_gain_combos = {
+            channel: FakeControl() for channel in range(8)
         }
         app = SimpleNamespace(
             connected=True,
+            ble_hello_only=False,
             pending_action=None,
             catalog_loading=True,
             recording_in_progress=False,
             live_active=False,
+            current_config=SimpleNamespace(
+                adc_channel_mask=0xFF,
+                sd_card_state=1,
+            ),
+            config_dirty=False,
+            config_slot_checkbuttons=config_slot_checkbuttons,
+            config_gain_combos=config_gain_combos,
             _selected_recording=lambda: None,
             **controls,
         )
@@ -191,6 +392,54 @@ class GuiSupportTests(unittest.TestCase):
         self.assertEqual(controls["refresh_recordings_button"].state,
                          "disabled")
         self.assertEqual(controls["start_recording_button"].state, "normal")
+        self.assertEqual(controls["start_live_button"].state, "normal")
+        self.assertEqual(controls["config_sample_rate_combo"].state,
+                         "readonly")
+        self.assertEqual(controls["config_apply_button"].state, "disabled")
+
+    def test_sd_fault_disables_recording_but_keeps_live_available(self) -> None:
+        controls = {
+            name: FakeControl()
+            for name in (
+                "refresh_recordings_button",
+                "delete_recording_button",
+                "recording_name_entry",
+                "start_recording_button",
+                "stop_recording_button",
+                "channels_combo",
+                "decimation_combo",
+                "start_live_button",
+                "stop_live_button",
+                "config_sample_rate_combo",
+                "config_apply_button",
+            )
+        }
+        app = SimpleNamespace(
+            connected=True,
+            ble_hello_only=False,
+            pending_action=None,
+            catalog_loading=False,
+            recording_in_progress=False,
+            live_active=False,
+            current_config=SimpleNamespace(
+                adc_channel_mask=0x0F,
+                sd_card_state=2,
+            ),
+            config_dirty=False,
+            config_slot_checkbuttons={
+                slot: FakeControl() for slot in (1, 2)
+            },
+            config_gain_combos={
+                channel: FakeControl() for channel in range(8)
+            },
+            _selected_recording=lambda: None,
+            **controls,
+        )
+
+        GeophysHostApp._update_controls(app)
+
+        self.assertEqual(controls["start_recording_button"].state,
+                         "disabled")
         self.assertEqual(controls["start_live_button"].state, "normal")
 
     def test_worker_queue_accepts_recording_name_payload(self) -> None:

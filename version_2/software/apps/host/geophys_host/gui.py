@@ -19,6 +19,12 @@ from serial.tools import list_ports
 from .ble_client import BleDevice, BleHelloClient, discover_ble_devices
 from .live import LiveStreamModel
 from .protocol import (
+    ADC_SAMPLE_RATE_1000_SPS,
+    ADC_SAMPLE_RATE_16000_SPS,
+    ADC_SAMPLE_RATE_2000_SPS,
+    ADC_SAMPLE_RATE_4000_SPS,
+    ADC_SAMPLE_RATE_500_SPS,
+    ADC_SAMPLE_RATE_8000_SPS,
     REPLY_DEVICE_CONFIG,
     REPLY_DEVICE_INFO,
     REPLY_RECORDING_DELETE_RESULT,
@@ -29,8 +35,10 @@ from .protocol import (
     REPLY_STREAMING_START_RESULT,
     REPLY_STREAMING_STOP_RESULT,
     RESULT_STORAGE_MEDIA_ABSENT,
+    RESULT_STORAGE_FULL,
     RESULT_SUCCESS,
     DeviceConfig,
+    DeviceConfigUpdate,
     RecordingInfo,
     decode_device_config,
     decode_device_info,
@@ -42,6 +50,7 @@ from .protocol import (
     decode_streaming_start_result,
     decode_streaming_stop_result,
     encode_device_get_config,
+    encode_device_set_config,
     encode_hello,
     encode_recording_delete,
     encode_recording_get_info,
@@ -59,6 +68,129 @@ from .stream_parser import AdcRecordMessage
 class UiEvent:
     name: str
     payload: Any = None
+
+
+SAMPLE_RATE_OPTIONS = {
+    "0.5 kS/s": ADC_SAMPLE_RATE_500_SPS,
+    "1 kS/s": ADC_SAMPLE_RATE_1000_SPS,
+    "2 kS/s": ADC_SAMPLE_RATE_2000_SPS,
+    "4 kS/s": ADC_SAMPLE_RATE_4000_SPS,
+    "8 kS/s": ADC_SAMPLE_RATE_8000_SPS,
+    "16 kS/s": ADC_SAMPLE_RATE_16000_SPS,
+}
+SAMPLE_RATE_LABELS = {
+    code: label for label, code in SAMPLE_RATE_OPTIONS.items()
+}
+GAIN_OPTIONS = {
+    "×1": 1,
+    "×2": 2,
+    "×4": 4,
+    "×8": 8,
+}
+GAIN_LABELS = {gain: label for label, gain in GAIN_OPTIONS.items()}
+GAIN_ENCODING = {1: 0, 2: 1, 4: 2, 8: 3}
+CARD_TYPE_LABELS = {
+    0: "Absent",
+    1: "Magnetic",
+    2: "Geophysical accelerometer",
+}
+GNSS_STATE_LABELS = {
+    0: "Disabled / absent",
+    1: "Ready",
+    2: "Faulted",
+    3: "Searching",
+}
+IMU_STATE_LABELS = {
+    0: "Disabled / absent",
+    1: "Ready",
+    2: "Faulted",
+}
+SD_STATE_LABELS = {
+    0: "Absent",
+    1: "Present",
+    2: "Faulted",
+}
+SD_STATE_PRESENT = 1
+SD_STATE_FAULTED = 2
+
+
+def pack_adc_gains(gains: tuple[int, ...]) -> int:
+    """Pack eight ADC gain factors into the protocol's two-bit fields."""
+    if len(gains) != 8:
+        raise ValueError("exactly eight ADC gains are required")
+    packed = 0
+    for channel, gain in enumerate(gains):
+        try:
+            encoded = GAIN_ENCODING[gain]
+        except KeyError as error:
+            raise ValueError(f"invalid gain for channel {channel}: {gain}") \
+                from error
+        packed |= encoded << (2 * channel)
+    return packed
+
+
+def unpack_adc_gains(packed: int) -> tuple[int, ...]:
+    """Return eight ADC gain factors from the packed protocol field."""
+    if not 0 <= packed <= 0xFFFF:
+        raise ValueError("ADC gain field is outside uint16")
+    factors = (1, 2, 4, 8)
+    return tuple(
+        factors[(packed >> (2 * channel)) & 0x03]
+        for channel in range(8)
+    )
+
+
+def build_device_config_update(
+        current: DeviceConfig,
+        adc_sample_rate: int,
+        adc_channel_mask: int,
+        gains: tuple[int, ...]) -> DeviceConfigUpdate:
+    """Build an update while preserving currently unsupported fields."""
+    if adc_channel_mask not in (0x0F, 0xF0, 0xFF):
+        raise ValueError("select at least one four-channel slot")
+    return DeviceConfigUpdate(
+        adc_sample_rate=adc_sample_rate,
+        adc_channel_mask=adc_channel_mask,
+        adc_gain=pack_adc_gains(gains),
+        rail_3v3_enabled=current.rail_3v3_enabled,
+        rail_5v_enabled=current.rail_5v_enabled,
+        rail_9v_enabled=current.rail_9v_enabled,
+        rail_negative_5v_enabled=current.rail_negative_5v_enabled,
+        rail_18v_enabled=current.rail_18v_enabled,
+        imu_averaging_time_ms=current.imu_averaging_time_ms,
+    )
+
+
+def format_uptime(timestamp_100ns: int) -> str:
+    total_seconds = timestamp_100ns / 10_000_000
+    days, remainder = divmod(int(total_seconds), 86_400)
+    hours, remainder = divmod(remainder, 3_600)
+    minutes, seconds = divmod(remainder, 60)
+    prefix = f"{days} d " if days else ""
+    return f"{prefix}{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def format_centi_value(value: int, unit: str) -> str:
+    """Format implemented telemetry; zero is unavailable in current firmware."""
+    return "Unavailable" if value == 0 else f"{value / 100:.2f} {unit}"
+
+
+def format_enabled(enabled: bool) -> str:
+    return "On" if enabled else "Off"
+
+
+def unexpected_recording_stop_message(
+        sd_card_state: int,
+        result: int | None = None) -> str:
+    if result == RESULT_STORAGE_FULL:
+        return "Recording stopped — the SD card is full"
+    if result == RESULT_STORAGE_MEDIA_ABSENT:
+        return "Recording stopped — the SD card is absent"
+    if sd_card_state == SD_STATE_FAULTED:
+        return "Recording stopped unexpectedly — the SD card reported a fault"
+    if sd_card_state == 0:
+        return "Recording stopped unexpectedly — the SD card is absent"
+    return "Recording stopped unexpectedly"
 
 
 def _require_success(label: str, result: int) -> None:
@@ -107,6 +239,7 @@ class DeviceWorker:
         )
         self._client: SerialClient | None = None
         self._streaming = False
+        self._recording_in_progress: bool | None = None
         self._stream_generation = 0
         self._host_dropped_blocks = 0
         self._next_keepalive = 0.0
@@ -150,8 +283,29 @@ class DeviceWorker:
         config = decode_device_config(self._request(
             encode_device_get_config(), REPLY_DEVICE_CONFIG))
         _require_success("DEVICE_GET_CONFIG", config.result)
+        recording_failed = (
+            self._recording_in_progress is True and
+            not config.recording_in_progress
+        )
+        self._recording_in_progress = config.recording_in_progress
+        if recording_failed:
+            failure = decode_recording_stop_result(self._request(
+                encode_recording_stop(),
+                REPLY_RECORDING_STOP_RESULT,
+                self.STORAGE_TIMEOUT_S,
+            ))
+            self._emit("recording_failed", failure)
         self._emit("config", config)
         return config
+
+    def _set_config(self, update: DeviceConfigUpdate) -> None:
+        config = decode_device_config(self._request(
+            encode_device_set_config(update),
+            REPLY_DEVICE_CONFIG,
+            self.ACQUISITION_TIMEOUT_S,
+        ))
+        _require_success("DEVICE_SET_CONFIG", config.result)
+        self._emit("config_applied", config)
 
     def _refresh_recordings(self) -> None:
         self._emit("recordings_loading")
@@ -186,9 +340,11 @@ class DeviceWorker:
             self.ACQUISITION_TIMEOUT_S,
         ))
         _require_success("RECORDING_START", result.result)
+        self._recording_in_progress = True
         self._emit("recording_started", result)
-        self._read_config()
-        self._refresh_recordings()
+        config = self._read_config()
+        if config.recording_in_progress:
+            self._refresh_recordings()
 
     def _stop_recording(self) -> None:
         result = decode_recording_stop_result(self._request(
@@ -196,6 +352,11 @@ class DeviceWorker:
             REPLY_RECORDING_STOP_RESULT,
             self.STORAGE_TIMEOUT_S,
         ))
+        self._recording_in_progress = False
+        if result.result != RESULT_SUCCESS:
+            self._emit("recording_failed", result)
+            self._read_config()
+            return
         _require_success("RECORDING_STOP", result.result)
         if self._streaming:
             self._streaming = False
@@ -256,6 +417,8 @@ class DeviceWorker:
                 payload["decimation"], payload["channel_mask"])
         elif name == "stop_stream":
             self._stop_stream()
+        elif name == "set_config":
+            self._set_config(payload["update"])
         else:
             raise RuntimeError(f"unknown GUI action: {name}")
 
@@ -464,6 +627,9 @@ class GeophysHostApp(ttk.Frame):
         self.live_active = False
         self.pending_action: str | None = None
         self.catalog_loading = False
+        self.current_config: DeviceConfig | None = None
+        self.config_dirty = False
+        self._config_loading = False
         self.active_stream_generation = 0
         self.live_model: LiveStreamModel | None = None
         self.link_stats: dict[str, int] = {}
@@ -653,11 +819,13 @@ class GeophysHostApp(ttk.Frame):
 
     @staticmethod
     def _add_config_value(parent: ttk.Frame, row: int, label: str,
-                          value: str = "—") -> None:
+                          value: str = "—") -> tk.StringVar:
+        variable = tk.StringVar(parent, value=value)
         ttk.Label(parent, text=label).grid(
             row=row, column=0, sticky=tk.W, padx=(0, 16), pady=4)
-        ttk.Label(parent, text=value).grid(
+        ttk.Label(parent, textvariable=variable).grid(
             row=row, column=1, sticky=tk.E, pady=4)
+        return variable
 
     def _build_config_slot(self, parent: ttk.Frame, row: int,
                            slot_number: int, first_channel: int) -> None:
@@ -666,31 +834,50 @@ class GeophysHostApp(ttk.Frame):
         slot.grid(row=row, column=0, sticky=tk.EW, pady=(0, 10))
         slot.columnconfigure(1, weight=1)
 
-        self._add_config_value(slot, 0, "Detected card")
-        ttk.Checkbutton(
+        self.config_card_vars[slot_number] = self._add_config_value(
+            slot, 0, "Detected card")
+        enabled_variable = tk.BooleanVar(slot, value=False)
+        self.config_slot_enabled_vars[slot_number] = enabled_variable
+        checkbutton = ttk.Checkbutton(
             slot,
             text="Acquire this slot",
+            variable=enabled_variable,
+            command=self._mark_config_dirty,
             state=tk.DISABLED,
-        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(5, 8))
+        )
+        checkbutton.grid(
+            row=1, column=0, columnspan=2, sticky=tk.W, pady=(5, 8))
+        self.config_slot_checkbuttons[slot_number] = checkbutton
 
         for offset in range(4):
             channel = first_channel + offset
             ttk.Label(slot, text=f"Channel {channel} gain").grid(
                 row=2 + offset, column=0, sticky=tk.W,
                 padx=(16, 12), pady=3)
+            gain_variable = tk.StringVar(slot)
+            self.config_gain_vars[channel] = gain_variable
             gain = ttk.Combobox(
                 slot,
-                values=("×1", "×2", "×4", "×8"),
+                textvariable=gain_variable,
+                values=tuple(GAIN_OPTIONS),
                 state=tk.DISABLED,
                 width=8,
             )
-            gain.set("×1")
             gain.grid(row=2 + offset, column=1, sticky=tk.E, pady=3)
+            gain.bind(
+                "<<ComboboxSelected>>", self._mark_config_dirty)
+            self.config_gain_combos[channel] = gain
 
     def _build_config_tab(self) -> None:
-        """Build the mobile-first configuration preview without data wiring."""
+        """Build status display and stopped-device configuration controls."""
         self.config_tab.columnconfigure(0, weight=1)
         self.config_tab.rowconfigure(0, weight=1)
+        self.config_value_vars: dict[str, tk.StringVar] = {}
+        self.config_card_vars: dict[int, tk.StringVar] = {}
+        self.config_slot_enabled_vars: dict[int, tk.BooleanVar] = {}
+        self.config_slot_checkbuttons: dict[int, ttk.Checkbutton] = {}
+        self.config_gain_vars: dict[int, tk.StringVar] = {}
+        self.config_gain_combos: dict[int, ttk.Combobox] = {}
 
         canvas = tk.Canvas(
             self.config_tab, borderwidth=0, highlightthickness=0)
@@ -734,43 +921,62 @@ class GeophysHostApp(ttk.Frame):
         ).grid(row=0, column=0, sticky=tk.W)
         ttk.Label(
             content,
-            text=("Layout preview — values and controls are not connected "
-                  "to the device yet."),
+            text=("ADC settings can be changed while acquisition is stopped. "
+                  "They remain active until the device reboots. Other fields "
+                  "show the current device status."),
             wraplength=650,
         ).grid(row=1, column=0, sticky=tk.W, pady=(2, 12))
 
         device = ttk.LabelFrame(content, text="Device", padding=10)
         device.grid(row=2, column=0, sticky=tk.EW, pady=(0, 10))
         device.columnconfigure(1, weight=1)
-        self._add_config_value(device, 0, "Uptime")
-        self._add_config_value(device, 1, "UTC time", "Unavailable")
-        self._add_config_value(device, 2, "Recording", "○ Unknown")
-        self._add_config_value(device, 3, "SD card", "○ Unknown")
-        self._add_config_value(device, 4, "USB 5 V", "○ Unknown")
-        self._add_config_value(device, 5, "Solar input", "○ Unknown")
-        self._add_config_value(device, 6, "ESP32 temperature")
-        self._add_config_value(device, 7, "Error status", "Unknown")
+        self.config_value_vars["uptime"] = self._add_config_value(
+            device, 0, "Uptime")
+        self.config_value_vars["utc"] = self._add_config_value(
+            device, 1, "UTC time", "Unavailable")
+        self.config_value_vars["recording"] = self._add_config_value(
+            device, 2, "Recording", "Unknown")
+        self.config_value_vars["sd_card"] = self._add_config_value(
+            device, 3, "SD card", "Unknown")
+        self.config_value_vars["usb_5v"] = self._add_config_value(
+            device, 4, "USB 5 V", "Unknown")
+        self.config_value_vars["solar"] = self._add_config_value(
+            device, 5, "Solar input", "Unknown")
+        self.config_value_vars["esp32_temperature"] = self._add_config_value(
+            device, 6, "ESP32 temperature")
+        self.config_value_vars["error"] = self._add_config_value(
+            device, 7, "Error status", "Unknown")
 
         power = ttk.LabelFrame(content, text="Power rails", padding=10)
         power.grid(row=3, column=0, sticky=tk.EW, pady=(0, 10))
         power.columnconfigure(1, weight=1)
-        self._add_config_value(power, 0, "+3.3 VA", "○ Unknown")
-        self._add_config_value(power, 1, "+5 VA", "○ Unknown")
-        self._add_config_value(power, 2, "+10 V / 9 VA", "○ Unknown")
-        self._add_config_value(power, 3, "−5 VA", "○ Unknown")
-        self._add_config_value(power, 4, "+18 V", "○ Unknown")
+        for row, (key, label) in enumerate((
+                ("rail_3v3", "+3.3 VA"),
+                ("rail_5v", "+5 VA"),
+                ("rail_9v", "+10 V / 9 VA"),
+                ("rail_negative_5v", "−5 VA"),
+                ("rail_18v", "+18 V"))):
+            self.config_value_vars[key] = self._add_config_value(
+                power, row, label, "Unknown")
 
         navigation = ttk.LabelFrame(
             content, text="GNSS and IMU", padding=10)
         navigation.grid(row=4, column=0, sticky=tk.EW, pady=(0, 10))
         navigation.columnconfigure(1, weight=1)
-        self._add_config_value(navigation, 0, "GNSS state", "Unknown")
-        self._add_config_value(navigation, 1, "Satellites")
-        self._add_config_value(navigation, 2, "IMU state", "Unknown")
-        self._add_config_value(navigation, 3, "IMU averaging")
-        self._add_config_value(navigation, 4, "Roll")
-        self._add_config_value(navigation, 5, "Pitch")
-        self._add_config_value(navigation, 6, "IMU temperature")
+        self.config_value_vars["gnss_state"] = self._add_config_value(
+            navigation, 0, "GNSS state", "Unknown")
+        self.config_value_vars["gnss_satellites"] = self._add_config_value(
+            navigation, 1, "Satellites")
+        self.config_value_vars["imu_state"] = self._add_config_value(
+            navigation, 2, "IMU state", "Unknown")
+        self.config_value_vars["imu_averaging"] = self._add_config_value(
+            navigation, 3, "IMU averaging")
+        self.config_value_vars["imu_roll"] = self._add_config_value(
+            navigation, 4, "Roll")
+        self.config_value_vars["imu_pitch"] = self._add_config_value(
+            navigation, 5, "Pitch")
+        self.config_value_vars["imu_temperature"] = self._add_config_value(
+            navigation, 6, "IMU temperature")
 
         acquisition = ttk.LabelFrame(
             content, text="Acquisition", padding=10)
@@ -778,17 +984,22 @@ class GeophysHostApp(ttk.Frame):
         acquisition.columnconfigure(1, weight=1)
         ttk.Label(acquisition, text="Sampling rate").grid(
             row=0, column=0, sticky=tk.W, padx=(0, 16), pady=4)
-        sample_rate = ttk.Combobox(
+        self.config_sample_rate_var = tk.StringVar(acquisition)
+        self.config_sample_rate_combo = ttk.Combobox(
             acquisition,
-            values=("0.5 kS/s", "1 kS/s", "2 kS/s", "4 kS/s",
-                    "8 kS/s", "16 kS/s"),
+            textvariable=self.config_sample_rate_var,
+            values=tuple(SAMPLE_RATE_OPTIONS),
             state=tk.DISABLED,
             width=12,
         )
-        sample_rate.set("1 kS/s")
-        sample_rate.grid(row=0, column=1, sticky=tk.E, pady=4)
-        self._add_config_value(acquisition, 1, "ADC temperature")
-        self._add_config_value(acquisition, 2, "Active channel mask")
+        self.config_sample_rate_combo.grid(
+            row=0, column=1, sticky=tk.E, pady=4)
+        self.config_sample_rate_combo.bind(
+            "<<ComboboxSelected>>", self._mark_config_dirty)
+        self.config_value_vars["adc_temperature"] = self._add_config_value(
+            acquisition, 1, "ADC temperature")
+        self.config_value_vars["channel_mask"] = self._add_config_value(
+            acquisition, 2, "Active channel mask")
 
         slots = ttk.Frame(content)
         slots.grid(row=6, column=0, sticky=tk.EW)
@@ -796,9 +1007,100 @@ class GeophysHostApp(ttk.Frame):
         self._build_config_slot(slots, 0, 1, 0)
         self._build_config_slot(slots, 1, 2, 4)
 
-        ttk.Button(
-            content, text="Apply changes", state=tk.DISABLED
-        ).grid(row=7, column=0, sticky=tk.EW, pady=(2, 12))
+        self.config_apply_button = ttk.Button(
+            content,
+            text="Apply changes",
+            command=self._apply_config_changes,
+            state=tk.DISABLED,
+        )
+        self.config_apply_button.grid(
+            row=7, column=0, sticky=tk.EW, pady=(2, 6))
+        self.config_status_var = tk.StringVar(
+            content, value="Not connected")
+        ttk.Label(
+            content,
+            textvariable=self.config_status_var,
+            wraplength=650,
+        ).grid(row=8, column=0, sticky=tk.W, pady=(0, 12))
+
+    def _mark_config_dirty(self, _event=None) -> None:
+        if self._config_loading:
+            return
+        self.config_dirty = True
+        self.config_status_var.set("Unsaved ADC configuration changes")
+        self._update_controls()
+
+    def _config_update_from_controls(self) -> DeviceConfigUpdate:
+        if self.current_config is None:
+            raise ValueError("device configuration has not been loaded")
+        try:
+            sample_rate = SAMPLE_RATE_OPTIONS[
+                self.config_sample_rate_var.get()]
+        except KeyError as error:
+            raise ValueError("select a valid ADC sampling rate") from error
+
+        channel_mask = 0
+        if self.config_slot_enabled_vars[1].get():
+            channel_mask |= 0x0F
+        if self.config_slot_enabled_vars[2].get():
+            channel_mask |= 0xF0
+
+        try:
+            gains = tuple(
+                GAIN_OPTIONS[self.config_gain_vars[channel].get()]
+                for channel in range(8)
+            )
+        except KeyError as error:
+            raise ValueError("select a valid gain for every channel") \
+                from error
+        return build_device_config_update(
+            self.current_config,
+            sample_rate,
+            channel_mask,
+            gains,
+        )
+
+    def _apply_config_changes(self) -> None:
+        try:
+            update = self._config_update_from_controls()
+        except ValueError as error:
+            messagebox.showerror("Configuration", str(error))
+            return
+        self.config_status_var.set("Applying ADC configuration…")
+        self._submit("set_config", update=update)
+
+    def _sync_live_channel_options(self, channel_mask: int) -> None:
+        choices = tuple(
+            label for label, mask in self.CHANNELS.items()
+            if mask & channel_mask == mask
+        )
+        self.channels_combo.configure(values=choices)
+        if not choices:
+            self.channels_var.set("")
+            return
+        if self.channels_var.get() not in choices:
+            exact = next(
+                (label for label, mask in self.CHANNELS.items()
+                 if mask == channel_mask),
+                choices[0],
+            )
+            self.channels_var.set(exact)
+
+    def _reset_config_display(self) -> None:
+        for variable in self.config_value_vars.values():
+            variable.set("—")
+        self.config_value_vars["utc"].set("Unavailable")
+        for variable in self.config_card_vars.values():
+            variable.set("Unknown")
+        self.config_sample_rate_var.set("")
+        for variable in self.config_slot_enabled_vars.values():
+            variable.set(False)
+        for variable in self.config_gain_vars.values():
+            variable.set("")
+        self.config_status_var.set("Not connected")
+        self.current_config = None
+        self.config_dirty = False
+        self._sync_live_channel_options(0)
 
     def _build_status_bar(self) -> None:
         self.connection_status_var = tk.StringVar(value="Disconnected")
@@ -959,6 +1261,11 @@ class GeophysHostApp(ttk.Frame):
         if not name:
             messagebox.showerror("Recording", "Enter a recording name.")
             return
+        if (self.current_config is None or
+                self.current_config.sd_card_state != SD_STATE_PRESENT):
+            messagebox.showerror(
+                "Recording", "The SD card is not ready for recording.")
+            return
         self.recordings_status_var.set("Starting recording…")
         self._submit("start_recording", name=name)
 
@@ -1001,6 +1308,21 @@ class GeophysHostApp(ttk.Frame):
         command_access = self.connected and not getattr(
             self, "ble_hello_only", False)
         ready = command_access and self.pending_action is None
+        configuration_ready = (
+            ready and self.current_config is not None and
+            not self.recording_in_progress and not self.live_active
+        )
+        configured_channels = (
+            self.current_config is not None and
+            self.current_config.adc_channel_mask != 0
+        )
+        storage_ready = (
+            self.current_config is not None and
+            self.current_config.sd_card_state == SD_STATE_PRESENT
+        )
+        acquisition_ready = (
+            ready and configured_channels and not self.config_dirty
+        )
         selected = self._selected_recording() is not None
         self.refresh_recordings_button.configure(
             state=tk.NORMAL if command_access and
@@ -1013,24 +1335,117 @@ class GeophysHostApp(ttk.Frame):
             state=tk.NORMAL if ready and
             not self.recording_in_progress else tk.DISABLED)
         self.start_recording_button.configure(
-            state=tk.NORMAL if ready and
+            state=tk.NORMAL if acquisition_ready and storage_ready and
             not self.recording_in_progress else tk.DISABLED)
         self.stop_recording_button.configure(
             state=tk.NORMAL if ready and
             self.recording_in_progress else tk.DISABLED)
         self.channels_combo.configure(
-            state="readonly" if ready and not self.live_active else tk.DISABLED)
+            state="readonly" if acquisition_ready and
+            not self.live_active else tk.DISABLED)
         self.decimation_combo.configure(
-            state="readonly" if ready and not self.live_active else tk.DISABLED)
+            state="readonly" if acquisition_ready and
+            not self.live_active else tk.DISABLED)
         self.start_live_button.configure(
-            state=tk.NORMAL if ready and not self.live_active else tk.DISABLED)
+            state=tk.NORMAL if acquisition_ready and
+            not self.live_active else tk.DISABLED)
         self.stop_live_button.configure(
             state=tk.NORMAL if ready and self.live_active else tk.DISABLED)
 
-    def _apply_config(self, config: DeviceConfig) -> None:
+        editor_state = "readonly" if configuration_ready else tk.DISABLED
+        self.config_sample_rate_combo.configure(state=editor_state)
+        for checkbutton in self.config_slot_checkbuttons.values():
+            checkbutton.configure(
+                state=tk.NORMAL if configuration_ready else tk.DISABLED)
+        for combo in self.config_gain_combos.values():
+            combo.configure(state=editor_state)
+        self.config_apply_button.configure(
+            state=tk.NORMAL if configuration_ready and
+            self.config_dirty else tk.DISABLED)
+
+    def _apply_config(
+            self,
+            config: DeviceConfig,
+            *,
+            force_editors: bool = False,
+            status_message: str | None = None) -> None:
+        recording_was_in_progress = self.recording_in_progress
+        self.current_config = config
         self.recording_in_progress = config.recording_in_progress
+        self.config_value_vars["uptime"].set(
+            format_uptime(config.timestamp_100ns))
+        self.config_value_vars["recording"].set(
+            "In progress" if config.recording_in_progress else "Stopped")
+        self.config_value_vars["sd_card"].set(
+            SD_STATE_LABELS.get(config.sd_card_state, "Unknown"))
+        self.config_value_vars["usb_5v"].set(
+            "Present" if config.usb_5v_present else "Absent")
+        self.config_value_vars["solar"].set(
+            "Present" if config.solar_present else "Absent")
+        self.config_value_vars["esp32_temperature"].set(
+            format_centi_value(config.esp32_temperature_centi_c, "°C"))
+        self.config_value_vars["error"].set(
+            "Attention required" if config.error_pending else "None")
+        self.config_value_vars["rail_3v3"].set(
+            format_enabled(config.rail_3v3_enabled))
+        self.config_value_vars["rail_5v"].set(
+            format_enabled(config.rail_5v_enabled))
+        self.config_value_vars["rail_9v"].set(
+            format_enabled(config.rail_9v_enabled))
+        self.config_value_vars["rail_negative_5v"].set(
+            format_enabled(config.rail_negative_5v_enabled))
+        self.config_value_vars["rail_18v"].set(
+            format_enabled(config.rail_18v_enabled))
+        self.config_value_vars["gnss_state"].set(
+            GNSS_STATE_LABELS.get(config.gnss_state, "Unknown"))
+        self.config_value_vars["gnss_satellites"].set(
+            str(config.gnss_satellite_count))
+        self.config_value_vars["imu_state"].set(
+            IMU_STATE_LABELS.get(config.imu_state, "Unknown"))
+        self.config_value_vars["imu_averaging"].set(
+            f"{config.imu_averaging_time_ms} ms"
+            if config.imu_averaging_time_ms else "Unavailable")
+        self.config_value_vars["imu_roll"].set(
+            format_centi_value(config.imu_roll_centi_degrees, "°"))
+        self.config_value_vars["imu_pitch"].set(
+            format_centi_value(config.imu_pitch_centi_degrees, "°"))
+        self.config_value_vars["imu_temperature"].set(
+            format_centi_value(config.imu_temperature_centi_c, "°C"))
+        self.config_value_vars["adc_temperature"].set(
+            format_centi_value(config.adc_temperature_centi_c, "°C"))
+        self.config_value_vars["channel_mask"].set(
+            f"0x{config.adc_channel_mask:02X}")
+        self.config_card_vars[1].set(
+            CARD_TYPE_LABELS.get(config.card_slot_1, "Unknown"))
+        self.config_card_vars[2].set(
+            CARD_TYPE_LABELS.get(config.card_slot_2, "Unknown"))
+
+        if force_editors or not self.config_dirty:
+            self._config_loading = True
+            try:
+                self.config_sample_rate_var.set(
+                    SAMPLE_RATE_LABELS[config.adc_sample_rate])
+                self.config_slot_enabled_vars[1].set(
+                    bool(config.adc_channel_mask & 0x0F))
+                self.config_slot_enabled_vars[2].set(
+                    bool(config.adc_channel_mask & 0xF0))
+                for channel, gain in enumerate(
+                        unpack_adc_gains(config.adc_gain)):
+                    self.config_gain_vars[channel].set(GAIN_LABELS[gain])
+                self.config_dirty = False
+            finally:
+                self._config_loading = False
+
+        self._sync_live_channel_options(config.adc_channel_mask)
+        if status_message is not None:
+            self.config_status_var.set(status_message)
         if config.recording_in_progress:
             self.recordings_status_var.set("Recording in progress")
+        elif recording_was_in_progress:
+            message = unexpected_recording_stop_message(
+                config.sd_card_state)
+            self.recordings_status_var.set(message)
+            messagebox.showerror("Recording stopped", message)
         self._update_controls()
 
     def _show_recordings(self, recordings: list[RecordingInfo]) -> None:
@@ -1071,14 +1486,27 @@ class GeophysHostApp(ttk.Frame):
                     "Bluetooth connected — HELLO only")
                 self.live_status_var.set(
                     "Bluetooth connected — live streaming not implemented")
+                self.config_status_var.set(
+                    "USB connection required for configuration")
                 self._update_controls()
             else:
                 self.connection_status_var.set(
                     f"Connected to {self.worker.port}  •  device {mac}")
-                self._apply_config(event.payload["config"])
+                self._apply_config(
+                    event.payload["config"],
+                    force_editors=True,
+                    status_message="Configuration loaded",
+                )
                 self._refresh_recordings()
         elif event.name == "config":
             self._apply_config(event.payload)
+        elif event.name == "config_applied":
+            self.pending_action = None
+            self._apply_config(
+                event.payload,
+                force_editors=True,
+                status_message="ADC configuration applied",
+            )
         elif event.name == "recordings_loading":
             self.catalog_loading = True
             self.recordings_status_var.set("Reading recording catalog…")
@@ -1105,13 +1533,31 @@ class GeophysHostApp(ttk.Frame):
             self.recording_in_progress = True
             self.recordings_status_var.set(
                 f"Recording '{event.payload.name}'")
+            self.config_status_var.set(
+                "Stop recording before changing ADC configuration")
             self._update_controls()
         elif event.name == "recording_stopped":
             self.pending_action = None
             self.recording_in_progress = False
             self.recordings_status_var.set(
                 f"Stopped '{event.payload.name}'")
+            if not self.config_dirty:
+                self.config_status_var.set("Configuration loaded")
             self._update_controls()
+        elif event.name == "recording_failed":
+            self.pending_action = None
+            self.recording_in_progress = False
+            sd_card_state = (
+                self.current_config.sd_card_state
+                if self.current_config is not None else SD_STATE_FAULTED
+            )
+            message = unexpected_recording_stop_message(
+                sd_card_state, event.payload.result)
+            self.recordings_status_var.set(message)
+            if not self.config_dirty:
+                self.config_status_var.set("Configuration loaded")
+            self._update_controls()
+            messagebox.showerror("Recording stopped", message)
         elif event.name == "recording_deleted":
             self.pending_action = None
             self.recordings_status_var.set(
@@ -1129,12 +1575,16 @@ class GeophysHostApp(ttk.Frame):
             self.live_active = True
             self.live_status_var.set(
                 f"Streaming channels 0x{result.channel_mask:02x}")
+            self.config_status_var.set(
+                "Stop live streaming before changing ADC configuration")
             self.notebook.select(self.live_tab)
             self._update_controls()
         elif event.name == "stream_stopped":
             self.pending_action = None
             self.live_active = False
             self.live_status_var.set("Live stream stopped")
+            if not self.config_dirty:
+                self.config_status_var.set("Configuration loaded")
             self._update_controls()
         elif event.name == "link_stats":
             self.link_stats = event.payload
@@ -1147,6 +1597,9 @@ class GeophysHostApp(ttk.Frame):
             message = event.payload["message"]
             if event.payload["action"] == "start_stream":
                 self.live_status_var.set("Live stream did not start")
+            elif event.payload["action"] == "set_config":
+                self.config_status_var.set(
+                    f"Configuration was not applied: {message}")
             self._update_controls()
             messagebox.showerror(action.title(), message)
         elif event.name == "connection_error":
@@ -1161,6 +1614,7 @@ class GeophysHostApp(ttk.Frame):
             self.connection_status_var.set("Disconnected")
             self.recordings_status_var.set("Not connected")
             self.live_status_var.set("Not connected")
+            self._reset_config_display()
             self.connect_button.configure(text="Connect", state=tk.NORMAL)
             self.connection_type_combo.configure(state="readonly")
             self.port_combo.configure(state="readonly")

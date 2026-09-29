@@ -7,9 +7,10 @@ protocol. It now includes the command and ADC-record codecs, a corruption-
 tolerant mixed `\CMD`/`\DAT` parser, exact named-reply matching while ADC data
 is in flight, raw validated-block capture, live continuity/error counters, and
 a Tk desktop application with manual USB/COM selection. The desktop app has a
-recording catalog and controls in one tab and embedded raw-channel plots with
-live Start/Stop controls in a separate tab. Serial work runs on a background
-thread so the window remains responsive.
+recording catalog, embedded raw-channel plots, and a functional configuration
+tab. The configuration tab can change ADC sample rate, select slot 1 (channels
+0–3), slot 2 (channels 4–7), or both, and set each channel's gain. Serial work
+runs on a background thread so the window remains responsive.
 
 The connection selector also supports the first Bluetooth Low Energy slice.
 It scans for `Geophys Acquisition`, connects, sends `HELLO`, and displays the
@@ -43,9 +44,25 @@ python3 version_2/software/apps/host/launch_host.py
 ```
 
 Select the device's USB/COM port, leave the baud rate at `921600`, and click
-**Connect**. The recordings catalog loads automatically. Use the **Live
-Stream** tab to select channels and decimation, then click **Start live
+**Connect**. The recordings catalog and current device configuration load
+automatically. In the **Config** tab, select **Acquire this slot** for slot 1
+to use only channels 0–3, choose any required sample rate and gains, and click
+**Apply changes**. Configuration changes are available while recording and
+live streaming are stopped. Power-rail and IMU fields are status-only because
+the current firmware does not apply those settings yet. ADC settings are
+runtime state and return to firmware defaults after a device reboot. Use the
+**Live Stream** tab to select channels and decimation, then click **Start live
 streaming**.
+
+The shared protocol describes applying `DEVICE_SET_CONFIG` during a live
+stream, but the current Rev-1 firmware rejects changes whenever acquisition is
+active. The GUI follows the verified firmware behavior and therefore requires
+both live streaming and recording to be stopped before applying changes.
+Recording controls also require the device to report an SD card in the ready
+state. If an active recording stops asynchronously, the GUI now reports the
+stop explicitly, queries the retained failure through `RECORDING_STOP`, and
+identifies conditions such as `storage full` instead of leaving a stale
+recording status visible.
 
 For Bluetooth, select **Bluetooth LE**, click **Refresh**, select the advertised
 device, and click **Connect**. USB may remain plugged in for power or debugging;

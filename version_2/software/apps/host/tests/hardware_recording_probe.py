@@ -178,9 +178,16 @@ def main() -> int:
                 live_config = decode_device_config(
                     request(connection, encode_device_get_config()))
                 result_must_succeed("DEVICE_GET_CONFIG", live_config.result)
-                assert live_config.recording_in_progress, (
-                    "recording stopped unexpectedly"
-                )
+                if not live_config.recording_in_progress:
+                    failure = decode_recording_stop_result(
+                        request(connection, encode_recording_stop()))
+                    recording_started = False
+                    raise AssertionError(
+                        "recording stopped unexpectedly: "
+                        f"stop_result=0x{failure.result:02x} "
+                        f"sd_card_state={live_config.sd_card_state} "
+                        f"error_pending={live_config.error_pending}"
+                    )
 
             stop = decode_recording_stop_result(
                 request(connection, encode_recording_stop()))
