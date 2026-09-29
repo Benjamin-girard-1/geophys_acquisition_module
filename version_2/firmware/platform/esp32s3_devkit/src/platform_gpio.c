@@ -219,9 +219,25 @@ fw_status_t platform_gpio_interrupt_attach(platform_gpio_pin_t pin,
         return status;
     }
 
-    return platform_error_from_esp_err(
+    status = platform_error_from_esp_err(
         gpio_isr_handler_add((gpio_num_t)pin, handler, context), error,
         FW_ERROR_RESOURCE_GPIO, FW_ERROR_OPERATION_ATTACH, pin, 0U);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    /*
+     * ESP-IDF enables the pin as a side effect of adding its ISR handler.
+     * Restore the platform contract: attach prepares the handler, while the
+     * owner explicitly chooses when acquisition interrupts may begin.
+     */
+    status = platform_error_from_esp_err(
+        gpio_intr_disable((gpio_num_t)pin), error, FW_ERROR_RESOURCE_GPIO,
+        FW_ERROR_OPERATION_ATTACH, pin, 0U);
+    if (status != FW_STATUS_OK) {
+        (void)gpio_isr_handler_remove((gpio_num_t)pin);
+    }
+    return status;
 }
 
 fw_status_t platform_gpio_interrupt_enable(platform_gpio_pin_t pin,
