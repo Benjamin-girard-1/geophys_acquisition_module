@@ -14,7 +14,7 @@
 
 | Function | ESP32 peripheral | Pins | Frequency/baud | DMA | Owner | Verification |
 |---|---|---|---:|---|---|---|
-| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Initial: 8 MHz, mode 0; reads ≤20 MHz; writes ≤30 MHz; external MCLK: 8.192 MHz | Yes | `task_acquisition` | Schematic + datasheet + working V1 reference; Rev-1 bench verified at 8 MHz |
+| AD7779 SPI | SPI2 | SCLK:GPIO12, MOSI/SDI:GPIO13, MISO/SDO:GPIO14, CS:GPIO11 | Fixed 20 MHz, mode 0; external MCLK: 8.192 MHz | Yes | `task_acquisition` | Schematic + datasheet + working V1 reference; Rev-1 register access and conversion reads verified at 20 MHz; 16 kSPS acquisition loss remains open |
 | AD7779 control | 74HC595 #2 | RESET:SH2_C, START:SH2_D, MCLK_EN:SH2_E, CONVST_SAR:SH2_F | - | No | `task_acquisition` through `board` | Schematic |
 | 74HC595 chain | GPIO bit-bang | SHCP:GPIO19, STCP:GPIO20, DS:GPIO47, OE_N:GPIO21 | Initial 1 us between driver transitions; conservative limit ≤4 MHz | No | `board` | Schematic + Nexperia 74HC595 Rev. 12 datasheet |
 | LSM6DSV SPI | SPI3 | SCLK:GPIO17, MOSI:GPIO18, CS:GPIO46, MISO:GPIO9 | ≤10 MHz | No | `task_imu` | Schematic + datasheet |
@@ -148,6 +148,10 @@ The initial delays are deliberately conservative. Their purpose is to avoid simu
 and large combined inrush, not to meet a known tight device requirement. Rev-1 bench measurements may
 shorten them later without changing the sequence or ownership model.
 
+After the per-rail delays, firmware waits an additional 1,000 ms with `3V3A`, `10V`/`9VA`, and
+`-5VA` enabled before initializing the AD7779. This gives the magnetic-sensor feedback loop time to
+settle before ADC startup so the observed initial peak can decay before acquisition data begins.
+
 ## 7. Power-up sequence
 
 | Step | Action | Delay/condition | Verification | Failure response |
@@ -160,10 +164,11 @@ shorten them later without changing the sequence or ownership model.
 | 6 | Enable `3V3A` when required | Wait 100 ms | [TBD] | Disable controlled rails |
 | 7 | Enable `10V`, producing the derived 9VA path | Wait 100 ms | [TBD] | Disable controlled rails |
 | 8 | Enable `-5VA` | Wait 100 ms | [TBD] | Disable controlled rails |
-| 9 | Enable ADC master clock | Wait at least 5 ms | Clock detected | Disable ADC |
-| 10 | Reset and initialize AD7779 | Use the initial sequence below | Status/identity checks | Report ADC fault |
-| 11 | Initialize the detected magnetic card | After required rails are stable | Card available | Mark unavailable |
-| 12 | Start acquisition when requested | Command | DRDY active | Report failure |
+| 9 | Let the magnetic-sensor feedback loop settle with all acquisition rails enabled | Wait 1,000 ms | Inspect startup peak and ADC status in a recording | Disable controlled rails |
+| 10 | Enable ADC master clock | Wait at least 5 ms | Clock detected | Disable ADC |
+| 11 | Reset and initialize AD7779 | Use the initial sequence below | Status/identity checks | Report ADC fault |
+| 12 | Initialize the detected magnetic card | After required rails are stable | Card available | Mark unavailable |
+| 13 | Start acquisition when requested | Command | DRDY active | Report failure |
 
 The 18 V rail is not part of normal acquisition startup. It remains off until an on-demand SET or
 RESET request, then is enabled and allowed to settle for 100 ms before the pulse.
@@ -175,7 +180,7 @@ The first Rev-1 implementation uses the electrically proven V1 settings as a con
 | Parameter | Initial Rev-1 value |
 |---|---|
 | SPI host and format | SPI2, full duplex, mode 0, MSB first |
-| SPI clock | 8 MHz for register access and conversion-frame reads |
+| SPI clock | Fixed 20 MHz for initialization, configuration, and conversion-frame reads |
 | Chip select | GPIO11, software controlled, active Low |
 | CS timing margin | 1 µs after asserting CS and 1 µs before releasing CS |
 | Transfer context | Synchronous DMA-backed transfer from `task_acquisition`; never busy-polled or called from the DRDY ISR |
@@ -188,6 +193,7 @@ The first Rev-1 implementation uses the electrically proven V1 settings as a con
 | Reset method | Hardware `ADC_RESET` pulse followed by the datasheet-defined SPI software reset (SDI High for 64 SCLKs), then a 5 ms settling margin inherited from the working V1 implementation |
 | Initialization check | Poll `INIT_COMPLETE` for up to 500 ms; tolerate malformed/stale register responses during that window, but require a valid `0x20` response header before proceeding |
 | Configuration synchronization | Toggle `SPI_SYNC` Low, wait 10 us, return it High, then discard 5 ms of settling time before enabling SPI conversion readback; margins inherited from the working V1 implementation and pending Rev-1 waveform verification |
+| Startup conversion policy | Keep the DRDY interrupt disabled through reset, synchronization, SRC update, and filter settling. Startup DRDY edges at the reset/default ODR are intentionally ignored; sequence zero and scientific recording begin only after `ad7779_start()` completes. |
 
 The V1 AD7779 register definitions, CRC handling, configuration sequence, and frame decoding are
 working references. They must be adapted to the V2 architecture: the portable AD7779 driver remains
@@ -332,7 +338,7 @@ logical requests into shift-register changes. `analog_cards/acc_geoph` has no SE
 | Does the initial 200 us SET/RESET pulse provide the required current and duration, and what minimum request interval and post-pulse analog settling time are safe? | Hardware | V1 reference + magnetic-card design + oscilloscope/ADC data | Open |
 | What startup settling delay, if any, is required before SDMMC initialization? | Hardware | Repeated cold-start mount test + logic analyzer if failures occur | Open; one clean-build mount passed without an explicit delay |
 | What is the safe boot level and policy for `EN_SUPERCAP_CHARGE`? | Hardware | Schematic + power test | Open |
-| Does the initial 8 MHz, mode-0, manual-CS AD7779 SPI baseline operate reliably on the assembled Rev-1 board? | Firmware/hardware | ADC register and recording tests | Previously confirmed at 8 MHz with configuration readback, reset-default readback, and 50,000 consecutive status-register reads. With main +5 V restored on 2026-09-18, V2 again passed initialization and repeatedly read conversion frames into SD records. Record status/data inspection and the excessive observed DRDY rate remain open. |
+| Does the fixed 20 MHz, mode-0, manual-CS AD7779 SPI configuration operate reliably on the assembled Rev-1 board? | Firmware/hardware | ADC register and recording tests | Confirmed for initialization, configuration, startup, and steady-state 1 kSPS conversion reads on 2026-09-29. The separate 16 kSPS acquisition-throughput loss remains open. |
 
 ## 13. Verification record
 
@@ -351,7 +357,11 @@ logical requests into shift-register changes. `analog_cards/acc_geoph` has no SE
 | Temporary UART recording extraction | Read a closed SD recording through command `0xf000` and validate the returned block | Pass: retrieved the first 512 bytes of `scope_continuous`; command framing, chunk offsets, file size, `\DAT` magic, and record CRC validated. The stored block reported critical status and sample range -3,212,801 to 8,388,607, so it is not evidence of valid scientific data. | 2026-09-19 | Host decoder and live UART query on `/dev/cu.usbserial-114620` |
 | Fresh SD recording after extraction implementation | Enumerate and delete the two expendable existing files, start a named capture, wait 0.1 s, stop, inspect and download the file, validate every record, then delete the test file | Storage/protocol pass: count/info/delete left an empty catalog; the fresh capture contained ten complete 512-byte records (5,120 bytes), every record CRC passed, and deletion restored the empty catalog. Acquisition quality remains open: every record had critical status, samples reached both 24-bit rails, and the sequence exposed 32 missing conversions. | 2026-09-19 | Live recording/catalog commands and `hardware_recording_probe.py` on `/dev/cu.usbserial-114620`; downloaded image `/private/tmp/codex_clean2_0919.bin` |
 | Recording task scheduling and storage queueing | Exercise recording beyond eight records while issuing control commands | Pre-fix, a zero-tick acquisition poll starved lower-priority tasks and mismatched FreeRTOS queue-set draining asserted in `prvNotifyQueueSetContainer`, rebooting after several records. Notification-driven acquisition/storage, bounded batches, a 1 kHz tick, and control-plane scheduling now pass the 404-record probe without reset. | 2026-09-18 | Captured panic backtrace plus post-fix protocol probe |
-| Configured ADC output rate | Measure `ADC_DRDY` and inspect stored conversion timestamps while the device reports the 1 kSPS preset | Partial: an earlier oscilloscope test measured approximately 61.5 us (16.26 kSPS). With the current post-synchronization SRC re-latch, a fresh file's first 80 conversions remained near 16 kSPS, followed by 120 conversions at approximately 1 kSPS. The steady-state rate is now consistent with configuration, but the startup transient and a 32-conversion gap remain unresolved and require a confirming scope trace. | 2026-09-19 | User oscilloscope measurement plus timestamps/sequences from `/private/tmp/codex_clean2_0919.bin` |
+| Configured ADC output rate | Measure `ADC_DRDY` and inspect stored conversion timestamps while the device reports the 1 kSPS preset | Resolved for 1 kSPS on 2026-09-29. The earlier first-80-conversion burst and sequence gap occurred because ESP-IDF enabled DRDY as a side effect of handler attachment. Restoring the documented attach-disabled state prevents initialization edges from entering the scientific sequence; a new 25-record capture was entirely status-OK and had zero missing conversions. Other presets still require verification. | 2026-09-19 to 2026-09-29 | User oscilloscope measurement, GPIO implementation inspection, and `fixed_20mhz_startup_skip_1ksps_4ch.dat` |
+| AD7779 20 MHz conversion reads | Initialize/configure at 8 MHz, switch to 20 MHz before enabling DRDY, and record channels 0-3 to SD at 16 kSPS plus a 1 kSPS control | The 1 kSPS control had the known startup transient (the first two records and a 32-conversion gap), followed by 25 consecutive contiguous status-OK records, verifying clean steady-state 20 MHz reads. At 16 kSPS, 178 complete CRC-valid records decoded with the requested 625 x 100 ns period, but acquisition throughput remained insufficient: 7,120 of 16,541 sequenced conversions were retained (43.0%), 9,421 were reported missing, and all records carried timing-error status. Gaps occurred after 176 of 177 record boundaries, usually 55-57 conversions after each 40-conversion block. This test preceded the simplification to a fixed 20 MHz clock. | 2026-09-29 | `hardware_recording_probe.py` on `/dev/cu.usbserial-114620`; scratch captures `codex_20mhz_1ksps_4ch.dat` and `codex_20mhz_16ksps_4ch.dat` |
+| AD7779 fixed 20 MHz clock | Flash the fixed-clock build, then initialize, configure, start, and record channels 0-3 at 1 kSPS and 16 kSPS | Fixed 20 MHz initialization and register access passed. The 1 kSPS control reproduced the known startup transient with one 31-conversion gap, then produced 25 consecutive contiguous status-OK records. The 16 kSPS capture produced 92 CRC-valid records at the requested 625 x 100 ns period and retained 3,680 of 8,415 sequenced conversions (43.7%); the existing scheduling bottleneck remains. | 2026-09-29 | `hardware_recording_probe.py` on `/dev/cu.usbserial-114620`; scratch captures `fixed_20mhz_1ksps_4ch.dat` and `fixed_20mhz_16ksps_4ch.dat` |
+| One-second analog feedback settling delay | After the normal 100 ms delay following each acquisition rail, wait another 1,000 ms with all rails enabled before initializing the ADC; compare 1 kSPS and 16 kSPS captures with the fixed-20-MHz baseline | The delay executed without watchdog or command timeout. It did not remove the startup signature: the 1 kSPS capture again had two flagged records and one 31-conversion gap followed by 25 contiguous status-OK records. At 16 kSPS, retention was 43.6% after the delay versus 43.7% before it, so the sustained loss is not explained by insufficient rail/feedback settling. | 2026-09-29 | `hardware_recording_probe.py` and decoded sequences on `/dev/cu.usbserial-114620`; scratch captures `fixed_20mhz_settle1s_1ksps_4ch.dat` and `fixed_20mhz_settle1s_16ksps_4ch.dat` |
+| DRDY startup arming | Ensure platform GPIO handler attachment leaves the interrupt disabled, start and settle the ADC, explicitly enable DRDY, then record at 1 kSPS | Pass: the recording contained 25 CRC-valid blocks, all status-OK, with 1,000 contiguous conversions and zero missing conversions. Startup DRDY edges are no longer sequenced, recorded, or reported as acquisition faults. | 2026-09-29 | `hardware_recording_probe.py` on `/dev/cu.usbserial-114620`; scratch capture `fixed_20mhz_startup_skip_1ksps_4ch.dat` |
 | SET pulse width | Oscilloscope | [TBD] | [TBD] | [TBD] |
 | ESP32 strapping with GNSS/IMU connected | Repeated cold boot and download test | [TBD] | [TBD] | [TBD] |
 | GNSS UART inter-device alignment | Common-event comparison between two units | [TBD] | [TBD] | [TBD] |

@@ -43,26 +43,41 @@ was unavailable. Restoring +5 V allowed AD7779 initialization and recording to
 proceed. The two expendable recordings that filled the card were enumerated
 and deleted through the recording protocol, leaving an empty catalog. A
 subsequent fresh probe recorded, downloaded, validated, and deleted ten
-512-byte records. All record framing and CRCs passed. The capture is not yet
-scientifically valid: all records carried critical status, several channels
-reached the signed 24-bit rails, and a visible sequence gap represented 32
-missing conversions. Its timestamps show roughly 16 kSPS during the first 80
-conversions and 1 kSPS during the final 120 conversions, so the configured
-rate now settles correctly but the startup transient and loss must still be
-resolved. Configuration currently applies the stopped-device ADC rate, channel
+512-byte records. All record framing and CRCs passed. That early capture
+contained 80 startup conversions near the AD7779 reset rate followed by a
+sequence gap. The cause was an ESP-IDF side effect that enabled the DRDY pin
+while its handler was attached, before ADC synchronization and SRC settling
+completed. The platform attach operation now restores the pin to disabled and
+the application enables it explicitly after `ad7779_start()`. A fresh 1 kSPS
+probe then produced 25 status-OK records with no missing conversions. Sustained
+16 kSPS acquisition remains incomplete because the current bounded-batch/yield
+loop cannot service every DRDY event. Configuration currently applies the
+stopped-device ADC rate, channel
 mask, and per-channel gains; runtime rail and IMU changes remain unsupported
 until their owning subsystems exist. The Python host now has streaming
 start/stop codecs, an incremental mixed command/data parser, named-reply
 matching during live data, byte-exact validated capture, continuity counters,
 and a desktop GUI with manual USB/COM selection, recording management, and a
-separate live-plot tab. The GUI connection and recording catalog were exercised
-against Rev-1, including creation, stop/close, catalog, and deletion of a GUI
-test recording. Firmware live delivery was then exercised at 921600 baud with
-eight channels at 1 kSPS and with four-channel decimation-by-5: start/stop
-replies and all received block CRCs passed, streaming continued while an SD
-recording was opened, and reconnect succeeded after the five-second session
-timeout. The live blocks still expose the known ADC critical status and startup
-sequence loss, so scientific-data validation remains open.
+separate live-plot tab. Its Config tab now reads device status and applies the
+stopped-device ADC rate, four-channel slot selection, and per-channel gains.
+The GUI connection and recording catalog were exercised against Rev-1,
+including creation, stop/close, catalog, and deletion of a GUI test recording.
+A reversible channels-0–3 configuration update also passed on Rev-1. Firmware
+live delivery was then exercised at 921600 baud with eight channels at 1 kSPS
+and with four-channel decimation-by-5: start/stop replies and all received block
+CRCs passed, streaming continued while an SD recording was opened, and
+reconnect succeeded after the five-second session timeout. The live blocks
+still expose the known ADC critical status and startup sequence loss, so
+scientific-data validation remains open.
+
+On 2026-09-29, the currently inserted SD card mounted and its six-file catalog
+remained readable, but a new recording faulted on its first 512-byte write.
+The failure reproduced with the untouched default `0xFF` configuration and
+with channels 0–3 (`0x0F`), including after a device reset, while an `0x0F`
+live stream continued to deliver validly framed blocks. Querying the retained
+recording failure through `RECORDING_STOP` returned `0x0a` (`storage full`).
+This isolates the failure from host configuration and four-channel
+acquisition; space must be freed or the FAT32 volume repaired before recording.
 
 The first Bluetooth Low Energy slice is also implemented. The ESP32-S3
 advertises `Geophys Acquisition` even while UART-to-USB is connected, accepts

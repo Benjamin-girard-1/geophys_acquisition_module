@@ -97,10 +97,15 @@ context.
 - Null TX produces filler bytes; null RX discards received bytes.
 - The platform validates DMA suitability or copies through an internal DMA-safe buffer.
 - DMA buffers are allocated before acquisition and never allocated during steady-state transfers.
-- SPI clock changes are applied only while the owning device is stopped. The board supplies the
-  initial and maximum clocks, and the platform reports the achieved hardware clock.
+- The board supplies the initial and maximum clocks, and the platform reports the achieved
+  hardware clock. Rev-1 uses a fixed 20 MHz AD7779 clock.
 - No SPI transfer occurs in a GPIO ISR.
 - AD7779 and LSM6DSV clock limits come from `board_config.h`, not from application code.
+
+The GPIO interrupt attach operation installs a handler but leaves the pin interrupt disabled. ADC
+DRDY is enabled explicitly only after AD7779 reset, synchronization, SRC update, and filter settling
+complete. DRDY edges produced during that deterministic startup interval are initialization events:
+they are neither sequenced nor recorded and do not raise acquisition errors.
 
 ### I²C
 
