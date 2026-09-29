@@ -88,7 +88,7 @@ fw_status_t board_host_uart_initialize(platform_uart_t **uart,
 fw_status_t board_adc_initialize(ad7779_t *adc,
                                  fw_error_context_t *error);
 
-/** Apply the documented 3V3A -> 10V/9VA -> -5VA acquisition sequence. */
+/** Power the acquisition rails and wait for the analog feedback loop. */
 fw_status_t board_adc_power_up(fw_error_context_t *error);
 
 /** Disable the acquisition rails after ADC deinitialization. */

@@ -592,6 +592,7 @@ fw_status_t board_adc_power_up(fw_error_context_t *error)
         }
         platform_delay_ms(BOARD_REV1_POWER_RAIL_SETTLING_MS);
     }
+    platform_delay_ms(BOARD_REV1_ADC_FEEDBACK_SETTLING_MS);
     return FW_STATUS_OK;
 }
 
