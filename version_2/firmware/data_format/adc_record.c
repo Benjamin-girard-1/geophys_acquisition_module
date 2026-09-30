@@ -155,6 +155,10 @@ adc_record_codec_status_t adc_record_builder_begin(
     builder->payload_offset = ADC_RECORD_PAYLOAD_OFFSET_BYTES;
     builder->required_conversions =
         conversion_count_for_mask(metadata->channel_mask);
+    builder->first_channel =
+        metadata->channel_mask == UINT8_C(0xF0) ? 4U : 0U;
+    builder->channel_count =
+        metadata->channel_mask == UINT8_C(0xFF) ? 8U : 4U;
     builder->begun = true;
     return ADC_RECORD_CODEC_OK;
 }
@@ -186,22 +190,23 @@ adc_record_codec_status_t adc_record_builder_append(
     }
 
     uint16_t payload_offset = builder->payload_offset;
-    for (uint8_t channel = 0U;
-         channel < ADC_RECORD_CHANNEL_COUNT;
+    const uint16_t packed_bytes = (uint16_t)(
+        builder->channel_count * ADC_RECORD_PACKED_SAMPLE_SIZE_BYTES);
+    if ((uint32_t)payload_offset + packed_bytes >
+        ADC_RECORD_CRC_OFFSET_BYTES) {
+        return ADC_RECORD_CODEC_INVALID_STATE;
+    }
+    const uint8_t end_channel = (uint8_t)(
+        builder->first_channel + builder->channel_count);
+    for (uint8_t channel = builder->first_channel;
+         channel < end_channel;
          channel++) {
-        if ((builder->metadata.channel_mask &
-             (uint8_t)(UINT8_C(1) << channel)) == 0U) {
-            continue;
-        }
-        if ((uint32_t)payload_offset + ADC_RECORD_PACKED_SAMPLE_SIZE_BYTES >
-            ADC_RECORD_CRC_OFFSET_BYTES) {
-            return ADC_RECORD_CODEC_INVALID_STATE;
-        }
-        const adc_record_codec_status_t status = adc_record_pack_sample(
-            samples[channel], builder->record + payload_offset);
-        if (status != ADC_RECORD_CODEC_OK) {
-            return status;
-        }
+        const int32_t sample = samples[channel];
+        const uint32_t encoded =
+            (uint32_t)sample & UINT32_C(0x00FFFFFF);
+        builder->record[payload_offset] = (uint8_t)encoded;
+        builder->record[payload_offset + 1U] = (uint8_t)(encoded >> 8U);
+        builder->record[payload_offset + 2U] = (uint8_t)(encoded >> 16U);
         payload_offset = (uint16_t)(
             payload_offset + ADC_RECORD_PACKED_SAMPLE_SIZE_BYTES);
     }
@@ -209,6 +214,40 @@ adc_record_codec_status_t adc_record_builder_append(
     builder->payload_offset = payload_offset;
     builder->appended_conversions++;
     return ADC_RECORD_CODEC_OK;
+}
+
+void adc_record_builder_append_trusted(
+    adc_record_builder_t *builder,
+    uint32_t conversion_sequence,
+    uint64_t monotonic_timestamp_100ns,
+    const int32_t samples[ADC_RECORD_CHANNEL_COUNT])
+{
+    if (builder->appended_conversions == 0U) {
+        builder->metadata.first_conversion_sequence = conversion_sequence;
+        builder->metadata.first_monotonic_timestamp_100ns =
+            monotonic_timestamp_100ns;
+        write_u32_le(builder->record + ADC_RECORD_SEQUENCE_OFFSET_BYTES,
+                     conversion_sequence);
+        write_u64_le(builder->record + ADC_RECORD_TIMESTAMP_OFFSET_BYTES,
+                     monotonic_timestamp_100ns);
+    }
+
+    uint16_t payload_offset = builder->payload_offset;
+    const uint8_t end_channel = (uint8_t)(
+        builder->first_channel + builder->channel_count);
+    for (uint8_t channel = builder->first_channel;
+         channel < end_channel;
+         channel++) {
+        const uint32_t encoded =
+            (uint32_t)samples[channel] & UINT32_C(0x00FFFFFF);
+        builder->record[payload_offset] = (uint8_t)encoded;
+        builder->record[payload_offset + 1U] = (uint8_t)(encoded >> 8U);
+        builder->record[payload_offset + 2U] = (uint8_t)(encoded >> 16U);
+        payload_offset = (uint16_t)(
+            payload_offset + ADC_RECORD_PACKED_SAMPLE_SIZE_BYTES);
+    }
+    builder->payload_offset = payload_offset;
+    builder->appended_conversions++;
 }
 
 adc_record_codec_status_t adc_record_builder_set_status(

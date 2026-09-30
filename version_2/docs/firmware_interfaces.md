@@ -88,15 +88,16 @@ context.
 
 ### SPI
 
-- One synchronous, DMA-backed full-duplex transfer operation is sufficient for portable drivers.
+- One synchronous full-duplex transfer operation is sufficient for portable drivers; each board
+  selects DMA or the CPU FIFO according to its fixed transfer size and measured behavior.
 - Synchronous means only the calling task waits; the scheduler, interrupts, and other SPI buses
   continue to run. Continuous acquisition does not use CPU busy-polling.
 - The context binds a configured SPI device, including bus, chip select, mode, and clock.
 - A transfer is atomic relative to other devices on the same bus.
 - The caller supplies transmit and/or receive buffers, byte length, and timeout.
 - Null TX produces filler bytes; null RX discards received bytes.
-- The platform validates DMA suitability or copies through an internal DMA-safe buffer.
-- DMA buffers are allocated before acquisition and never allocated during steady-state transfers.
+- When DMA is selected, the platform validates suitability or copies through an internal DMA-safe
+  buffer. Transfer buffers are allocated before acquisition and never allocated during steady state.
 - The board supplies the initial and maximum clocks, and the platform reports the achieved
   hardware clock. Rev-1 uses a fixed 20 MHz AD7779 clock.
 - No SPI transfer occurs in a GPIO ISR.

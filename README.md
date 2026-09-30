@@ -54,7 +54,10 @@ acquisition task now drains consecutive 16-event batches without a forced
 one-tick delay while DRDY events remain. A 2026-09-30 four-channel 16 kSPS probe
 at 160 MHz improved retention from 44.4% to 51.6%. Raising the fixed ESP32-S3
 CPU clock to 240 MHz increased retention to 66.8% and sustained about 10,685
-conversions/s, but still lost 10,744 of 32,344 sequenced conversions. The
+conversions/s, but still lost 10,744 of 32,344 sequenced conversions. A later
+controlled 32-byte SPI test retained the interrupt-driven transaction path but
+disabled ADC DMA; throughput increased from 10,902 to 11,284 conversions/s
+(3.5%), and retention increased from 68.14% to 70.52%. The
 remaining per-conversion service bottleneck is therefore still visible and
 unresolved. Configuration currently applies the
 stopped-device ADC rate, channel

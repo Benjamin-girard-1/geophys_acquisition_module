@@ -74,6 +74,8 @@ typedef struct {
     uint16_t payload_offset;
     uint8_t required_conversions;
     uint8_t appended_conversions;
+    uint8_t first_channel;
+    uint8_t channel_count;
     bool begun;
     bool finalized;
 } adc_record_builder_t;
@@ -84,8 +86,24 @@ adc_record_codec_status_t adc_record_builder_begin(
     uint8_t record[ADC_RECORD_SIZE_BYTES],
     const adc_record_metadata_t *metadata);
 
-/** Append one simultaneous conversion in ascending selected-channel order. */
+/**
+ * Append one simultaneous conversion in ascending selected-channel order.
+ * Every selected sample must already be a sign-extended signed 24-bit value.
+ * The acquisition driver establishes this precondition; use
+ * adc_record_pack_sample() when validating an untrusted standalone value.
+ */
 adc_record_codec_status_t adc_record_builder_append(
+    adc_record_builder_t *builder,
+    uint32_t conversion_sequence,
+    uint64_t monotonic_timestamp_100ns,
+    const int32_t samples[ADC_RECORD_CHANNEL_COUNT]);
+
+/**
+ * Acquisition-only append with no argument, state, count, bounds, or sample
+ * range checks. The caller must provide a begun, incomplete builder and eight
+ * sign-extended signed 24-bit samples.
+ */
+void adc_record_builder_append_trusted(
     adc_record_builder_t *builder,
     uint32_t conversion_sequence,
     uint64_t monotonic_timestamp_100ns,

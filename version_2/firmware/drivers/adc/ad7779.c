@@ -1381,13 +1381,26 @@ fw_status_t ad7779_read_frame(
                         AD7779_RAW_FRAME_BYTES, error);
 }
 
+static int32_t decode_frame_sample(const uint8_t *channel_frame)
+{
+    const uint32_t raw_sample =
+        ((uint32_t)channel_frame[AD7779_FRAME_HEADER_BYTES] << 16U) |
+        ((uint32_t)channel_frame[AD7779_FRAME_HEADER_BYTES + 1U] << 8U) |
+        (uint32_t)channel_frame[AD7779_FRAME_HEADER_BYTES + 2U];
+    int32_t signed_sample = (int32_t)raw_sample;
+
+    if ((raw_sample & AD7779_SAMPLE_SIGN_BIT) != 0U) {
+        signed_sample -= (int32_t)AD7779_SAMPLE_MODULUS;
+    }
+    return signed_sample;
+}
+
 fw_status_t ad7779_decode_frame(
     const uint8_t *raw_frame,
     size_t raw_frame_size,
     int32_t samples[AD7779_CHANNEL_COUNT],
     fw_error_context_t *error)
 {
-    int32_t decoded_samples[AD7779_CHANNEL_COUNT];
     size_t channel;
 
     clear_error(error);
@@ -1402,22 +1415,9 @@ fw_status_t ad7779_decode_frame(
     }
 
     for (channel = 0U; channel < AD7779_CHANNEL_COUNT; ++channel) {
-        size_t sample_offset =
-            (channel * AD7779_RAW_BYTES_PER_CHANNEL) +
-            AD7779_FRAME_HEADER_BYTES;
-        uint32_t raw_sample =
-            ((uint32_t)raw_frame[sample_offset] << 16) |
-            ((uint32_t)raw_frame[sample_offset + 1U] << 8) |
-            (uint32_t)raw_frame[sample_offset + 2U];
-        int32_t signed_sample = (int32_t)raw_sample;
-
-        if ((raw_sample & AD7779_SAMPLE_SIGN_BIT) != 0U) {
-            signed_sample -= (int32_t)AD7779_SAMPLE_MODULUS;
-        }
-        decoded_samples[channel] = signed_sample;
+        const size_t offset = channel * AD7779_RAW_BYTES_PER_CHANNEL;
+        samples[channel] = decode_frame_sample(&raw_frame[offset]);
     }
-
-    memcpy(samples, decoded_samples, sizeof(decoded_samples));
     return FW_STATUS_OK;
 }
 
@@ -1465,7 +1465,7 @@ static void validate_status_header(uint8_t header,
     }
 }
 
-fw_status_t ad7779_validate_frame(
+static fw_status_t validate_frame_internal(
     const uint8_t *raw_frame,
     size_t raw_frame_size,
     ad7779_frame_header_mode_t header_mode,
@@ -1552,6 +1552,88 @@ fw_status_t ad7779_validate_frame(
                          integrity_faults);
     }
     if (result.device_alert || result.faults != AD7779_FAULT_NONE) {
+        return set_error(error, FW_STATUS_HARDWARE_FAULT,
+                         FW_ERROR_OPERATION_READ, FW_ERROR_INSTANCE_NONE,
+                         result.faults);
+    }
+    return FW_STATUS_OK;
+}
+
+fw_status_t ad7779_validate_frame(
+    const uint8_t *raw_frame,
+    size_t raw_frame_size,
+    ad7779_frame_header_mode_t header_mode,
+    ad7779_frame_validation_t *validation,
+    fw_error_context_t *error)
+{
+    return validate_frame_internal(raw_frame, raw_frame_size, header_mode,
+                                   validation, error);
+}
+
+fw_status_t ad7779_validate_crc_and_decode_frame(
+    const uint8_t *raw_frame,
+    size_t raw_frame_size,
+    ad7779_frame_validation_t *validation,
+    int32_t samples[AD7779_CHANNEL_COUNT],
+    fw_error_context_t *error)
+{
+    ad7779_frame_validation_t result = {0U, 0U, false};
+    ad7779_fault_flags_t integrity_faults = AD7779_FAULT_NONE;
+
+    clear_error(error);
+    if (raw_frame == NULL || validation == NULL || samples == NULL ||
+        raw_frame_size != AD7779_RAW_FRAME_BYTES) {
+        const uint32_t detail = raw_frame_size > UINT32_MAX
+                                    ? UINT32_MAX
+                                    : (uint32_t)raw_frame_size;
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_READ, FW_ERROR_INSTANCE_NONE,
+                         detail);
+    }
+
+    for (size_t pair = 0U;
+         pair < AD7779_FRAME_CHANNEL_PAIR_COUNT;
+         pair++) {
+        const size_t even_channel = pair * 2U;
+        const size_t even_offset =
+            even_channel * AD7779_RAW_BYTES_PER_CHANNEL;
+        const size_t odd_offset =
+            (even_channel + 1U) * AD7779_RAW_BYTES_PER_CHANNEL;
+        result.device_alert = result.device_alert ||
+            ((raw_frame[even_offset] & AD7779_FRAME_HEADER_ALERT) != 0U) ||
+            ((raw_frame[odd_offset] & AD7779_FRAME_HEADER_ALERT) != 0U);
+        samples[even_channel] =
+            decode_frame_sample(&raw_frame[even_offset]);
+        samples[even_channel + 1U] =
+            decode_frame_sample(&raw_frame[odd_offset]);
+        const uint8_t expected_crc = frame_pair_crc(
+            &raw_frame[even_offset], &raw_frame[odd_offset]);
+        const uint8_t reported_crc = (uint8_t)(
+            (uint8_t)((raw_frame[even_offset] &
+                       AD7779_FRAME_HEADER_LOW_NIBBLE_MSK) << 4U) |
+            (raw_frame[odd_offset] &
+             AD7779_FRAME_HEADER_LOW_NIBBLE_MSK));
+
+        if (reported_crc != expected_crc) {
+            const uint8_t pair_mask =
+                (uint8_t)(UINT8_C(0x03) << even_channel);
+            result.faults |= AD7779_FAULT_DATA_CRC;
+            integrity_faults |= AD7779_FAULT_DATA_CRC;
+            result.affected_channel_mask |= pair_mask;
+        }
+    }
+
+    if (result.device_alert && result.faults == AD7779_FAULT_NONE) {
+        result.faults |= AD7779_FAULT_UNKNOWN;
+        result.affected_channel_mask |= AD7779_CHANNEL_MASK_ALL;
+    }
+    *validation = result;
+    if (integrity_faults != AD7779_FAULT_NONE) {
+        return set_error(error, FW_STATUS_INTEGRITY,
+                         FW_ERROR_OPERATION_READ, FW_ERROR_INSTANCE_NONE,
+                         integrity_faults);
+    }
+    if (result.device_alert) {
         return set_error(error, FW_STATUS_HARDWARE_FAULT,
                          FW_ERROR_OPERATION_READ, FW_ERROR_INSTANCE_NONE,
                          result.faults);

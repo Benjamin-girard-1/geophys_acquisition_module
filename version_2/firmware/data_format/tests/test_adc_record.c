@@ -160,6 +160,43 @@ static void test_four_channel_and_invalid_records(void)
            ADC_RECORD_CODEC_INTEGRITY);
 }
 
+static void test_upper_four_channel_order(void)
+{
+    uint8_t record[ADC_RECORD_SIZE_BYTES];
+    adc_record_builder_t builder;
+    const adc_record_metadata_t metadata = {
+        .channel_mask = UINT8_C(0xF0),
+        .status = ADC_RECORD_STATUS_OK,
+        .packed_gain = 0U,
+        .payload_number = 8U,
+        .sample_period_100ns = 625U,
+    };
+    const int32_t samples[ADC_RECORD_CHANNEL_COUNT] = {
+        INT32_MAX, INT32_MAX, INT32_MAX, INT32_MAX,
+        -INT32_C(8388608), -1, INT32_C(0x123456), INT32_C(8388607),
+    };
+    static const uint8_t expected_first_conversion[] = {
+        0x00, 0x00, 0x80,
+        0xFF, 0xFF, 0xFF,
+        0x56, 0x34, 0x12,
+        0xFF, 0xFF, 0x7F,
+    };
+
+    assert(adc_record_builder_begin(&builder, record, &metadata) ==
+           ADC_RECORD_CODEC_OK);
+    assert(builder.first_channel == 4U);
+    assert(builder.channel_count == 4U);
+    for (uint32_t conversion = 0U; conversion < 40U; conversion++) {
+        adc_record_builder_append_trusted(
+            &builder, conversion, conversion * 625U, samples);
+    }
+    assert(memcmp(record + ADC_RECORD_PAYLOAD_OFFSET_BYTES,
+                  expected_first_conversion,
+                  sizeof(expected_first_conversion)) == 0);
+    assert(adc_record_builder_finalize(
+               &builder, reference_crc32, NULL) == ADC_RECORD_CODEC_OK);
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -168,6 +205,7 @@ int main(int argc, char **argv)
     test_shared_vector(vector);
     test_sample_extremes();
     test_four_channel_and_invalid_records();
+    test_upper_four_channel_order();
     puts("ADC record tests passed");
     return EXIT_SUCCESS;
 }

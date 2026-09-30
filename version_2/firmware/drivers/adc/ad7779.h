@@ -259,6 +259,20 @@ fw_status_t ad7779_validate_frame(
     fw_error_context_t *error);
 
 /**
+ * @brief Validate CRC/ALERT and decode one frame in one channel pass.
+ *
+ * This acquisition hot path trusts the CRC-covered channel-ID bits and does
+ * not compare them with the expected channel order. Samples are decoded even
+ * when CRC or ALERT validation reports a fault.
+ */
+fw_status_t ad7779_validate_crc_and_decode_frame(
+    const uint8_t *raw_frame,
+    size_t raw_frame_size,
+    ad7779_frame_validation_t *validation,
+    int32_t samples[AD7779_CHANNEL_COUNT],
+    fw_error_context_t *error);
+
+/**
  * @brief Disable conversion readback and all channel clocks.
  *
  * Calling this operation repeatedly after initialization returns success.

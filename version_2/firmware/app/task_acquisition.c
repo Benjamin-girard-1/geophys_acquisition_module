@@ -461,18 +461,13 @@ static adc_record_status_t validate_and_decode_frame(
     int32_t samples[AD7779_CHANNEL_COUNT])
 {
     ad7779_frame_validation_t validation;
-    const fw_status_t validation_status = ad7779_validate_frame(
-        raw_frame, AD7779_RAW_FRAME_BYTES, AD7779_FRAME_HEADER_CRC,
-        &validation, NULL);
-    const fw_status_t decode_status = ad7779_decode_frame(
-        raw_frame, AD7779_RAW_FRAME_BYTES, samples, NULL);
-    if (decode_status != FW_STATUS_OK) {
+    const fw_status_t validation_status =
+        ad7779_validate_crc_and_decode_frame(
+            raw_frame, AD7779_RAW_FRAME_BYTES, &validation, samples, NULL);
+    if (validation_status == FW_STATUS_INVALID_ARGUMENT) {
         memset(samples, 0, sizeof(int32_t) * AD7779_CHANNEL_COUNT);
         s_acquisition.counters.adc_read_errors++;
         return ADC_RECORD_STATUS_CONVERSION_ERROR;
-    }
-    if ((validation.faults & AD7779_FAULT_CHANNEL_ID) != 0U) {
-        s_acquisition.counters.adc_header_errors++;
     }
     if ((validation.faults & AD7779_FAULT_DATA_CRC) != 0U) {
         s_acquisition.counters.adc_crc_errors++;
@@ -501,19 +496,9 @@ static void process_storage_conversion(
         return;
     }
     update_storage_builder_status(frame_status);
-    const adc_record_codec_status_t append_status =
-        adc_record_builder_append(&s_acquisition.storage_builder,
-                                  (uint32_t)event->sequence,
-                                  event->timestamp, samples);
-    if (append_status != ADC_RECORD_CODEC_OK) {
-        task_storage_record_release(s_acquisition.current_storage_record);
-        s_acquisition.current_storage_record = NULL;
-        memset(&s_acquisition.storage_builder, 0,
-               sizeof(s_acquisition.storage_builder));
-        s_acquisition.counters.dropped_frames++;
-        raise_storage_pending_status(ADC_RECORD_STATUS_TIMING_ERROR);
-        return;
-    }
+    adc_record_builder_append_trusted(&s_acquisition.storage_builder,
+                                      (uint32_t)event->sequence,
+                                      event->timestamp, samples);
     finish_storage_record_if_complete();
 }
 
@@ -537,20 +522,9 @@ static void process_streaming_conversion(
         return;
     }
     update_streaming_builder_status(frame_status);
-    const adc_record_codec_status_t append_status =
-        adc_record_builder_append(&s_acquisition.streaming_builder,
-                                  (uint32_t)event->sequence,
-                                  event->timestamp, samples);
-    if (append_status != ADC_RECORD_CODEC_OK) {
-        (void)xQueueSend(s_acquisition.streaming_free_records,
-                         &s_acquisition.current_streaming_record, 0U);
-        s_acquisition.current_streaming_record = NULL;
-        memset(&s_acquisition.streaming_builder, 0,
-               sizeof(s_acquisition.streaming_builder));
-        s_acquisition.counters.dropped_frames++;
-        raise_streaming_pending_status(ADC_RECORD_STATUS_TIMING_ERROR);
-        return;
-    }
+    adc_record_builder_append_trusted(&s_acquisition.streaming_builder,
+                                      (uint32_t)event->sequence,
+                                      event->timestamp, samples);
     finish_streaming_record_if_complete();
 }
 
