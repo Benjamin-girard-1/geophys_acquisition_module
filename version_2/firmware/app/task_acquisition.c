@@ -862,11 +862,13 @@ static void acquisition_task_run(void *context)
         }
 
         /*
-         * DRDY and commands both notify this task. Blocking here avoids the
-         * former 1 ms queue poll, which rounded to zero ticks at the configured
-         * 100 Hz FreeRTOS tick rate and starved communication and storage.
+         * DRDY and commands both notify this task. Block only after the DRDY
+         * ring has been drained; a notification count may have been cleared
+         * while more than one timestamp remained queued.
          */
-        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (!drdy_event_pending()) {
+            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        }
         if (xQueueReceive(s_acquisition.commands, &command, 0U) == pdTRUE) {
             acquisition_response_t response;
             handle_command(&command, &response);
@@ -884,16 +886,6 @@ static void acquisition_task_run(void *context)
             processed++;
         }
         account_isr_overflow();
-
-        /*
-         * A sustained backlog means the acquisition path cannot keep up with
-         * DRDY. Bound command latency and leave a 1 ms window for the UART and
-         * storage control planes. The ISR keeps sequencing conversions and the
-         * existing overflow counters/status marking expose any resulting loss.
-         */
-        if (s_acquisition.active && drdy_event_pending()) {
-            vTaskDelay(1U);
-        }
     }
 }
 

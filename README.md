@@ -49,9 +49,14 @@ sequence gap. The cause was an ESP-IDF side effect that enabled the DRDY pin
 while its handler was attached, before ADC synchronization and SRC settling
 completed. The platform attach operation now restores the pin to disabled and
 the application enables it explicitly after `ad7779_start()`. A fresh 1 kSPS
-probe then produced 25 status-OK records with no missing conversions. Sustained
-16 kSPS acquisition remains incomplete because the current bounded-batch/yield
-loop cannot service every DRDY event. Configuration currently applies the
+probe then produced 25 status-OK records with no missing conversions. The
+acquisition task now drains consecutive 16-event batches without a forced
+one-tick delay while DRDY events remain. A 2026-09-30 four-channel 16 kSPS probe
+at 160 MHz improved retention from 44.4% to 51.6%. Raising the fixed ESP32-S3
+CPU clock to 240 MHz increased retention to 66.8% and sustained about 10,685
+conversions/s, but still lost 10,744 of 32,344 sequenced conversions. The
+remaining per-conversion service bottleneck is therefore still visible and
+unresolved. Configuration currently applies the
 stopped-device ADC rate, channel
 mask, and per-channel gains; runtime rail and IMU changes remain unsupported
 until their owning subsystems exist. The Python host now has streaming

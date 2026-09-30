@@ -18,9 +18,12 @@ CONFIG_SPIRAM_MEMTEST=y
 # Keep peripheral clocks fixed during milestone-1 acquisition and UART streaming.
 # CONFIG_PM_ENABLE is not set
 
-# Acquisition overload handling yields for one scheduler tick after a bounded
-# ADC batch. Keep that control-plane opportunity to 1 ms rather than the ESP-IDF
-# default 10 ms so the 64-entry DRDY timestamp ring remains useful at high ODRs.
+# Run the ESP32-S3 at its fixed maximum supported CPU frequency. Keep compiler
+# optimization unchanged so acquisition tests isolate the clock-rate effect.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# Keep 1 ms scheduler granularity for storage/control delays and timeouts.
+# Acquisition is notification-driven and does not delay while DRDY events remain.
 CONFIG_FREERTOS_HZ=1000
 
 # The ADC data-ready ISR captures the 10 MHz GPTimer while flash cache may be
