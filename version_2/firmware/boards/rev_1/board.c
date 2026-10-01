@@ -642,8 +642,10 @@ fw_status_t board_adc_initialize(ad7779_t *adc,
         .initial_clock_hz = BOARD_REV1_ADC_SPI_INITIAL_CLOCK_HZ,
         .maximum_clock_hz = BOARD_REV1_ADC_SPI_MAX_READ_CLOCK_HZ,
         .input_delay_ns = 0U,
-        .chip_select_setup_us = BOARD_REV1_ADC_SPI_CS_SETUP_US,
-        .chip_select_hold_us = BOARD_REV1_ADC_SPI_CS_HOLD_US,
+        .chip_select_setup_cycles =
+            BOARD_REV1_ADC_SPI_CS_SETUP_CYCLES,
+        .chip_select_hold_cycles =
+            BOARD_REV1_ADC_SPI_CS_HOLD_CYCLES,
         .maximum_transfer_size_bytes =
             BOARD_REV1_ADC_SPI_MAX_TRANSFER_BYTES,
     };

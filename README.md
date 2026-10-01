@@ -50,16 +50,30 @@ while its handler was attached, before ADC synchronization and SRC settling
 completed. The platform attach operation now restores the pin to disabled and
 the application enables it explicitly after `ad7779_start()`. A fresh 1 kSPS
 probe then produced 25 status-OK records with no missing conversions. The
-acquisition task now drains consecutive 16-event batches without a forced
-one-tick delay while DRDY events remain. A 2026-09-30 four-channel 16 kSPS probe
-at 160 MHz improved retention from 44.4% to 51.6%. Raising the fixed ESP32-S3
-CPU clock to 240 MHz increased retention to 66.8% and sustained about 10,685
-conversions/s, but still lost 10,744 of 32,344 sequenced conversions. A later
-controlled 32-byte SPI test retained the interrupt-driven transaction path but
-disabled ADC DMA; throughput increased from 10,902 to 11,284 conversions/s
-(3.5%), and retention increased from 68.14% to 70.52%. The
-remaining per-conversion service bottleneck is therefore still visible and
-unresolved. Configuration currently applies the
+acquisition hot path now reserves SPI2 and its DMA resources once and launches
+one hardware-CS-framed, prepared 32-byte transfer for each DRDY event. A
+dedicated core-1 capture task advances the two-buffer DMA pipeline and
+copies completed frames into a 256-frame ring; CRC validation, DAT construction,
+and storage handoff run independently on core 0. Storage writes use aligned 4
+KiB batches and periodic filesystem sync occurs every 512 records. A two-second
+channels-0–3 probe at 16 kSPS retained all 32,840 consecutive conversions at
+625 x 100 ns spacing, with zero sequence gaps and an effective 16,000.04
+conversions/s. DAT production waits for eight consecutive ADC frames to pass
+CRC; the final short 16 kSPS probe and one-second 1 kSPS control contained only
+status-OK records with zero missing conversions. A later 237-second capture retained
+every conversion but exposed 72 isolated CRC-marked frame-phase errors at the
+fixed 20 MHz SPI clock. Because AD7779 SDO output-valid timing does not support
+that read rate in the worst case, lower clocks were tested. Fixed 8 MHz was
+clean at 1 kSPS but could not complete valid frames at 16 kSPS with the current
+DRDY-to-DMA launch latency. Fixed 10 MHz and 12 MHz produced records but still
+lost conversions. A longer fixed-16-MHz capture then lost 23,438 conversions
+and contained 243 CRC-marked frame errors in 93.9 seconds. The current
+diagnostic build returned to fixed 20 MHz and lets the SPI peripheral assert
+and release CS around every DMA burst. A two-second channels-0–3 16 kSPS probe
+retained all 32,480 conversions with zero gaps, but two isolated phase errors
+remained. Per-frame CS is therefore fast enough but does not by itself correct
+the 20 MHz SDO integrity failure.
+Configuration currently applies the
 stopped-device ADC rate, channel
 mask, and per-channel gains; runtime rail and IMU changes remain unsupported
 until their owning subsystems exist. The Python host now has streaming

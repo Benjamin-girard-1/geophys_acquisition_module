@@ -1347,38 +1347,115 @@ fw_status_t ad7779_start(ad7779_t *device,
     return FW_STATUS_OK;
 }
 
-fw_status_t ad7779_read_frame(
+fw_status_t ad7779_capture_prepare(ad7779_t *device,
+                                   fw_error_context_t *error)
+{
+    static const uint8_t ignored_read_command[] = {
+        AD7779_SPI_IGNORED_READ_CMD_HI,
+        AD7779_SPI_IGNORED_READ_CMD_LO,
+    };
+
+    clear_error(error);
+    fw_status_t status = require_bound(
+        device, FW_ERROR_OPERATION_ENABLE, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if ((device->state != AD7779_STATE_RUNNING) || device->capture_active ||
+        (device->config.spi.burst_prepare == NULL) ||
+        (device->config.spi.burst_trigger == NULL) ||
+        (device->config.spi.burst_finish == NULL)) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_ENABLE, device->config.instance,
+                         device->state);
+    }
+
+    status = device->config.spi.burst_prepare(
+        device->config.spi.context, ignored_read_command,
+        sizeof(ignored_read_command), AD7779_RAW_FRAME_BYTES,
+        device->config.spi_timeout_us, error);
+    if (status == FW_STATUS_OK) {
+        device->capture_active = true;
+    }
+    return status;
+}
+
+fw_status_t ad7779_capture_trigger(
     ad7779_t *device,
-    uint8_t raw_frame[AD7779_RAW_FRAME_BYTES],
+    const uint8_t **completed_frame,
     fw_error_context_t *error)
 {
-    uint8_t tx_data[AD7779_RAW_FRAME_BYTES];
-
     clear_error(error);
     fw_status_t status = require_bound(
         device, FW_ERROR_OPERATION_READ, error);
     if (status != FW_STATUS_OK) {
         return status;
     }
-    if (raw_frame == NULL) {
+    if (completed_frame == NULL) {
         return set_error(error, FW_STATUS_INVALID_ARGUMENT,
                          FW_ERROR_OPERATION_READ, device->config.instance,
                          0U);
     }
-    if (device->state != AD7779_STATE_RUNNING) {
+    *completed_frame = NULL;
+    if ((device->state != AD7779_STATE_RUNNING) || !device->capture_active ||
+        (device->config.spi.burst_trigger == NULL)) {
         return set_error(error, FW_STATUS_INVALID_STATE,
                          FW_ERROR_OPERATION_READ, device->config.instance,
                          device->state);
     }
 
-    for (size_t offset = 0U;
-         offset < AD7779_RAW_FRAME_BYTES;
-         offset += AD7779_SPI_REGISTER_FRAME_BYTES) {
-        tx_data[offset] = AD7779_SPI_IGNORED_READ_CMD_HI;
-        tx_data[offset + 1U] = AD7779_SPI_IGNORED_READ_CMD_LO;
+    size_t completed_length = 0U;
+    status = device->config.spi.burst_trigger(
+        device->config.spi.context, completed_frame, &completed_length,
+        device->config.spi_timeout_us, error);
+    if ((status == FW_STATUS_OK) && (*completed_frame != NULL) &&
+        (completed_length != AD7779_RAW_FRAME_BYTES)) {
+        return set_error(error, FW_STATUS_INTERNAL,
+                         FW_ERROR_OPERATION_READ, device->config.instance,
+                         (uint32_t)completed_length);
     }
-    return spi_transfer(device, tx_data, raw_frame,
-                        AD7779_RAW_FRAME_BYTES, error);
+    return status;
+}
+
+fw_status_t ad7779_capture_finish(
+    ad7779_t *device,
+    const uint8_t **completed_frame,
+    fw_error_context_t *error)
+{
+    clear_error(error);
+    fw_status_t status = require_bound(
+        device, FW_ERROR_OPERATION_DISABLE, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (completed_frame == NULL) {
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_DISABLE,
+                         device->config.instance, 0U);
+    }
+    *completed_frame = NULL;
+    if ((device->state != AD7779_STATE_RUNNING) || !device->capture_active ||
+        (device->config.spi.burst_finish == NULL)) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_DISABLE,
+                         device->config.instance, device->state);
+    }
+
+    size_t completed_length = 0U;
+    status = device->config.spi.burst_finish(
+        device->config.spi.context, completed_frame, &completed_length,
+        device->config.spi_timeout_us, error);
+    if (status == FW_STATUS_OK) {
+        device->capture_active = false;
+        if ((*completed_frame != NULL) &&
+            (completed_length != AD7779_RAW_FRAME_BYTES)) {
+            return set_error(error, FW_STATUS_INTERNAL,
+                             FW_ERROR_OPERATION_READ,
+                             device->config.instance,
+                             (uint32_t)completed_length);
+        }
+    }
+    return status;
 }
 
 static int32_t decode_frame_sample(const uint8_t *channel_frame)
@@ -1659,6 +1736,13 @@ fw_status_t ad7779_stop(ad7779_t *device,
                          FW_ERROR_OPERATION_DISABLE, device->config.instance,
                          device->state);
     }
+    if (device->capture_active) {
+        const uint8_t *discarded_frame = NULL;
+        status = ad7779_capture_finish(device, &discarded_frame, error);
+        if (status != FW_STATUS_OK) {
+            return status;
+        }
+    }
     return stop_hardware(device, device->state == AD7779_STATE_FAULT, error);
 }
 
@@ -1687,6 +1771,19 @@ fw_status_t ad7779_deinitialize(ad7779_t *device,
     }
 
     clear_error(&first_error);
+    clear_error(&current_error);
+    if (device->capture_active) {
+        const uint8_t *discarded_frame = NULL;
+        status = ad7779_capture_finish(
+            device, &discarded_frame, &current_error);
+        if (status != FW_STATUS_OK) {
+            if (error != NULL) {
+                *error = current_error;
+            }
+            return status;
+        }
+    }
+
     clear_error(&current_error);
     if (device->state != AD7779_STATE_STOPPED) {
         status = stop_hardware(device, true, &current_error);

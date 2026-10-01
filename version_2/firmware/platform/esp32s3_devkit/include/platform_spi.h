@@ -46,8 +46,8 @@ typedef struct {
     uint32_t initial_clock_hz;
     uint32_t maximum_clock_hz;
     uint32_t input_delay_ns;
-    uint32_t chip_select_setup_us;
-    uint32_t chip_select_hold_us;
+    uint8_t chip_select_setup_cycles;
+    uint8_t chip_select_hold_cycles;
     size_t maximum_transfer_size_bytes;
 } platform_spi_device_config_t;
 
@@ -69,7 +69,7 @@ fw_status_t platform_spi_bus_deinitialize(platform_spi_bus_t *bus,
                                           fw_error_context_t *error);
 
 /**
- * @brief Add a manually selected SPI device and allocate its fixed buffers.
+ * @brief Add a hardware-selected SPI device and allocate its fixed buffers.
  */
 fw_status_t platform_spi_device_add(
     platform_spi_bus_t *bus,
@@ -96,9 +96,43 @@ fw_status_t platform_spi_transfer(void *context,
                                   fw_error_context_t *error);
 
 /**
+ * @brief Reserve the bus and prepare double-buffered fixed DMA bursts.
+ *
+ * Chip select remains inactive until platform_spi_burst_trigger() starts one
+ * fixed-size transaction. The SPI peripheral frames every burst in hardware.
+ */
+fw_status_t platform_spi_burst_prepare(
+    void *context,
+    const uint8_t *pattern,
+    size_t pattern_length_bytes,
+    size_t burst_length_bytes,
+    uint32_t timeout_us,
+    fw_error_context_t *error);
+
+/**
+ * @brief Reap the preceding polling-DMA burst and start the next one.
+ *
+ * The preceding zero-copy buffer, when present, remains valid until the next
+ * trigger or finish call.
+ */
+fw_status_t platform_spi_burst_trigger(
+    void *context,
+    const uint8_t **completed_rx_data,
+    size_t *completed_length_bytes,
+    uint32_t timeout_us,
+    fw_error_context_t *error);
+
+fw_status_t platform_spi_burst_finish(
+    void *context,
+    const uint8_t **completed_rx_data,
+    size_t *completed_length_bytes,
+    uint32_t timeout_us,
+    fw_error_context_t *error);
+
+/**
  * @brief Change a device clock while it has no active transfer.
  *
- * ESP-IDF applies the requested frequency with a CS-inactive maintenance
+ * ESP-IDF applies the requested frequency with a zero-length maintenance
  * transaction. The achieved frequency is returned because hardware dividers
  * may round the request.
  */

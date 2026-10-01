@@ -147,6 +147,7 @@ typedef struct {
     uint8_t channel_disable_shadow;
     bool channel_configured;
     bool output_rate_configured;
+    bool capture_active;
     bool bound;
 } ad7779_t;
 
@@ -218,14 +219,30 @@ fw_status_t ad7779_start(ad7779_t *device,
                          fw_error_context_t *error);
 
 /**
- * @brief Read one complete simultaneous eight-channel conversion frame.
+ * @brief Prepare fixed 32-byte DMA bursts with hardware-framed CS.
  *
- * Call once for each captured DRDY edge while the device is running. The
- * transmitted 0x8000 read commands are deliberately ignored by the AD7779.
+ * Call after ad7779_start() and before enabling DRDY. All buffers and the SPI
+ * bus are reserved once for the complete acquisition session.
  */
-fw_status_t ad7779_read_frame(
+fw_status_t ad7779_capture_prepare(ad7779_t *device,
+                                   fw_error_context_t *error);
+
+/**
+ * @brief Reap the previous frame, if any, and start a burst for this DRDY.
+ *
+ * The first call returns a NULL completed_frame. Later calls return the
+ * preceding 32-byte frame without copying it. Consume that frame before the
+ * next trigger or finish call.
+ */
+fw_status_t ad7779_capture_trigger(
     ad7779_t *device,
-    uint8_t raw_frame[AD7779_RAW_FRAME_BYTES],
+    const uint8_t **completed_frame,
+    fw_error_context_t *error);
+
+/** Finish the last burst, release SPI, and return its frame when present. */
+fw_status_t ad7779_capture_finish(
+    ad7779_t *device,
+    const uint8_t **completed_frame,
     fw_error_context_t *error);
 
 /**

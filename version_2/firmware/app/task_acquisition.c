@@ -18,12 +18,17 @@
 
 #define TASK_ACQUISITION_STACK_SIZE_BYTES UINT32_C(8192)
 #define TASK_ACQUISITION_PRIORITY (tskIDLE_PRIORITY + 4U)
+#define TASK_ACQUISITION_CORE 1
+#define TASK_ACQUISITION_PROCESSING_STACK_SIZE_BYTES UINT32_C(8192)
+#define TASK_ACQUISITION_PROCESSING_PRIORITY (tskIDLE_PRIORITY + 3U)
+#define TASK_ACQUISITION_PROCESSING_CORE 0
 #define TASK_ACQUISITION_COMMAND_QUEUE_LENGTH UINT8_C(8)
 #define TASK_ACQUISITION_RESPONSE_QUEUE_LENGTH UINT8_C(8)
 #define TASK_ACQUISITION_COMMAND_TIMEOUT_MS UINT32_C(10000)
 #define TASK_ACQUISITION_DRDY_RING_SIZE UINT8_C(64)
-#define TASK_ACQUISITION_DRDY_BATCH_SIZE UINT8_C(16)
+#define TASK_ACQUISITION_CAPTURE_RING_SIZE UINT16_C(256)
 #define TASK_ACQUISITION_LIVE_RECORD_COUNT UINT8_C(16)
+#define TASK_ACQUISITION_STARTUP_VALID_FRAMES UINT8_C(8)
 
 typedef enum {
     ACQUISITION_COMMAND_START = 0,
@@ -52,6 +57,11 @@ typedef struct {
 } drdy_event_t;
 
 typedef struct {
+    drdy_event_t event;
+    uint8_t raw_frame[AD7779_RAW_FRAME_BYTES];
+} completed_capture_t;
+
+typedef struct {
     ad7779_t adc;
     task_acquisition_recording_config_t config;
     adc_record_builder_t storage_builder;
@@ -66,11 +76,19 @@ typedef struct {
     QueueHandle_t responses;
     SemaphoreHandle_t command_mutex;
     TaskHandle_t task_handle;
+    TaskHandle_t processing_task_handle;
+    SemaphoreHandle_t processing_progress;
     drdy_event_t drdy_events[TASK_ACQUISITION_DRDY_RING_SIZE];
+    completed_capture_t completed_captures[
+        TASK_ACQUISITION_CAPTURE_RING_SIZE];
     volatile uint32_t drdy_head;
     volatile uint32_t drdy_tail;
+    volatile uint32_t completed_capture_head;
+    volatile uint32_t completed_capture_tail;
+    volatile uint32_t processing_completion_count;
     volatile uint32_t isr_overflows;
     volatile adc_sequence_t isr_next_sequence;
+    drdy_event_t pending_capture_event;
     acquisition_counters_t counters;
     uint32_t storage_payload_number;
     uint32_t streaming_payload_number;
@@ -79,6 +97,11 @@ typedef struct {
     adc_record_status_t streaming_pending_status;
     uint8_t streaming_decimation;
     uint8_t streaming_channel_mask;
+    uint8_t startup_valid_frames;
+    adc_sequence_t next_processing_sequence;
+    bool capture_pending;
+    volatile bool processing_busy;
+    bool processing_sequence_valid;
     bool adc_initialized;
     bool drdy_attached;
     volatile bool active;
@@ -278,15 +301,17 @@ static void IRAM_ATTR adc_drdy_isr(void *context)
     }
 }
 
-static bool pop_drdy_event(drdy_event_t *event)
+static bool take_latest_drdy_event(drdy_event_t *event)
 {
     bool available = false;
     portENTER_CRITICAL(&s_acquisition_lock);
     const uint32_t tail = s_acquisition.drdy_tail;
-    if (tail != s_acquisition.drdy_head) {
-        *event = s_acquisition.drdy_events[tail];
-        s_acquisition.drdy_tail =
-            (tail + 1U) % TASK_ACQUISITION_DRDY_RING_SIZE;
+    const uint32_t head = s_acquisition.drdy_head;
+    if (tail != head) {
+        const uint32_t latest = (head == 0U) ?
+            (TASK_ACQUISITION_DRDY_RING_SIZE - 1U) : (head - 1U);
+        *event = s_acquisition.drdy_events[latest];
+        s_acquisition.drdy_tail = head;
         available = true;
     }
     portEXIT_CRITICAL(&s_acquisition_lock);
@@ -445,21 +470,15 @@ static void finish_streaming_record_if_complete(void)
 static void account_isr_overflow(void)
 {
     const uint32_t missed = take_isr_overflow_delta();
-    if (missed == 0U) {
-        return;
-    }
     s_acquisition.counters.drdy_timestamp_ring_overflows += missed;
-    s_acquisition.counters.adc_overruns += missed;
-    s_acquisition.counters.conversion_attempts += missed;
-    s_acquisition.counters.dropped_frames += missed;
-    update_storage_builder_status(ADC_RECORD_STATUS_TIMING_ERROR);
-    update_streaming_builder_status(ADC_RECORD_STATUS_TIMING_ERROR);
 }
 
 static adc_record_status_t validate_and_decode_frame(
     const uint8_t raw_frame[AD7779_RAW_FRAME_BYTES],
-    int32_t samples[AD7779_CHANNEL_COUNT])
+    int32_t samples[AD7779_CHANNEL_COUNT],
+    bool *crc_valid)
 {
+    *crc_valid = false;
     ad7779_frame_validation_t validation;
     const fw_status_t validation_status =
         ad7779_validate_crc_and_decode_frame(
@@ -471,6 +490,8 @@ static adc_record_status_t validate_and_decode_frame(
     }
     if ((validation.faults & AD7779_FAULT_DATA_CRC) != 0U) {
         s_acquisition.counters.adc_crc_errors++;
+    } else {
+        *crc_valid = true;
     }
     if (validation_status == FW_STATUS_HARDWARE_FAULT) {
         return ADC_RECORD_STATUS_CRITICAL_ERROR;
@@ -528,29 +549,176 @@ static void process_streaming_conversion(
     finish_streaming_record_if_complete();
 }
 
-static void process_conversion(const drdy_event_t *event)
+static void process_completed_conversion(
+    const drdy_event_t *event,
+    const uint8_t raw_frame[AD7779_RAW_FRAME_BYTES])
 {
+    if (s_acquisition.processing_sequence_valid &&
+        event->sequence != s_acquisition.next_processing_sequence) {
+        const uint64_t missed =
+            event->sequence - s_acquisition.next_processing_sequence;
+        s_acquisition.counters.adc_overruns += missed;
+        s_acquisition.counters.conversion_attempts += missed;
+        s_acquisition.counters.dropped_frames += missed;
+        if (s_acquisition.startup_valid_frames >=
+            TASK_ACQUISITION_STARTUP_VALID_FRAMES) {
+            update_storage_builder_status(ADC_RECORD_STATUS_TIMING_ERROR);
+            update_streaming_builder_status(ADC_RECORD_STATUS_TIMING_ERROR);
+        }
+    }
+    s_acquisition.next_processing_sequence = event->sequence + 1U;
+    s_acquisition.processing_sequence_valid = true;
     s_acquisition.counters.conversion_attempts++;
 
-    uint8_t raw_frame[AD7779_RAW_FRAME_BYTES];
     int32_t samples[AD7779_CHANNEL_COUNT] = {0};
-    adc_record_status_t frame_status = ADC_RECORD_STATUS_OK;
-    if (ad7779_read_frame(&s_acquisition.adc, raw_frame, NULL) !=
-        FW_STATUS_OK) {
-        s_acquisition.counters.adc_read_errors++;
-        memset(samples, 0, sizeof(samples));
-        frame_status = ADC_RECORD_STATUS_CONVERSION_ERROR;
-    } else {
-        frame_status = validate_and_decode_frame(raw_frame, samples);
-    }
+    bool crc_valid = false;
+    const adc_record_status_t frame_status =
+        validate_and_decode_frame(raw_frame, samples, &crc_valid);
     if (frame_status != ADC_RECORD_STATUS_OK) {
         s_acquisition.counters.invalid_frames++;
+        if (!crc_valid && s_acquisition.startup_valid_frames <
+                          TASK_ACQUISITION_STARTUP_VALID_FRAMES) {
+            s_acquisition.startup_valid_frames = 0U;
+            return;
+        }
     } else {
         s_acquisition.counters.completed_frames++;
+    }
+    if (s_acquisition.startup_valid_frames <
+        TASK_ACQUISITION_STARTUP_VALID_FRAMES) {
+        s_acquisition.startup_valid_frames++;
+        if (s_acquisition.startup_valid_frames <
+            TASK_ACQUISITION_STARTUP_VALID_FRAMES) {
+            return;
+        }
     }
 
     process_storage_conversion(event, samples, frame_status);
     process_streaming_conversion(event, samples, frame_status);
+}
+
+static bool enqueue_completed_capture(
+    const drdy_event_t *event,
+    const uint8_t raw_frame[AD7779_RAW_FRAME_BYTES])
+{
+    bool queued = false;
+    portENTER_CRITICAL(&s_acquisition_lock);
+    const uint32_t head = s_acquisition.completed_capture_head;
+    const uint32_t next =
+        (head + 1U) % TASK_ACQUISITION_CAPTURE_RING_SIZE;
+    if (next != s_acquisition.completed_capture_tail) {
+        completed_capture_t *capture =
+            &s_acquisition.completed_captures[head];
+        capture->event = *event;
+        memcpy(capture->raw_frame, raw_frame, AD7779_RAW_FRAME_BYTES);
+        s_acquisition.completed_capture_head = next;
+        queued = true;
+    }
+    portEXIT_CRITICAL(&s_acquisition_lock);
+
+    if (queued) {
+        xTaskNotifyGive(s_acquisition.processing_task_handle);
+    }
+    return queued;
+}
+
+static bool completed_capture_work_pending(void)
+{
+    bool pending;
+    portENTER_CRITICAL(&s_acquisition_lock);
+    pending = s_acquisition.processing_busy ||
+        s_acquisition.completed_capture_tail !=
+            s_acquisition.completed_capture_head;
+    portEXIT_CRITICAL(&s_acquisition_lock);
+    return pending;
+}
+
+static void wait_for_completed_captures(void)
+{
+    xTaskNotifyGive(s_acquisition.processing_task_handle);
+    while (completed_capture_work_pending()) {
+        (void)xSemaphoreTake(s_acquisition.processing_progress,
+                             portMAX_DELAY);
+    }
+}
+
+static void wait_for_current_processing_step(void)
+{
+    uint32_t target_completion;
+    bool wait_required;
+    portENTER_CRITICAL(&s_acquisition_lock);
+    wait_required = s_acquisition.processing_busy;
+    target_completion = s_acquisition.processing_completion_count + 1U;
+    portEXIT_CRITICAL(&s_acquisition_lock);
+
+    while (wait_required) {
+        (void)xSemaphoreTake(s_acquisition.processing_progress,
+                             portMAX_DELAY);
+        portENTER_CRITICAL(&s_acquisition_lock);
+        wait_required =
+            (int32_t)(s_acquisition.processing_completion_count -
+                      target_completion) < 0;
+        portEXIT_CRITICAL(&s_acquisition_lock);
+    }
+}
+
+static void processing_task_run(void *context)
+{
+    (void)context;
+    for (;;) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        for (;;) {
+            completed_capture_t *capture = NULL;
+            portENTER_CRITICAL(&s_acquisition_lock);
+            const uint32_t tail = s_acquisition.completed_capture_tail;
+            if (tail != s_acquisition.completed_capture_head) {
+                capture = &s_acquisition.completed_captures[tail];
+                s_acquisition.processing_busy = true;
+            }
+            portEXIT_CRITICAL(&s_acquisition_lock);
+            if (capture == NULL) {
+                break;
+            }
+
+            process_completed_conversion(&capture->event,
+                                         capture->raw_frame);
+
+            portENTER_CRITICAL(&s_acquisition_lock);
+            s_acquisition.completed_capture_tail =
+                (s_acquisition.completed_capture_tail + 1U) %
+                TASK_ACQUISITION_CAPTURE_RING_SIZE;
+            s_acquisition.processing_completion_count++;
+            s_acquisition.processing_busy = false;
+            portEXIT_CRITICAL(&s_acquisition_lock);
+            (void)xSemaphoreGive(s_acquisition.processing_progress);
+        }
+    }
+}
+
+static void trigger_capture_for_event(const drdy_event_t *event)
+{
+    const uint8_t *completed_frame = NULL;
+    const fw_status_t status = ad7779_capture_trigger(
+        &s_acquisition.adc, &completed_frame, NULL);
+    if (status != FW_STATUS_OK) {
+        s_acquisition.counters.adc_read_errors++;
+        return;
+    }
+
+    if (completed_frame != NULL) {
+        if (!s_acquisition.capture_pending) {
+            s_acquisition.counters.adc_read_errors++;
+            s_acquisition.counters.invalid_frames++;
+        } else {
+            (void)enqueue_completed_capture(
+                &s_acquisition.pending_capture_event, completed_frame);
+        }
+    } else if (s_acquisition.capture_pending) {
+        s_acquisition.counters.adc_read_errors++;
+    }
+
+    s_acquisition.pending_capture_event = *event;
+    s_acquisition.capture_pending = true;
 }
 
 static void discard_streaming_records(void)
@@ -616,6 +784,12 @@ static void acquisition_cleanup_best_effort(void)
         (void)board_adc_drdy_detach(NULL);
         s_acquisition.drdy_attached = false;
     }
+    if (s_acquisition.adc.capture_active) {
+        const uint8_t *discarded_frame = NULL;
+        (void)ad7779_capture_finish(
+            &s_acquisition.adc, &discarded_frame, NULL);
+    }
+    s_acquisition.capture_pending = false;
     discard_ring_and_partial_records();
     if (s_acquisition.adc_initialized) {
         (void)board_adc_deinitialize(&s_acquisition.adc, NULL);
@@ -678,8 +852,19 @@ static fw_status_t start_acquisition(
     portENTER_CRITICAL(&s_acquisition_lock);
     s_acquisition.isr_next_sequence = 0U;
     s_acquisition.observed_isr_overflows = s_acquisition.isr_overflows;
+    s_acquisition.completed_capture_tail =
+        s_acquisition.completed_capture_head;
     portEXIT_CRITICAL(&s_acquisition_lock);
+    s_acquisition.capture_pending = false;
+    s_acquisition.startup_valid_frames = 0U;
+    s_acquisition.processing_sequence_valid = false;
+    s_acquisition.next_processing_sequence = 0U;
     status = ad7779_start(&s_acquisition.adc, error);
+    if (status != FW_STATUS_OK) {
+        acquisition_cleanup_best_effort();
+        return status;
+    }
+    status = ad7779_capture_prepare(&s_acquisition.adc, error);
     if (status != FW_STATUS_OK) {
         acquisition_cleanup_best_effort();
         return status;
@@ -707,14 +892,34 @@ static fw_status_t stop_acquisition(fw_error_context_t *error)
     } else {
         clear_error(&first_error);
     }
+
+    const uint8_t *final_frame = NULL;
+    fw_error_context_t current_error;
+    clear_error(&current_error);
+    fw_status_t status = ad7779_capture_finish(
+        &s_acquisition.adc, &final_frame, &current_error);
+    if (status == FW_STATUS_OK) {
+        if (final_frame != NULL && s_acquisition.capture_pending) {
+            (void)enqueue_completed_capture(
+                &s_acquisition.pending_capture_event, final_frame);
+        } else if (s_acquisition.capture_pending) {
+            s_acquisition.counters.adc_read_errors++;
+        }
+        s_acquisition.capture_pending = false;
+    } else if (first_status == FW_STATUS_OK) {
+        first_status = status;
+        first_error = current_error;
+    }
+
+    wait_for_completed_captures();
+
     s_acquisition.active = false;
     s_acquisition.recording_active = false;
     s_acquisition.streaming_active = false;
     discard_ring_and_partial_records();
 
-    fw_error_context_t current_error;
     clear_error(&current_error);
-    fw_status_t status = board_adc_drdy_detach(&current_error);
+    status = board_adc_drdy_detach(&current_error);
     s_acquisition.drdy_attached = false;
     if (first_status == FW_STATUS_OK && status != FW_STATUS_OK) {
         first_status = status;
@@ -782,6 +987,7 @@ static fw_status_t stop_streaming(fw_error_context_t *error)
                          FW_ERROR_OPERATION_DISABLE, 0U);
     }
     s_acquisition.streaming_active = false;
+    wait_for_current_processing_step();
     discard_streaming_records();
     clear_error(error);
     return FW_STATUS_OK;
@@ -835,11 +1041,7 @@ static void acquisition_task_run(void *context)
             continue;
         }
 
-        /*
-         * DRDY and commands both notify this task. Block only after the DRDY
-         * ring has been drained; a notification count may have been cleared
-         * while more than one timestamp remained queued.
-         */
+        /* DRDY and commands both notify this task. */
         if (!drdy_event_pending()) {
             (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         }
@@ -852,12 +1054,10 @@ static void acquisition_task_run(void *context)
         }
 
         drdy_event_t event;
-        uint8_t processed = 0U;
-        while (s_acquisition.active &&
-               processed < TASK_ACQUISITION_DRDY_BATCH_SIZE &&
-               pop_drdy_event(&event)) {
-            process_conversion(&event);
-            processed++;
+        if (s_acquisition.active &&
+            take_latest_drdy_event(&event)) {
+            /* Only the newest unread conversion still exists in the ADC. */
+            trigger_capture_for_event(&event);
         }
         account_isr_overflow();
     }
@@ -882,10 +1082,12 @@ fw_status_t task_acquisition_initialize(fw_error_context_t *error)
     s_acquisition.streaming_ready_records = xQueueCreate(
         TASK_ACQUISITION_LIVE_RECORD_COUNT, sizeof(uint8_t *));
     s_acquisition.command_mutex = xSemaphoreCreateMutex();
+    s_acquisition.processing_progress = xSemaphoreCreateBinary();
     if (s_acquisition.commands == NULL || s_acquisition.responses == NULL ||
         s_acquisition.streaming_free_records == NULL ||
         s_acquisition.streaming_ready_records == NULL ||
-        s_acquisition.command_mutex == NULL) {
+        s_acquisition.command_mutex == NULL ||
+        s_acquisition.processing_progress == NULL) {
         return set_error(error, FW_STATUS_INTERNAL,
                          FW_ERROR_OPERATION_INITIALIZE, 0U);
     }
@@ -900,10 +1102,24 @@ fw_status_t task_acquisition_initialize(fw_error_context_t *error)
                              (uint32_t)index);
         }
     }
-    if (xTaskCreate(acquisition_task_run, "acquisition",
-                    TASK_ACQUISITION_STACK_SIZE_BYTES, NULL,
-                    TASK_ACQUISITION_PRIORITY,
-                    &s_acquisition.task_handle) != pdPASS) {
+    if (xTaskCreatePinnedToCore(
+            processing_task_run, "adc_processing",
+            TASK_ACQUISITION_PROCESSING_STACK_SIZE_BYTES, NULL,
+            TASK_ACQUISITION_PROCESSING_PRIORITY,
+            &s_acquisition.processing_task_handle,
+            TASK_ACQUISITION_PROCESSING_CORE) != pdPASS) {
+        return set_error(error, FW_STATUS_INTERNAL,
+                         FW_ERROR_OPERATION_INITIALIZE,
+                         TASK_ACQUISITION_PROCESSING_STACK_SIZE_BYTES);
+    }
+    if (xTaskCreatePinnedToCore(
+            acquisition_task_run, "acquisition",
+            TASK_ACQUISITION_STACK_SIZE_BYTES, NULL,
+            TASK_ACQUISITION_PRIORITY,
+            &s_acquisition.task_handle,
+            TASK_ACQUISITION_CORE) != pdPASS) {
+        vTaskDelete(s_acquisition.processing_task_handle);
+        s_acquisition.processing_task_handle = NULL;
         return set_error(error, FW_STATUS_INTERNAL,
                          FW_ERROR_OPERATION_INITIALIZE,
                          TASK_ACQUISITION_STACK_SIZE_BYTES);

@@ -6,7 +6,7 @@
 - Hardware target: V2-Rev-1 with ESP32-S3 DevKitC
 - Scope: staged implementation and validation
 - Status: Active planning checklist
-- Last updated: 2026-09-30
+- Last updated: 2026-10-01
 
 ## How to use this checklist
 
@@ -157,7 +157,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 | FW-61 | Keep communication diagnosable when ADC startup fails, while all unsafe outputs remain inactive | [ ] | [ ] | |
 | FW-62 | Inject ADC CRC, timeout, queue-overflow, missing-card, unsupported-command, and disconnect faults | [ ] | [ ] | |
 | FW-63 | Acquire both magnetic cards as eight synchronized channels at the default 1 kSPS | [ ] | [ ] | |
-| FW-64 | Verify configurable ADC rates through 16 kSPS while explicitly reporting any streaming limitation | [ ] | [ ] | Partial 2026-09-30: correcting GPIO attach keeps startup DRDY outside the scientific sequence, and 1 kSPS controls retain every conversion. Removing the forced one-tick delay raised four-channel 16 kSPS retention to 51.6% at a 160 MHz CPU clock: 16,680 of 32,320 conversions, or about 8,257/s. A fixed 240 MHz clock raised throughput to about 10,685/s. Trusted frame/DAT hot paths followed by disabling DMA for the 32-byte ADC transaction reached 23,000 of 32,613 conversions (70.52%), or about 11,284/s; the isolated non-DMA gain was 3.5% over an otherwise identical DMA-on run. The sustained bottleneck remains. Confirm the intermediate presets and streaming limit after the interrupt-driven SPI transaction overhead is reduced. |
+| FW-64 | Verify configurable ADC rates through 16 kSPS while explicitly reporting any streaming limitation | [ ] | [ ] | Partial 2026-10-01: prepared two-buffer SPI DMA on core 1, a 256-frame processing ring on core 0, aligned 4 KiB SD writes, and a 512-record sync interval eliminated the initial four-channel bottleneck. Per-transaction hardware CS at fixed 20 MHz retained 32,480 consecutive four-channel conversions in a two-second 16 kSPS probe with zero gaps, but two records still carried isolated CRC-marked phase errors. Fixed 8 MHz through 12 MHz miss the current full-frame deadline, and a longer fixed-16-MHz capture lost 23,438 conversions. A shorter spec-compliant read path, intermediate presets, eight-channel 16 kSPS, live-stream limits, and long-duration behavior remain to be verified. |
 | FW-65 | Stream all eight packed channels at 1 kSPS for eight hours with no unexplained gap or silent loss | [ ] | [ ] | |
 | FW-66 | Complete the current protocol, product, and interface acceptance criteria and attach evidence | [ ] | [ ] | |
 | FW-67 | Update `README.md`, `ARCHITECTURE.md` implementation status, and affected contracts to match verified behavior | [ ] | [ ] | |

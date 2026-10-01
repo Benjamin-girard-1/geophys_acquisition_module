@@ -8,11 +8,15 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_heap_caps.h"
-#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "platform_error.h"
+
+#define PLATFORM_SPI_BURST_BUFFER_COUNT UINT8_C(2)
+#define PLATFORM_SPI_MAX_CS_SETUP_CYCLES UINT8_C(1)
+#define PLATFORM_SPI_MAX_CS_HOLD_CYCLES UINT8_C(16)
 
 struct platform_spi_bus {
     spi_host_device_t host;
@@ -31,15 +35,18 @@ struct platform_spi_device {
     uint8_t *tx_buffer;
     uint8_t *rx_buffer;
     size_t maximum_transfer_size_bytes;
-    platform_gpio_pin_t chip_select_pin;
-    platform_gpio_level_t chip_select_active_level;
-    platform_gpio_level_t chip_select_inactive_level;
     uint8_t filler_byte;
     uint32_t requested_clock_hz;
     uint32_t actual_clock_hz;
     uint32_t maximum_clock_hz;
-    uint32_t chip_select_setup_us;
-    uint32_t chip_select_hold_us;
+    spi_transaction_t burst_transactions[PLATFORM_SPI_BURST_BUFFER_COUNT];
+    uint8_t *burst_rx_buffers[PLATFORM_SPI_BURST_BUFFER_COUNT];
+    TaskHandle_t burst_owner;
+    size_t burst_length_bytes;
+    uint8_t burst_active_index;
+    bool burst_transaction_active;
+    bool burst_bus_acquired;
+    bool burst_active;
 };
 
 static uint32_t host_instance_from_idf(spi_host_device_t host)
@@ -120,18 +127,15 @@ static bool bit_order_is_valid(platform_spi_bit_order_t bit_order)
            (bit_order == PLATFORM_SPI_BIT_ORDER_LSB_FIRST);
 }
 
-static bool cs_polarity_to_levels(
+static bool cs_polarity_to_inactive_level(
     platform_spi_cs_polarity_t polarity,
-    platform_gpio_level_t *active_level,
     platform_gpio_level_t *inactive_level)
 {
     switch (polarity) {
     case PLATFORM_SPI_CS_ACTIVE_LOW:
-        *active_level = PLATFORM_GPIO_LEVEL_LOW;
         *inactive_level = PLATFORM_GPIO_LEVEL_HIGH;
         return true;
     case PLATFORM_SPI_CS_ACTIVE_HIGH:
-        *active_level = PLATFORM_GPIO_LEVEL_HIGH;
         *inactive_level = PLATFORM_GPIO_LEVEL_LOW;
         return true;
     default:
@@ -213,17 +217,10 @@ static fw_status_t drain_pending_transaction_locked(
            FW_STATUS_OK : FW_STATUS_TIMEOUT;
 }
 
-static fw_status_t set_chip_select(platform_spi_device_t *device,
-                                   platform_gpio_level_t level)
-{
-    return platform_gpio_write(device->chip_select_pin, level, NULL);
-}
-
 static fw_status_t execute_transaction_locked(
     platform_spi_device_t *device,
     size_t length_bytes,
     uint32_t override_clock_hz,
-    bool use_chip_select,
     int64_t deadline_us)
 {
     platform_spi_bus_t *bus = device->bus;
@@ -241,22 +238,9 @@ static fw_status_t execute_transaction_locked(
         device->transaction.rx_buffer = device->rx_buffer;
     }
 
-    bool chip_select_asserted = false;
-    if (use_chip_select) {
-        status = set_chip_select(device, device->chip_select_active_level);
-        if (status != FW_STATUS_OK) {
-            return status;
-        }
-        chip_select_asserted = true;
-        if (device->chip_select_setup_us > 0U) {
-            esp_rom_delay_us(device->chip_select_setup_us);
-        }
-    }
-
     const TickType_t queue_wait_ticks = ticks_until(deadline_us);
     if (queue_wait_ticks == 0U) {
-        status = FW_STATUS_TIMEOUT;
-        goto cleanup;
+        return FW_STATUS_TIMEOUT;
     }
 
     status = platform_error_from_esp_err(
@@ -265,25 +249,11 @@ static fw_status_t execute_transaction_locked(
         NULL, FW_ERROR_RESOURCE_SPI, FW_ERROR_OPERATION_TRANSFER,
         bus_instance(bus), size_to_detail(length_bytes));
     if (status != FW_STATUS_OK) {
-        goto cleanup;
+        return status;
     }
     bus->pending_device = device;
 
-    status = drain_pending_transaction_locked(bus, deadline_us);
-
-cleanup:
-    if (chip_select_asserted) {
-        if (device->chip_select_hold_us > 0U) {
-            esp_rom_delay_us(device->chip_select_hold_us);
-        }
-        const fw_status_t cs_status = set_chip_select(
-            device, device->chip_select_inactive_level);
-        if ((status == FW_STATUS_OK) && (cs_status != FW_STATUS_OK)) {
-            status = cs_status;
-        }
-    }
-
-    return status;
+    return drain_pending_transaction_locked(bus, deadline_us);
 }
 
 fw_status_t platform_spi_bus_initialize(
@@ -422,7 +392,6 @@ fw_status_t platform_spi_device_add(
     platform_spi_device_t **device,
     fw_error_context_t *error)
 {
-    platform_gpio_level_t active_level;
     platform_gpio_level_t inactive_level;
 
     platform_error_clear(error);
@@ -436,14 +405,17 @@ fw_status_t platform_spi_device_add(
     *device = NULL;
 
     if (!is_valid_output_pin(config->chip_select_pin) ||
-        !cs_polarity_to_levels(config->chip_select_polarity,
-                               &active_level,
-                               &inactive_level) ||
+        !cs_polarity_to_inactive_level(config->chip_select_polarity,
+                                       &inactive_level) ||
         !bit_order_is_valid(config->bit_order) || (config->mode > 3U) ||
         (config->initial_clock_hz == 0U) ||
         (config->initial_clock_hz > config->maximum_clock_hz) ||
         (config->maximum_clock_hz > (uint32_t)INT_MAX) ||
         (config->input_delay_ns > (uint32_t)INT_MAX) ||
+        (config->chip_select_setup_cycles >
+         PLATFORM_SPI_MAX_CS_SETUP_CYCLES) ||
+        (config->chip_select_hold_cycles >
+         PLATFORM_SPI_MAX_CS_HOLD_CYCLES) ||
         (config->maximum_transfer_size_bytes == 0U) ||
         (config->maximum_transfer_size_bytes >
          bus->maximum_transfer_size_bytes)) {
@@ -479,18 +451,37 @@ fw_status_t platform_spi_device_add(
             FW_ERROR_OPERATION_ATTACH, bus_instance(bus),
             config->chip_select_pin);
     }
+    new_device->burst_rx_buffers[0] = new_device->rx_buffer;
+    if (bus->dma_enabled) {
+        for (uint8_t index = 1U;
+             index < PLATFORM_SPI_BURST_BUFFER_COUNT;
+             index++) {
+            new_device->burst_rx_buffers[index] = heap_caps_malloc(
+                allocation_size, buffer_capabilities);
+            if (new_device->burst_rx_buffers[index] == NULL) {
+                for (uint8_t release_index = 1U;
+                     release_index < index;
+                     release_index++) {
+                    heap_caps_free(
+                        new_device->burst_rx_buffers[release_index]);
+                }
+                heap_caps_free(new_device->tx_buffer);
+                heap_caps_free(new_device->rx_buffer);
+                heap_caps_free(new_device);
+                return platform_error_set(
+                    error, FW_STATUS_INTERNAL, FW_ERROR_RESOURCE_SPI,
+                    FW_ERROR_OPERATION_ATTACH, bus_instance(bus),
+                    config->chip_select_pin);
+            }
+        }
+    }
 
     new_device->bus = bus;
     new_device->maximum_transfer_size_bytes =
         config->maximum_transfer_size_bytes;
-    new_device->chip_select_pin = config->chip_select_pin;
-    new_device->chip_select_active_level = active_level;
-    new_device->chip_select_inactive_level = inactive_level;
     new_device->filler_byte = config->filler_byte;
     new_device->requested_clock_hz = config->initial_clock_hz;
     new_device->maximum_clock_hz = config->maximum_clock_hz;
-    new_device->chip_select_setup_us = config->chip_select_setup_us;
-    new_device->chip_select_hold_us = config->chip_select_hold_us;
 
     fw_status_t status = platform_gpio_configure_output(
         config->chip_select_pin, inactive_level, NULL);
@@ -502,9 +493,15 @@ fw_status_t platform_spi_device_add(
         .mode = config->mode,
         .clock_speed_hz = (int)config->initial_clock_hz,
         .input_delay_ns = (int)config->input_delay_ns,
-        .spics_io_num = -1,
-        .flags = (config->bit_order == PLATFORM_SPI_BIT_ORDER_LSB_FIRST) ?
-                 SPI_DEVICE_BIT_LSBFIRST : 0U,
+        .spics_io_num = (int)config->chip_select_pin,
+        .cs_ena_pretrans = config->chip_select_setup_cycles,
+        .cs_ena_posttrans = config->chip_select_hold_cycles,
+        .flags =
+            ((config->bit_order == PLATFORM_SPI_BIT_ORDER_LSB_FIRST) ?
+             SPI_DEVICE_BIT_LSBFIRST : 0U) |
+            ((config->chip_select_polarity ==
+              PLATFORM_SPI_CS_ACTIVE_HIGH) ?
+             SPI_DEVICE_POSITIVE_CS : 0U),
         .queue_size = 1,
     };
 
@@ -534,6 +531,11 @@ fw_status_t platform_spi_device_add(
     return FW_STATUS_OK;
 
 failure:
+    for (uint8_t index = 1U;
+         index < PLATFORM_SPI_BURST_BUFFER_COUNT;
+         index++) {
+        heap_caps_free(new_device->burst_rx_buffers[index]);
+    }
     heap_caps_free(new_device->tx_buffer);
     heap_caps_free(new_device->rx_buffer);
     heap_caps_free(new_device);
@@ -556,6 +558,12 @@ fw_status_t platform_spi_device_remove(platform_spi_device_t *device,
             bus_instance(device->bus),
             timeout_us);
     }
+    if (device->burst_active) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_STATE, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_DETACH, bus_instance(device->bus),
+            timeout_us);
+    }
 
     platform_spi_bus_t *bus = device->bus;
     const int64_t deadline_us = deadline_from_timeout(timeout_us);
@@ -568,9 +576,6 @@ fw_status_t platform_spi_device_remove(platform_spi_device_t *device,
 
     status = drain_pending_transaction_locked(bus, deadline_us);
     if (status == FW_STATUS_OK) {
-        status = set_chip_select(device, device->chip_select_inactive_level);
-    }
-    if (status == FW_STATUS_OK) {
         status = platform_error_from_esp_err(
             spi_bus_remove_device(device->handle), error,
             FW_ERROR_RESOURCE_SPI, FW_ERROR_OPERATION_DETACH,
@@ -582,6 +587,11 @@ fw_status_t platform_spi_device_remove(platform_spi_device_t *device,
 
     (void)xSemaphoreGive(bus->mutex);
     if (status == FW_STATUS_OK) {
+        for (uint8_t index = 1U;
+             index < PLATFORM_SPI_BURST_BUFFER_COUNT;
+             index++) {
+            heap_caps_free(device->burst_rx_buffers[index]);
+        }
         heap_caps_free(device->tx_buffer);
         heap_caps_free(device->rx_buffer);
         heap_caps_free(device);
@@ -614,6 +624,12 @@ fw_status_t platform_spi_transfer(void *context,
             bus_instance(device->bus),
             size_to_detail(length_bytes));
     }
+    if (device->burst_active) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_STATE, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_TRANSFER, bus_instance(device->bus),
+            size_to_detail(length_bytes));
+    }
 
     const int64_t deadline_us = deadline_from_timeout(timeout_us);
     fw_status_t status = take_bus_mutex(device->bus, deadline_us);
@@ -633,7 +649,7 @@ fw_status_t platform_spi_transfer(void *context,
         }
 
         status = execute_transaction_locked(
-            device, length_bytes, 0U, true, deadline_us);
+            device, length_bytes, 0U, deadline_us);
     }
     if ((status == FW_STATUS_OK) && (rx_data != NULL)) {
         memcpy(rx_data, device->rx_buffer, length_bytes);
@@ -643,6 +659,254 @@ fw_status_t platform_spi_transfer(void *context,
     return platform_error_set(
         error, status, FW_ERROR_RESOURCE_SPI, FW_ERROR_OPERATION_TRANSFER,
         bus_instance(device->bus), size_to_detail(length_bytes));
+}
+
+static void fill_repeating_pattern(uint8_t *destination,
+                                   size_t destination_length,
+                                   const uint8_t *pattern,
+                                   size_t pattern_length)
+{
+    size_t filled = pattern_length;
+    if (filled > destination_length) {
+        filled = destination_length;
+    }
+    memcpy(destination, pattern, filled);
+    while (filled < destination_length) {
+        size_t copy_length = filled;
+        if (copy_length > destination_length - filled) {
+            copy_length = destination_length - filled;
+        }
+        memcpy(destination + filled, destination, copy_length);
+        filled += copy_length;
+    }
+}
+
+static fw_status_t finish_burst_transaction(
+    platform_spi_device_t *device,
+    TickType_t wait_ticks,
+    const uint8_t **completed_rx_data,
+    size_t *completed_length_bytes,
+    fw_error_operation_t operation,
+    fw_error_context_t *error)
+{
+    if (!device->burst_transaction_active) {
+        return FW_STATUS_OK;
+    }
+
+    fw_status_t status = platform_error_from_esp_err(
+        spi_device_polling_end(device->handle, wait_ticks), error,
+        FW_ERROR_RESOURCE_SPI, operation, bus_instance(device->bus),
+        size_to_detail(device->burst_length_bytes));
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    *completed_rx_data =
+        device->burst_rx_buffers[device->burst_active_index];
+    *completed_length_bytes = device->burst_length_bytes;
+    device->burst_transaction_active = false;
+    return FW_STATUS_OK;
+}
+
+fw_status_t platform_spi_burst_prepare(
+    void *context,
+    const uint8_t *pattern,
+    size_t pattern_length_bytes,
+    size_t burst_length_bytes,
+    uint32_t timeout_us,
+    fw_error_context_t *error)
+{
+    platform_spi_device_t *device = context;
+    platform_error_clear(error);
+
+    if ((device == NULL) || (pattern == NULL) ||
+        (pattern_length_bytes == 0U) || (burst_length_bytes == 0U) ||
+        (burst_length_bytes > (SIZE_MAX / 8U)) ||
+        (timeout_us == 0U)) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_TRANSFER,
+            (device == NULL) ? FW_ERROR_INSTANCE_NONE :
+            bus_instance(device->bus), size_to_detail(burst_length_bytes));
+    }
+    if (!device->bus->dma_enabled || device->burst_active ||
+        burst_length_bytes > device->maximum_transfer_size_bytes) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_STATE, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_TRANSFER, bus_instance(device->bus),
+            size_to_detail(burst_length_bytes));
+    }
+
+    const int64_t deadline_us = deadline_from_timeout(timeout_us);
+    fw_status_t status = take_bus_mutex(device->bus, deadline_us);
+    if (status != FW_STATUS_OK) {
+        return platform_error_set(
+            error, status, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_TRANSFER, bus_instance(device->bus),
+            size_to_detail(burst_length_bytes));
+    }
+
+    status = drain_pending_transaction_locked(device->bus, deadline_us);
+    if (status != FW_STATUS_OK) {
+        (void)xSemaphoreGive(device->bus->mutex);
+        return platform_error_set(
+            error, status, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_TRANSFER, bus_instance(device->bus),
+            size_to_detail(burst_length_bytes));
+    }
+
+    fill_repeating_pattern(device->tx_buffer, burst_length_bytes,
+                           pattern, pattern_length_bytes);
+    device->burst_length_bytes = burst_length_bytes;
+    device->burst_active_index = 0U;
+    device->burst_transaction_active = false;
+    device->burst_owner = xTaskGetCurrentTaskHandle();
+    for (uint8_t index = 0U;
+         index < PLATFORM_SPI_BURST_BUFFER_COUNT;
+         index++) {
+        spi_transaction_t *transaction =
+            &device->burst_transactions[index];
+        memset(transaction, 0, sizeof(*transaction));
+        transaction->length = burst_length_bytes * 8U;
+        transaction->rxlength = burst_length_bytes * 8U;
+        transaction->tx_buffer = device->tx_buffer;
+        transaction->rx_buffer = device->burst_rx_buffers[index];
+    }
+
+    /* ESP-IDF 5.5 accepts only portMAX_DELAY for bus acquisition. The
+     * platform mutex above already applied the public finite timeout. */
+    status = platform_error_from_esp_err(
+        spi_device_acquire_bus(device->handle, portMAX_DELAY), NULL,
+        FW_ERROR_RESOURCE_SPI, FW_ERROR_OPERATION_TRANSFER,
+        bus_instance(device->bus), size_to_detail(burst_length_bytes));
+    if (status != FW_STATUS_OK) {
+        goto failure;
+    }
+    device->burst_bus_acquired = true;
+
+    device->burst_active = true;
+    return FW_STATUS_OK;
+
+failure:
+    if (device->burst_bus_acquired) {
+        spi_device_release_bus(device->handle);
+        device->burst_bus_acquired = false;
+    }
+    device->burst_owner = NULL;
+    device->burst_length_bytes = 0U;
+    (void)xSemaphoreGive(device->bus->mutex);
+    return platform_error_set(
+        error, status, FW_ERROR_RESOURCE_SPI, FW_ERROR_OPERATION_TRANSFER,
+        bus_instance(device->bus), size_to_detail(burst_length_bytes));
+}
+
+fw_status_t platform_spi_burst_trigger(
+    void *context,
+    const uint8_t **completed_rx_data,
+    size_t *completed_length_bytes,
+    uint32_t timeout_us,
+    fw_error_context_t *error)
+{
+    platform_spi_device_t *device = context;
+    platform_error_clear(error);
+
+    if ((device == NULL) || (completed_rx_data == NULL) ||
+        (completed_length_bytes == NULL) || (timeout_us == 0U)) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_TRANSFER,
+            (device == NULL) ? FW_ERROR_INSTANCE_NONE :
+            bus_instance(device->bus), timeout_us);
+    }
+    *completed_rx_data = NULL;
+    *completed_length_bytes = 0U;
+    if (!device->burst_active ||
+        device->burst_owner != xTaskGetCurrentTaskHandle()) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_STATE, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_TRANSFER, bus_instance(device->bus),
+            timeout_us);
+    }
+
+    uint8_t next_index = 0U;
+    if (device->burst_transaction_active) {
+        const uint8_t completed_index = device->burst_active_index;
+        fw_status_t status = finish_burst_transaction(
+            device, 0U, completed_rx_data, completed_length_bytes,
+            FW_ERROR_OPERATION_TRANSFER, error);
+        if (status != FW_STATUS_OK) {
+            return status;
+        }
+        next_index = (uint8_t)(completed_index ^ UINT8_C(1));
+    }
+
+    fw_status_t status = platform_error_from_esp_err(
+        spi_device_polling_start(
+            device->handle, &device->burst_transactions[next_index],
+            portMAX_DELAY),
+        error, FW_ERROR_RESOURCE_SPI, FW_ERROR_OPERATION_TRANSFER,
+        bus_instance(device->bus),
+        size_to_detail(device->burst_length_bytes));
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    device->burst_active_index = next_index;
+    device->burst_transaction_active = true;
+    return FW_STATUS_OK;
+}
+
+fw_status_t platform_spi_burst_finish(
+    void *context,
+    const uint8_t **completed_rx_data,
+    size_t *completed_length_bytes,
+    uint32_t timeout_us,
+    fw_error_context_t *error)
+{
+    platform_spi_device_t *device = context;
+    platform_error_clear(error);
+
+    if ((device == NULL) || (completed_rx_data == NULL) ||
+        (completed_length_bytes == NULL) || (timeout_us == 0U)) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_DISABLE,
+            (device == NULL) ? FW_ERROR_INSTANCE_NONE :
+            bus_instance(device->bus), timeout_us);
+    }
+    *completed_rx_data = NULL;
+    *completed_length_bytes = 0U;
+    if (!device->burst_active ||
+        device->burst_owner != xTaskGetCurrentTaskHandle()) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_STATE, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_DISABLE, bus_instance(device->bus),
+            timeout_us);
+    }
+
+    const int64_t deadline_us = deadline_from_timeout(timeout_us);
+    const TickType_t wait_ticks = ticks_until(deadline_us);
+    fw_status_t status = finish_burst_transaction(
+        device, wait_ticks, completed_rx_data, completed_length_bytes,
+        FW_ERROR_OPERATION_DISABLE, error);
+    if (status != FW_STATUS_OK) {
+        return platform_error_set(
+            error, status, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_DISABLE, bus_instance(device->bus),
+            timeout_us);
+    }
+
+    if (device->burst_bus_acquired) {
+        spi_device_release_bus(device->handle);
+        device->burst_bus_acquired = false;
+    }
+    device->burst_active = false;
+    device->burst_owner = NULL;
+    device->burst_length_bytes = 0U;
+    (void)xSemaphoreGive(device->bus->mutex);
+
+    return platform_error_set(
+        error, status, FW_ERROR_RESOURCE_SPI, FW_ERROR_OPERATION_DISABLE,
+        bus_instance(device->bus), timeout_us);
 }
 
 fw_status_t platform_spi_device_set_clock(platform_spi_device_t *device,
@@ -664,6 +928,12 @@ fw_status_t platform_spi_device_set_clock(platform_spi_device_t *device,
             bus_instance(device->bus),
             requested_clock_hz);
     }
+    if (device->burst_active) {
+        return platform_error_set(
+            error, FW_STATUS_INVALID_STATE, FW_ERROR_RESOURCE_SPI,
+            FW_ERROR_OPERATION_SET_CLOCK, bus_instance(device->bus),
+            requested_clock_hz);
+    }
 
     const int64_t deadline_us = deadline_from_timeout(timeout_us);
     fw_status_t status = take_bus_mutex(device->bus, deadline_us);
@@ -675,7 +945,7 @@ fw_status_t platform_spi_device_set_clock(platform_spi_device_t *device,
     }
 
     status = execute_transaction_locked(
-        device, 0U, requested_clock_hz, false, deadline_us);
+        device, 0U, requested_clock_hz, deadline_us);
     if (status == FW_STATUS_OK) {
         int actual_frequency_khz = 0;
         status = platform_error_from_esp_err(
@@ -725,6 +995,9 @@ fw_spi_interface_t platform_spi_device_interface(
 {
     const fw_spi_interface_t interface = {
         .transfer = platform_spi_transfer,
+        .burst_prepare = platform_spi_burst_prepare,
+        .burst_trigger = platform_spi_burst_trigger,
+        .burst_finish = platform_spi_burst_finish,
         .context = device,
     };
     return interface;

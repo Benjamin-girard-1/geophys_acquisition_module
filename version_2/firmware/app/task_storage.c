@@ -17,7 +17,7 @@
 #define TASK_STORAGE_COMMAND_QUEUE_LENGTH UINT8_C(4)
 #define TASK_STORAGE_RESPONSE_QUEUE_LENGTH UINT8_C(4)
 #define TASK_STORAGE_COMMAND_TIMEOUT_MS UINT32_C(10000)
-#define TASK_STORAGE_SYNC_INTERVAL_RECORDS UINT32_C(64)
+#define TASK_STORAGE_SYNC_INTERVAL_RECORDS UINT32_C(512)
 #define TASK_STORAGE_RECORD_WRITE_BATCH_SIZE UINT8_C(8)
 #define TASK_STORAGE_RECORDING_DIRECTORY "/recordings"
 #define TASK_STORAGE_RECORDING_PATH_SIZE_BYTES UINT8_C(48)
@@ -78,6 +78,9 @@ static task_storage_state_t s_storage;
 static uint8_t s_record_buffers[TASK_STORAGE_RECORD_BUFFER_COUNT]
                                [ADC_RECORD_SIZE_BYTES]
                                __attribute__((aligned(4)));
+static uint8_t s_write_batch[TASK_STORAGE_RECORD_WRITE_BATCH_SIZE]
+                            [ADC_RECORD_SIZE_BYTES]
+                            __attribute__((aligned(4)));
 static uint32_t s_next_command_identifier;
 
 _Static_assert(TASK_STORAGE_RECORDING_NAME_SIZE_BYTES == 32U,
@@ -307,33 +310,50 @@ static void fail_active_recording(fw_status_t failure_status)
 static fw_status_t drain_ready_records(size_t maximum_records,
                                        fw_error_context_t *error)
 {
-    uint8_t *record = NULL;
     size_t records_written = 0U;
-    while ((maximum_records == 0U ||
-            records_written < maximum_records) &&
-           xQueueReceive(s_storage.ready_records, &record, 0U) == pdTRUE) {
+    while (maximum_records == 0U || records_written < maximum_records) {
+        uint8_t *records[TASK_STORAGE_RECORD_WRITE_BATCH_SIZE] = {0};
+        size_t batch_count = 0U;
+        while (batch_count < TASK_STORAGE_RECORD_WRITE_BATCH_SIZE &&
+               (maximum_records == 0U ||
+                records_written + batch_count < maximum_records) &&
+               xQueueReceive(s_storage.ready_records,
+                             &records[batch_count], 0U) == pdTRUE) {
+            memcpy(s_write_batch[batch_count], records[batch_count],
+                   ADC_RECORD_SIZE_BYTES);
+            batch_count++;
+        }
+        if (batch_count == 0U) {
+            break;
+        }
+
+        const size_t batch_size_bytes =
+            batch_count * ADC_RECORD_SIZE_BYTES;
         fw_status_t status = FW_STATUS_OK;
         if (!s_storage.recording_active || s_storage.active_file == NULL) {
             status = set_error(error, FW_STATUS_INVALID_STATE,
                                FW_ERROR_OPERATION_WRITE, 0U);
         } else if (s_storage.active_size_bytes >
-                   UINT32_MAX - ADC_RECORD_SIZE_BYTES) {
+                   UINT32_MAX - batch_size_bytes) {
             status = set_error(error, FW_STATUS_STORAGE_FULL,
                                FW_ERROR_OPERATION_WRITE,
                                s_storage.active_size_bytes);
         } else {
             status = platform_storage_file_write(
-                s_storage.active_file, record, ADC_RECORD_SIZE_BYTES, error);
+                s_storage.active_file, &s_write_batch[0][0],
+                batch_size_bytes, error);
         }
-        (void)xQueueSend(s_storage.free_records, &record, 0U);
+        for (size_t index = 0U; index < batch_count; index++) {
+            (void)xQueueSend(s_storage.free_records, &records[index], 0U);
+        }
         if (status != FW_STATUS_OK) {
             update_media_state(TASK_STORAGE_MEDIA_FAULTED);
             fail_active_recording(status);
             return status;
         }
-        s_storage.active_size_bytes += ADC_RECORD_SIZE_BYTES;
-        records_written++;
-        s_storage.records_since_sync++;
+        s_storage.active_size_bytes += (uint32_t)batch_size_bytes;
+        records_written += batch_count;
+        s_storage.records_since_sync += batch_count;
         if (s_storage.records_since_sync >=
             TASK_STORAGE_SYNC_INTERVAL_RECORDS) {
             status = platform_storage_file_sync(s_storage.active_file, error);
@@ -627,9 +647,8 @@ static void storage_task_run(void *context)
         (void)drain_ready_records(
             TASK_STORAGE_RECORD_WRITE_BATCH_SIZE, NULL);
         if (uxQueueMessagesWaiting(s_storage.ready_records) > 0U) {
-            /* Keep draining, but leave a 1 ms command/control opportunity. */
+            /* Recheck commands before draining the next multi-sector batch. */
             xTaskNotifyGive(s_storage.task_handle);
-            vTaskDelay(1U);
         }
     }
 }

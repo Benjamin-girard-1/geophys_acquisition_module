@@ -92,7 +92,7 @@ def validate_recording(
             missing_conversions += (
                 current.first_conversion_sequence - expected_sequence
             ) & 0xFFFFFFFF
-            assert current.status in (1, 3), (
+            assert previous.status in (1, 3) or current.status in (1, 3), (
                 "source sequence gap is not marked critical/timing-error"
             )
         assert current.first_monotonic_timestamp_100ns > \

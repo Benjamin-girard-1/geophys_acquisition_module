@@ -88,25 +88,39 @@ context.
 
 ### SPI
 
-- One synchronous full-duplex transfer operation is sufficient for portable drivers; each board
-  selects DMA or the CPU FIFO according to its fixed transfer size and measured behavior.
-- Synchronous means only the calling task waits; the scheduler, interrupts, and other SPI buses
-  continue to run. Continuous acquisition does not use CPU busy-polling.
+- Portable drivers use a synchronous full-duplex transfer for register/configuration traffic and
+  may additionally use the prepared-burst callbacks for deterministic acquisition traffic.
+- `burst_prepare` reserves the bus and immutable repeating TX pattern once; `burst_trigger`
+  completes the preceding DMA burst and immediately launches the next into the alternate RX
+  buffer; `burst_finish` drains the final burst and releases the session.
+- The ESP32-S3 SPI peripheral asserts and releases chip select around every
+  transaction. A prepared acquisition session keeps the bus and DMA resources
+  reserved, but never holds chip select active between bursts.
+- The polling-start/polling-end naming describes the ESP-IDF driver path, not a CPU loop spanning
+  the conversion period. DMA clocks each 32-byte frame while the capture task blocks on DRDY.
 - The context binds a configured SPI device, including bus, chip select, mode, and clock.
 - A transfer is atomic relative to other devices on the same bus.
 - The caller supplies transmit and/or receive buffers, byte length, and timeout.
 - Null TX produces filler bytes; null RX discards received bytes.
-- When DMA is selected, the platform validates suitability or copies through an internal DMA-safe
-  buffer. Transfer buffers are allocated before acquisition and never allocated during steady state.
+- DMA-safe TX and double RX buffers are allocated before acquisition and never allocated during
+  steady state. Completed frames are copied into a fixed 256-entry producer/consumer ring before
+  the corresponding DMA buffer is reused.
 - The board supplies the initial and maximum clocks, and the platform reports the achieved
-  hardware clock. Rev-1 uses a fixed 20 MHz AD7779 clock.
+  hardware clock. The current diagnostic build uses fixed 20 MHz for both
+  register traffic and conversion reads. Fixed 8 MHz, 10 MHz, and 12 MHz missed
+  the current 16 kSPS DRDY-to-DMA deadline, while a longer 16 MHz capture lost
+  conversions during storage activity. Hardware-framed CS at 20 MHz preserves
+  throughput but does not eliminate CRC-marked phase errors, and the clock
+  remains above the limit implied by the datasheet's worst-case SDO
+  output-valid timing.
 - No SPI transfer occurs in a GPIO ISR.
 - AD7779 and LSM6DSV clock limits come from `board_config.h`, not from application code.
 
 The GPIO interrupt attach operation installs a handler but leaves the pin interrupt disabled. ADC
 DRDY is enabled explicitly only after AD7779 reset, synchronization, SRC update, and filter settling
-complete. DRDY edges produced during that deterministic startup interval are initialization events:
-they are neither sequenced nor recorded and do not raise acquisition errors.
+complete. DRDY edges produced before that point are not sequenced. Once enabled, DAT production is
+held until eight consecutive frames pass the ADC data CRC, so interface startup corruption is
+excluded without suppressing later integrity faults.
 
 ### I²C
 
@@ -182,7 +196,7 @@ Required milestone-1 operations:
 | Detect cards | Initialization or stopped acquisition | Sample both analog ID inputs and return slot/type/confidence |
 | Initialize/configure ADC | `task_acquisition` | Apply channel mask, gains, sample rate, CRC/header policy |
 | Start/stop ADC | `task_acquisition` | Perform the required board and AD7779 sequence |
-| Read one ADC frame | `task_acquisition` | Return one simultaneous frame and validation status |
+| Advance ADC capture | `task_acquisition` | On each queued DRDY event, finish the prior hardware-CS-framed 32-byte DMA burst, launch the next, and hand the completed simultaneous frame to the processing ring |
 | Set 18 V pulse-rail state | Magnetic-card module through a bound callback | Enable or disable the Rev-1 mainboard rail without exposing SH1_D |
 | Set one logical card pulse output | Magnetic-card module through a bound callback | Safely drive the selected slot's SET or RESET output without exposing SH2 positions |
 | Read/update safe shift image | `board` only | Maintain one 16-bit shadow and prevent unrelated-bit overwrite |
