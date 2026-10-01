@@ -54,8 +54,15 @@ acquisition hot path now reserves SPI2 and its DMA resources once and launches
 one hardware-CS-framed, prepared 32-byte transfer for each DRDY event. A
 dedicated core-1 capture task advances the two-buffer DMA pipeline and
 copies completed frames into a 256-frame ring; CRC validation, DAT construction,
-and storage handoff run independently on core 0. Storage writes use aligned 4
-KiB batches and periodic filesystem sync occurs every 512 records. A two-second
+and storage handoff run independently on core 0. SD recording now uses two
+2 MiB PSRAM buffers: acquisition fills one continuously while the storage task
+writes the other as one logical batch through a 32 KiB internal SDMMC staging
+window. A 50-second four-channel 8 kSPS probe crossed both 2 MiB boundaries
+without stopping acquisition or losing a conversion. The four-bit SDMMC bus
+runs at its verified 40 MHz high-speed setting; every completed buffer and the
+recording close are synchronized to the filesystem. The SD volume uses FAT32
+with 32 KiB clusters so FatFs can issue 32 KiB multi-sector writes instead of
+splitting at the former 4 KiB cluster boundaries. A two-second
 channels-0–3 probe at 16 kSPS retained all 32,840 consecutive conversions at
 625 x 100 ns spacing, with zero sequence gaps and an effective 16,000.04
 conversions/s. DAT production waits for eight consecutive ADC frames to pass

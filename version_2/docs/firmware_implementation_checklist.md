@@ -107,7 +107,7 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 |---|---|:---:|
 | FW-32 | Define ADC frame, block, status, flags, pulse request/result, and counter types from the interface contract | [x] |
 | FW-33 | Implement the 64-entry DRDY event ring and minimal falling-edge ISR | [x] |
-| FW-34 | Implement 64 fixed 512-byte SD records with free and ready queues; allocate everything before recording | [x] |
+| FW-34 | Implement two fixed 2 MiB PSRAM SD buffers with nonblocking ping-pong ownership; allocate both before recording | [x] |
 | FW-35 | Make `task_acquisition` the sole owner of ADC configuration, streaming, and pulse timing | [ ] |
 | FW-36 | Assign one timestamp and monotonically increasing sequence to each simultaneous conversion frame | [x] |
 | FW-37 | Preserve invalid frames, dropped counts, sequence gaps, ISR overflow, and pool exhaustion visibly | [ ] |

@@ -5,7 +5,7 @@
 - Status: Active interface guide; wire details defer to `shared/protocol/protocol.md`
 - Product version: V2
 - Initial target: two magnetic cards, eight synchronized AD7779 channels
-- Last updated: 2026-08-27
+- Last updated: 2026-10-01
 
 ## 1. Purpose and implementation scope
 
@@ -333,9 +333,10 @@ Milestone-1 task rules:
 
 - `task_acquisition` has higher priority than `task_communication`.
 - `task_acquisition` blocks on DRDY notification or its command queue, never on UART transmission.
-- `task_storage` is the sole filesystem owner. Acquisition obtains one fixed
-  512-byte buffer without waiting, submits only complete records, and never
-  waits for an SD write or sync.
+- `task_storage` is the sole filesystem owner. Acquisition obtains the next
+  512-byte slot in the active 2 MiB PSRAM buffer without waiting, submits only
+  complete records, and never waits for an SD write or sync. The storage task
+  writes the other PSRAM buffer while acquisition continues.
 - Live streaming uses its own fixed pool and never consumes or returns an SD
   recording buffer. Acquisition never waits for a live buffer or UART write.
 - Gain, sample-rate, and channel-mask changes are applied atomically while
@@ -354,8 +355,7 @@ Initial milestone-1 sizing:
 | Queue/pool | Producer | Consumer | Capacity | Full/empty behavior |
 |---|---|---|---:|---|
 | DRDY timestamp ring | `ADC_DRDY` ISR | Acquisition | 64 timestamps | Increment overflow count; preserve visible sequence gap |
-| Free SD-record pool | Storage returns buffers | Acquisition | 64 buffers × 512 bytes | Never block acquisition; count the dropped conversion and raise timing status when empty |
-| Ready SD records | Acquisition | Storage | 64 record references | Never block acquisition; preserve sequence gaps and timing-error status |
+| SD recording buffers | Acquisition | Storage | 2 buffers × 2 MiB PSRAM; 4,096 records per buffer | Ping-pong without blocking acquisition; if both buffers are unavailable, count dropped conversions and raise timing status |
 | Free live records | Communication returns buffers | Acquisition | 16 buffers × 512 bytes | Never block acquisition; count loss and raise timing status when empty |
 | Ready live records | Acquisition | Communication | 16 record references | Never block acquisition; communication returns every accepted record exactly once |
 | Acquisition commands | Communication | Acquisition | 8 requests | Reject new command as `BUSY` when full |
@@ -364,13 +364,23 @@ Initial milestone-1 sizing:
 
 Buffer rules:
 
-- Buffers are allocated before acquisition starts.
+- Both SD buffers are allocated from PSRAM before acquisition can start.
 - No heap allocation occurs in DRDY handling or steady-state acquisition.
-- Ownership transfers only through the free/ready queues.
-- A producer does not access a block after queueing it.
-- A consumer returns every accepted block exactly once.
+- Acquisition owns only the filling PSRAM buffer. Storage owns only a sealed
+  buffer while its write is in progress; a buffer is not reused until that
+  write returns.
+- The ESP32-S3 SDMMC path stages a logical PSRAM-buffer write through a bounded
+  aligned internal-memory window because this target cannot DMA directly from
+  PSRAM.
+- SDMMC operates at a verified fixed 40 MHz in four-bit mode. Complete 2 MiB
+  buffers are written and synchronized to the filesystem, and recording close
+  always performs a final sync.
+- Recording media should be FAT32 with 32 KiB clusters. FatFs clips direct
+  multi-sector writes at each cluster boundary; the previous 4 KiB format
+  multiplied low-level SD transactions by eight and extended each 2 MiB write
+  from about 0.3 s to about 1.7 s on the tested Cactus KS8GR-240M.
 - An acquisition command is not queued unless capacity for its result has already been reserved.
-- Recording queue sizing still requires sustained-rate and injected-SD-latency
+- Recording buffering still requires long-duration and injected-SD-latency
   validation. The 16-record live pool passed short Rev-1 probes at 1 kSPS;
   sustained-rate and link-capacity validation remains open.
 - At rates that exceed the negotiated transport configuration, raw frames may be intentionally
@@ -431,7 +441,7 @@ Startup:
 4. Shift and latch the safe 16-bit image, then enable shift outputs.
 5. Fix the SD mux toward the ESP32 and hold USB2641 reset.
 6. Detect both card slots.
-7. Create the fixed 512-byte storage pool and task command queues.
+7. Allocate the two fixed 2 MiB PSRAM storage buffers and create the task command queues.
 8. Start `task_acquisition`; hardware stays powered down until a recording or live-stream request.
 9. Start `task_storage`, mount the fixed ESP32 SD path, and publish media state.
 10. Start `task_communication` for UART-to-USB commands.
