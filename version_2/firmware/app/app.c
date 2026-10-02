@@ -90,6 +90,7 @@ fw_status_t app_start(fw_error_context_t *error)
         .apply_device_config = device_configuration_apply,
         .streaming_start = recording_controller_streaming_start,
         .streaming_stop = recording_controller_streaming_stop,
+        .magnetic_pulse = recording_controller_magnetic_pulse,
         .stream_record_take = task_acquisition_stream_record_take,
         .stream_record_release = task_acquisition_stream_record_release,
         .recording_start = recording_controller_start,

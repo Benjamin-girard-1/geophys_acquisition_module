@@ -86,8 +86,9 @@ fw_status_t device_configuration_get(
 /**
  * Validate and atomically apply currently supported writable fields.
  *
- * ADC rate, mask, and gains are accepted while stopped. Rail and IMU changes
- * remain unsupported until their runtime owners and sequencing are present.
+ * ADC rate, mask, gains, and the three acquisition-rail states are accepted
+ * while stopped. +5 VA has no Rev-1 software enable, +18 V remains owned by
+ * the pulse path, and IMU changes remain unsupported.
  */
 fw_status_t device_configuration_apply(
     const device_configuration_update_t *update,

@@ -9,16 +9,21 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "platform_memory.h"
 #include "platform_storage.h"
 
 #define TASK_STORAGE_STACK_SIZE_BYTES UINT32_C(8192)
 #define TASK_STORAGE_PRIORITY (tskIDLE_PRIORITY + 1U)
-#define TASK_STORAGE_RECORD_BUFFER_COUNT UINT8_C(64)
+#define TASK_STORAGE_PSRAM_BUFFER_COUNT UINT8_C(2)
+#define TASK_STORAGE_PSRAM_BUFFER_SIZE_BYTES (2U * 1024U * 1024U)
+#define TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER \
+    (TASK_STORAGE_PSRAM_BUFFER_SIZE_BYTES / ADC_RECORD_SIZE_BYTES)
+#define TASK_STORAGE_INVALID_BUFFER_INDEX UINT8_MAX
 #define TASK_STORAGE_COMMAND_QUEUE_LENGTH UINT8_C(4)
 #define TASK_STORAGE_RESPONSE_QUEUE_LENGTH UINT8_C(4)
 #define TASK_STORAGE_COMMAND_TIMEOUT_MS UINT32_C(10000)
-#define TASK_STORAGE_SYNC_INTERVAL_RECORDS UINT32_C(512)
-#define TASK_STORAGE_RECORD_WRITE_BATCH_SIZE UINT8_C(8)
+#define TASK_STORAGE_SYNC_INTERVAL_RECORDS \
+    TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER
 #define TASK_STORAGE_RECORDING_DIRECTORY "/recordings"
 #define TASK_STORAGE_RECORDING_PATH_SIZE_BYTES UINT8_C(48)
 
@@ -55,32 +60,45 @@ typedef struct {
     uint32_t size_bytes;
 } catalog_entry_t;
 
+typedef enum {
+    RECORD_BUFFER_FREE = 0,
+    RECORD_BUFFER_FILLING,
+    RECORD_BUFFER_READY,
+    RECORD_BUFFER_WRITING,
+} record_buffer_state_t;
+
+typedef struct {
+    uint8_t *data;
+    uint32_t committed_records;
+    uint32_t order;
+    record_buffer_state_t state;
+} record_buffer_t;
+
 typedef struct {
     task_storage_config_t config;
     platform_storage_t *storage;
     platform_storage_file_t *active_file;
-    QueueHandle_t free_records;
-    QueueHandle_t ready_records;
     QueueHandle_t commands;
     QueueHandle_t responses;
     TaskHandle_t task_handle;
+    record_buffer_t record_buffers[TASK_STORAGE_PSRAM_BUFFER_COUNT];
     catalog_entry_t catalog[TASK_STORAGE_RECORDING_MAX_COUNT];
     uint16_t catalog_count;
     char active_name[TASK_STORAGE_RECORDING_NAME_SIZE_BYTES];
     uint32_t active_size_bytes;
     uint32_t records_since_sync;
+    uint32_t next_buffer_order;
+    uint32_t acquired_record_index;
+    uint8_t filling_buffer_index;
+    uint8_t acquired_buffer_index;
     volatile task_storage_media_state_t media_state;
     volatile bool recording_active;
+    bool record_acquired;
     bool started;
 } task_storage_state_t;
 
 static task_storage_state_t s_storage;
-static uint8_t s_record_buffers[TASK_STORAGE_RECORD_BUFFER_COUNT]
-                               [ADC_RECORD_SIZE_BYTES]
-                               __attribute__((aligned(4)));
-static uint8_t s_write_batch[TASK_STORAGE_RECORD_WRITE_BATCH_SIZE]
-                            [ADC_RECORD_SIZE_BYTES]
-                            __attribute__((aligned(4)));
+static portMUX_TYPE s_record_buffer_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_next_command_identifier;
 
 _Static_assert(TASK_STORAGE_RECORDING_NAME_SIZE_BYTES == 32U,
@@ -89,6 +107,9 @@ _Static_assert(TASK_STORAGE_RECORDING_MAX_COUNT == 255U,
                "recording limit must match the wire protocol");
 _Static_assert(TASK_STORAGE_READ_CHUNK_SIZE_BYTES == 38U,
                "temporary read chunks must fit one command payload");
+_Static_assert((TASK_STORAGE_PSRAM_BUFFER_SIZE_BYTES %
+                ADC_RECORD_SIZE_BYTES) == 0U,
+               "PSRAM buffers must contain complete ADC records");
 
 static void clear_error(fw_error_context_t *error)
 {
@@ -283,18 +304,164 @@ static fw_status_t catalog_refresh(fw_error_context_t *error)
     return status;
 }
 
+static void reset_record_buffers_locked(void)
+{
+    for (uint8_t index = 0U;
+         index < TASK_STORAGE_PSRAM_BUFFER_COUNT;
+         index++) {
+        s_storage.record_buffers[index].committed_records = 0U;
+        s_storage.record_buffers[index].order = 0U;
+        s_storage.record_buffers[index].state = RECORD_BUFFER_FREE;
+    }
+    s_storage.filling_buffer_index = TASK_STORAGE_INVALID_BUFFER_INDEX;
+    s_storage.acquired_buffer_index = TASK_STORAGE_INVALID_BUFFER_INDEX;
+    s_storage.acquired_record_index = 0U;
+    s_storage.next_buffer_order = 0U;
+    s_storage.record_acquired = false;
+}
+
+static bool activate_free_buffer_locked(void)
+{
+    if (s_storage.filling_buffer_index !=
+        TASK_STORAGE_INVALID_BUFFER_INDEX) {
+        return true;
+    }
+    for (uint8_t index = 0U;
+         index < TASK_STORAGE_PSRAM_BUFFER_COUNT;
+         index++) {
+        record_buffer_t *buffer = &s_storage.record_buffers[index];
+        if (buffer->state != RECORD_BUFFER_FREE) {
+            continue;
+        }
+        buffer->committed_records = 0U;
+        buffer->order = s_storage.next_buffer_order++;
+        buffer->state = RECORD_BUFFER_FILLING;
+        s_storage.filling_buffer_index = index;
+        return true;
+    }
+    return false;
+}
+
+static void start_record_buffers(void)
+{
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    reset_record_buffers_locked();
+    (void)activate_free_buffer_locked();
+    s_storage.recording_active = true;
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+}
+
+static void discard_record_buffers(void)
+{
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    s_storage.recording_active = false;
+    reset_record_buffers_locked();
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+}
+
+static bool seal_record_buffers(void)
+{
+    bool sealed = false;
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    if (!s_storage.record_acquired) {
+        if (s_storage.filling_buffer_index !=
+            TASK_STORAGE_INVALID_BUFFER_INDEX) {
+            record_buffer_t *buffer = &s_storage.record_buffers[
+                s_storage.filling_buffer_index];
+            buffer->state = (buffer->committed_records == 0U) ?
+                RECORD_BUFFER_FREE : RECORD_BUFFER_READY;
+            s_storage.filling_buffer_index =
+                TASK_STORAGE_INVALID_BUFFER_INDEX;
+        }
+        s_storage.recording_active = false;
+        sealed = true;
+    }
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+    return sealed;
+}
+
+static bool claim_oldest_ready_buffer(uint8_t *index,
+                                      uint8_t **data,
+                                      size_t *size_bytes)
+{
+    bool found = false;
+    uint8_t oldest = TASK_STORAGE_INVALID_BUFFER_INDEX;
+    uint32_t oldest_order = 0U;
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    for (uint8_t candidate = 0U;
+         candidate < TASK_STORAGE_PSRAM_BUFFER_COUNT;
+         candidate++) {
+        const record_buffer_t *buffer =
+            &s_storage.record_buffers[candidate];
+        if (buffer->state == RECORD_BUFFER_READY &&
+            (oldest == TASK_STORAGE_INVALID_BUFFER_INDEX ||
+             buffer->order < oldest_order)) {
+            oldest = candidate;
+            oldest_order = buffer->order;
+        }
+    }
+    if (oldest != TASK_STORAGE_INVALID_BUFFER_INDEX) {
+        record_buffer_t *buffer = &s_storage.record_buffers[oldest];
+        buffer->state = RECORD_BUFFER_WRITING;
+        *index = oldest;
+        *data = buffer->data;
+        *size_bytes =
+            (size_t)buffer->committed_records * ADC_RECORD_SIZE_BYTES;
+        found = true;
+    }
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+    return found;
+}
+
+static void release_written_buffer(uint8_t index)
+{
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    record_buffer_t *buffer = &s_storage.record_buffers[index];
+    buffer->committed_records = 0U;
+    buffer->state = RECORD_BUFFER_FREE;
+    if (s_storage.recording_active) {
+        (void)activate_free_buffer_locked();
+    }
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+}
+
+static bool ready_buffer_available(void)
+{
+    bool ready = false;
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    for (uint8_t index = 0U;
+         index < TASK_STORAGE_PSRAM_BUFFER_COUNT;
+         index++) {
+        if (s_storage.record_buffers[index].state == RECORD_BUFFER_READY) {
+            ready = true;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+    return ready;
+}
+
+static uint32_t buffered_size_bytes(void)
+{
+    uint32_t size_bytes = 0U;
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    for (uint8_t index = 0U;
+         index < TASK_STORAGE_PSRAM_BUFFER_COUNT;
+         index++) {
+        size_bytes += s_storage.record_buffers[index].committed_records *
+                      ADC_RECORD_SIZE_BYTES;
+    }
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+    return size_bytes;
+}
+
 static void fail_active_recording(fw_status_t failure_status)
 {
-    s_storage.recording_active = false;
+    discard_record_buffers();
     if (s_storage.config.recording_failed != NULL) {
         s_storage.config.recording_failed(failure_status);
     }
 
-    uint8_t *queued_record = NULL;
-    while (xQueueReceive(s_storage.ready_records,
-                         &queued_record, 0U) == pdTRUE) {
-        (void)xQueueSend(s_storage.free_records, &queued_record, 0U);
-    }
     if (s_storage.active_file != NULL) {
         (void)platform_storage_file_truncate(
             s_storage.active_file, s_storage.active_size_bytes, NULL);
@@ -307,62 +474,57 @@ static void fail_active_recording(fw_status_t failure_status)
     s_storage.records_since_sync = 0U;
 }
 
-static fw_status_t drain_ready_records(size_t maximum_records,
-                                       fw_error_context_t *error)
+static fw_status_t write_one_ready_buffer(fw_error_context_t *error)
 {
-    size_t records_written = 0U;
-    while (maximum_records == 0U || records_written < maximum_records) {
-        uint8_t *records[TASK_STORAGE_RECORD_WRITE_BATCH_SIZE] = {0};
-        size_t batch_count = 0U;
-        while (batch_count < TASK_STORAGE_RECORD_WRITE_BATCH_SIZE &&
-               (maximum_records == 0U ||
-                records_written + batch_count < maximum_records) &&
-               xQueueReceive(s_storage.ready_records,
-                             &records[batch_count], 0U) == pdTRUE) {
-            memcpy(s_write_batch[batch_count], records[batch_count],
-                   ADC_RECORD_SIZE_BYTES);
-            batch_count++;
-        }
-        if (batch_count == 0U) {
-            break;
-        }
+    uint8_t index = TASK_STORAGE_INVALID_BUFFER_INDEX;
+    uint8_t *data = NULL;
+    size_t size_bytes = 0U;
+    if (!claim_oldest_ready_buffer(&index, &data, &size_bytes)) {
+        return FW_STATUS_OK;
+    }
 
-        const size_t batch_size_bytes =
-            batch_count * ADC_RECORD_SIZE_BYTES;
-        fw_status_t status = FW_STATUS_OK;
-        if (!s_storage.recording_active || s_storage.active_file == NULL) {
-            status = set_error(error, FW_STATUS_INVALID_STATE,
-                               FW_ERROR_OPERATION_WRITE, 0U);
-        } else if (s_storage.active_size_bytes >
-                   UINT32_MAX - batch_size_bytes) {
-            status = set_error(error, FW_STATUS_STORAGE_FULL,
-                               FW_ERROR_OPERATION_WRITE,
-                               s_storage.active_size_bytes);
-        } else {
-            status = platform_storage_file_write(
-                s_storage.active_file, &s_write_batch[0][0],
-                batch_size_bytes, error);
-        }
-        for (size_t index = 0U; index < batch_count; index++) {
-            (void)xQueueSend(s_storage.free_records, &records[index], 0U);
-        }
+    fw_status_t status = FW_STATUS_OK;
+    if (s_storage.active_file == NULL || size_bytes == 0U) {
+        status = set_error(error, FW_STATUS_INVALID_STATE,
+                           FW_ERROR_OPERATION_WRITE, (uint32_t)size_bytes);
+    } else if (s_storage.active_size_bytes > UINT32_MAX - size_bytes) {
+        status = set_error(error, FW_STATUS_STORAGE_FULL,
+                           FW_ERROR_OPERATION_WRITE,
+                           s_storage.active_size_bytes);
+    } else {
+        status = platform_storage_file_write(
+            s_storage.active_file, data, size_bytes, error);
+    }
+    if (status != FW_STATUS_OK) {
+        update_media_state(TASK_STORAGE_MEDIA_FAULTED);
+        fail_active_recording(status);
+        return status;
+    }
+
+    s_storage.active_size_bytes += (uint32_t)size_bytes;
+    s_storage.records_since_sync +=
+        (uint32_t)(size_bytes / ADC_RECORD_SIZE_BYTES);
+    release_written_buffer(index);
+
+    if (s_storage.records_since_sync >=
+        TASK_STORAGE_SYNC_INTERVAL_RECORDS) {
+        status = platform_storage_file_sync(s_storage.active_file, error);
         if (status != FW_STATUS_OK) {
             update_media_state(TASK_STORAGE_MEDIA_FAULTED);
             fail_active_recording(status);
             return status;
         }
-        s_storage.active_size_bytes += (uint32_t)batch_size_bytes;
-        records_written += batch_count;
-        s_storage.records_since_sync += batch_count;
-        if (s_storage.records_since_sync >=
-            TASK_STORAGE_SYNC_INTERVAL_RECORDS) {
-            status = platform_storage_file_sync(s_storage.active_file, error);
-            if (status != FW_STATUS_OK) {
-                update_media_state(TASK_STORAGE_MEDIA_FAULTED);
-                fail_active_recording(status);
-                return status;
-            }
-            s_storage.records_since_sync = 0U;
+        s_storage.records_since_sync = 0U;
+    }
+    return FW_STATUS_OK;
+}
+
+static fw_status_t drain_ready_buffers(fw_error_context_t *error)
+{
+    while (ready_buffer_available()) {
+        const fw_status_t status = write_one_ready_buffer(error);
+        if (status != FW_STATUS_OK) {
+            return status;
         }
     }
     return FW_STATUS_OK;
@@ -382,7 +544,12 @@ static fw_status_t close_active_file(bool delete_after_close,
                TASK_STORAGE_RECORDING_NAME_SIZE_BYTES);
     }
 
-    fw_status_t status = drain_ready_records(0U, error);
+    if (!seal_record_buffers()) {
+        return set_error(error, FW_STATUS_BUSY,
+                         FW_ERROR_OPERATION_CLOSE, 0U);
+    }
+
+    fw_status_t status = drain_ready_buffers(error);
     if (status == FW_STATUS_OK) {
         status = platform_storage_file_sync(s_storage.active_file, error);
     }
@@ -394,7 +561,6 @@ static fw_status_t close_active_file(bool delete_after_close,
             s_storage.active_file, &close_error);
     }
     s_storage.active_file = NULL;
-    s_storage.recording_active = false;
 
     if (status == FW_STATUS_OK && close_status != FW_STATUS_OK) {
         status = close_status;
@@ -471,7 +637,7 @@ static void handle_command(const storage_command_t *command,
                sizeof(s_storage.active_name));
         s_storage.active_size_bytes = 0U;
         s_storage.records_since_sync = 0U;
-        s_storage.recording_active = true;
+        start_record_buffers();
         memcpy(response->name, command->name, sizeof(response->name));
         break;
     }
@@ -506,10 +672,16 @@ static void handle_command(const storage_command_t *command,
         response->info.recording_in_progress =
             s_storage.recording_active &&
             strcmp(response->info.name, s_storage.active_name) == 0;
-        response->info.size_bytes =
-            response->info.recording_in_progress ?
-            s_storage.active_size_bytes :
-            s_storage.catalog[command->index].size_bytes;
+        if (response->info.recording_in_progress) {
+            const uint64_t logical_size =
+                (uint64_t)s_storage.active_size_bytes +
+                buffered_size_bytes();
+            response->info.size_bytes = (logical_size > UINT32_MAX) ?
+                UINT32_MAX : (uint32_t)logical_size;
+        } else {
+            response->info.size_bytes =
+                s_storage.catalog[command->index].size_bytes;
+        }
         response->info.start_unix_timestamp_us = 0U;
         break;
     case STORAGE_COMMAND_DELETE: {
@@ -644,10 +816,9 @@ static void storage_task_run(void *context)
             continue;
         }
 
-        (void)drain_ready_records(
-            TASK_STORAGE_RECORD_WRITE_BATCH_SIZE, NULL);
-        if (uxQueueMessagesWaiting(s_storage.ready_records) > 0U) {
-            /* Recheck commands before draining the next multi-sector batch. */
+        (void)write_one_ready_buffer(NULL);
+        if (ready_buffer_available()) {
+            /* Recheck commands before writing the next PSRAM buffer. */
             xTaskNotifyGive(s_storage.task_handle);
         }
     }
@@ -668,32 +839,54 @@ fw_status_t task_storage_start(const task_storage_config_t *config,
     memset(&s_storage, 0, sizeof(s_storage));
     s_storage.config = *config;
     s_storage.media_state = TASK_STORAGE_MEDIA_ABSENT;
-    s_storage.free_records = xQueueCreate(
-        TASK_STORAGE_RECORD_BUFFER_COUNT, sizeof(uint8_t *));
-    s_storage.ready_records = xQueueCreate(
-        TASK_STORAGE_RECORD_BUFFER_COUNT, sizeof(uint8_t *));
     s_storage.commands = xQueueCreate(
         TASK_STORAGE_COMMAND_QUEUE_LENGTH, sizeof(storage_command_t));
     s_storage.responses = xQueueCreate(
         TASK_STORAGE_RESPONSE_QUEUE_LENGTH, sizeof(storage_response_t));
-    if (s_storage.free_records == NULL || s_storage.ready_records == NULL ||
-        s_storage.commands == NULL || s_storage.responses == NULL) {
+    if (s_storage.commands == NULL || s_storage.responses == NULL) {
         return set_error(error, FW_STATUS_INTERNAL,
                          FW_ERROR_OPERATION_INITIALIZE, 0U);
     }
     for (uint8_t index = 0U;
-         index < TASK_STORAGE_RECORD_BUFFER_COUNT;
+         index < TASK_STORAGE_PSRAM_BUFFER_COUNT;
          index++) {
-        uint8_t *record = s_record_buffers[index];
-        if (xQueueSend(s_storage.free_records, &record, 0U) != pdTRUE) {
+        s_storage.record_buffers[index].data =
+            platform_memory_allocate_external(
+                TASK_STORAGE_PSRAM_BUFFER_SIZE_BYTES, 64U);
+        if (s_storage.record_buffers[index].data == NULL) {
+            for (uint8_t allocated = 0U;
+                 allocated < index;
+                 allocated++) {
+                platform_memory_free(
+                    s_storage.record_buffers[allocated].data);
+                s_storage.record_buffers[allocated].data = NULL;
+            }
+            vQueueDelete(s_storage.commands);
+            vQueueDelete(s_storage.responses);
+            s_storage.commands = NULL;
+            s_storage.responses = NULL;
             return set_error(error, FW_STATUS_INTERNAL,
-                             FW_ERROR_OPERATION_INITIALIZE, index);
+                             FW_ERROR_OPERATION_INITIALIZE,
+                             TASK_STORAGE_PSRAM_BUFFER_SIZE_BYTES);
         }
     }
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    reset_record_buffers_locked();
+    portEXIT_CRITICAL(&s_record_buffer_lock);
     if (xTaskCreate(storage_task_run, "storage",
                     TASK_STORAGE_STACK_SIZE_BYTES, NULL,
                     TASK_STORAGE_PRIORITY,
                     &s_storage.task_handle) != pdPASS) {
+        for (uint8_t index = 0U;
+             index < TASK_STORAGE_PSRAM_BUFFER_COUNT;
+             index++) {
+            platform_memory_free(s_storage.record_buffers[index].data);
+            s_storage.record_buffers[index].data = NULL;
+        }
+        vQueueDelete(s_storage.commands);
+        vQueueDelete(s_storage.responses);
+        s_storage.commands = NULL;
+        s_storage.responses = NULL;
         return set_error(error, FW_STATUS_INTERNAL,
                          FW_ERROR_OPERATION_INITIALIZE,
                          TASK_STORAGE_STACK_SIZE_BYTES);
@@ -865,15 +1058,38 @@ fw_status_t task_storage_record_acquire(
                          FW_ERROR_OPERATION_READ, 0U);
     }
     *record = NULL;
-    if (!s_storage.started || !s_storage.recording_active) {
+    if (!s_storage.started) {
         return set_error(error, FW_STATUS_INVALID_STATE,
                          FW_ERROR_OPERATION_READ, 0U);
     }
-    if (xQueueReceive(s_storage.free_records, record, 0U) != pdTRUE) {
-        return set_error(error, FW_STATUS_OVERFLOW,
-                         FW_ERROR_OPERATION_READ, 0U);
+
+    fw_status_t status = FW_STATUS_OK;
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    if (!s_storage.recording_active) {
+        status = FW_STATUS_INVALID_STATE;
+    } else if (s_storage.record_acquired) {
+        status = FW_STATUS_INVALID_STATE;
+    } else if (!activate_free_buffer_locked()) {
+        status = FW_STATUS_OVERFLOW;
+    } else {
+        const uint8_t index = s_storage.filling_buffer_index;
+        record_buffer_t *buffer = &s_storage.record_buffers[index];
+        if (buffer->state != RECORD_BUFFER_FILLING ||
+            buffer->committed_records >=
+                TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER) {
+            status = FW_STATUS_INTERNAL;
+        } else {
+            s_storage.record_acquired = true;
+            s_storage.acquired_buffer_index = index;
+            s_storage.acquired_record_index = buffer->committed_records;
+            *record = buffer->data +
+                ((size_t)buffer->committed_records *
+                 ADC_RECORD_SIZE_BYTES);
+        }
     }
-    return FW_STATUS_OK;
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+    return (status == FW_STATUS_OK) ? FW_STATUS_OK :
+        set_error(error, status, FW_ERROR_OPERATION_READ, 0U);
 }
 
 fw_status_t task_storage_record_submit(uint8_t *record,
@@ -884,21 +1100,75 @@ fw_status_t task_storage_record_submit(uint8_t *record,
         return set_error(error, FW_STATUS_INVALID_ARGUMENT,
                          FW_ERROR_OPERATION_WRITE, 0U);
     }
-    if (!s_storage.recording_active ||
-        xQueueSend(s_storage.ready_records, &record, 0U) != pdTRUE) {
-        task_storage_record_release(record);
-        return set_error(error, FW_STATUS_OVERFLOW,
-                         FW_ERROR_OPERATION_WRITE, 0U);
+
+    fw_status_t status = FW_STATUS_OK;
+    bool buffer_ready = false;
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    if (!s_storage.recording_active || !s_storage.record_acquired) {
+        status = FW_STATUS_INVALID_STATE;
+    } else if (s_storage.acquired_buffer_index >=
+               TASK_STORAGE_PSRAM_BUFFER_COUNT) {
+        status = FW_STATUS_INTERNAL;
+    } else {
+        const uint8_t index = s_storage.acquired_buffer_index;
+        record_buffer_t *buffer = &s_storage.record_buffers[index];
+        uint8_t *expected = buffer->data +
+            ((size_t)s_storage.acquired_record_index *
+             ADC_RECORD_SIZE_BYTES);
+        if (record != expected || buffer->state != RECORD_BUFFER_FILLING ||
+            buffer->committed_records !=
+                s_storage.acquired_record_index) {
+            status = FW_STATUS_INVALID_ARGUMENT;
+        } else {
+            buffer->committed_records++;
+            s_storage.record_acquired = false;
+            s_storage.acquired_buffer_index =
+                TASK_STORAGE_INVALID_BUFFER_INDEX;
+            s_storage.acquired_record_index = 0U;
+            if (buffer->committed_records ==
+                TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER) {
+                buffer->state = RECORD_BUFFER_READY;
+                s_storage.filling_buffer_index =
+                    TASK_STORAGE_INVALID_BUFFER_INDEX;
+                (void)activate_free_buffer_locked();
+                buffer_ready = true;
+            }
+        }
     }
-    xTaskNotifyGive(s_storage.task_handle);
+    portEXIT_CRITICAL(&s_record_buffer_lock);
+
+    if (status != FW_STATUS_OK) {
+        task_storage_record_release(record);
+        return set_error(error, status, FW_ERROR_OPERATION_WRITE, 0U);
+    }
+    if (buffer_ready) {
+        xTaskNotifyGive(s_storage.task_handle);
+    }
     return FW_STATUS_OK;
 }
 
 void task_storage_record_release(uint8_t *record)
 {
-    if (record != NULL && s_storage.free_records != NULL) {
-        (void)xQueueSend(s_storage.free_records, &record, 0U);
+    if (record == NULL) {
+        return;
     }
+    portENTER_CRITICAL(&s_record_buffer_lock);
+    if (s_storage.record_acquired &&
+        s_storage.acquired_buffer_index <
+            TASK_STORAGE_PSRAM_BUFFER_COUNT) {
+        const record_buffer_t *buffer = &s_storage.record_buffers[
+            s_storage.acquired_buffer_index];
+        const uint8_t *expected = buffer->data +
+            ((size_t)s_storage.acquired_record_index *
+             ADC_RECORD_SIZE_BYTES);
+        if (record == expected) {
+            s_storage.record_acquired = false;
+            s_storage.acquired_buffer_index =
+                TASK_STORAGE_INVALID_BUFFER_INDEX;
+            s_storage.acquired_record_index = 0U;
+        }
+    }
+    portEXIT_CRITICAL(&s_record_buffer_lock);
 }
 
 task_storage_media_state_t task_storage_media_state(void)

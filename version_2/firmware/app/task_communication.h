@@ -23,6 +23,9 @@ typedef fw_status_t (*task_communication_streaming_start_callback_t)(
 typedef fw_status_t (*task_communication_streaming_stop_callback_t)(
     protocol_streaming_stop_result_t *result,
     fw_error_context_t *error);
+typedef fw_status_t (*task_communication_magnetic_pulse_callback_t)(
+    const protocol_magnetic_pulse_request_t *request,
+    fw_error_context_t *error);
 typedef fw_status_t (*task_communication_stream_record_take_callback_t)(
     uint8_t **record,
     fw_error_context_t *error);
@@ -61,6 +64,7 @@ typedef struct {
     task_communication_apply_device_config_callback_t apply_device_config;
     task_communication_streaming_start_callback_t streaming_start;
     task_communication_streaming_stop_callback_t streaming_stop;
+    task_communication_magnetic_pulse_callback_t magnetic_pulse;
     task_communication_stream_record_take_callback_t stream_record_take;
     task_communication_stream_record_release_callback_t stream_record_release;
     task_communication_recording_start_callback_t recording_start;

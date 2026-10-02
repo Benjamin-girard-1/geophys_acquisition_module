@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "board.h"
 #include "freertos/FreeRTOS.h"
 #include "platform_time.h"
 
@@ -78,6 +79,22 @@ static bool gain_is_valid(uint8_t gain)
            gain == UINT8_C(4) || gain == UINT8_C(8);
 }
 
+static device_card_type_t device_card_type_from_board(
+    board_card_type_t type)
+{
+    switch (type) {
+    case BOARD_CARD_TYPE_MAGNETIC:
+        return DEVICE_CARD_MAGNETIC;
+    case BOARD_CARD_TYPE_ACC_GEOPH:
+        return DEVICE_CARD_ACC_GEOPH;
+    case BOARD_CARD_TYPE_UNKNOWN:
+    case BOARD_CARD_TYPE_ABSENT:
+    case BOARD_CARD_TYPE_RESISTIVITY:
+    default:
+        return DEVICE_CARD_ABSENT;
+    }
+}
+
 fw_status_t device_configuration_initialize(fw_error_context_t *error)
 {
     clear_error(error);
@@ -99,6 +116,23 @@ fw_status_t device_configuration_initialize(fw_error_context_t *error)
     s_device_configuration.snapshot.gnss_state = DEVICE_GNSS_DISABLED;
     s_device_configuration.snapshot.imu_state = DEVICE_IMU_DISABLED;
     s_device_configuration.snapshot.sd_card_state = DEVICE_SD_CARD_ABSENT;
+
+    for (size_t index = 0U; index < 2U; index++) {
+        board_card_type_t board_type = BOARD_CARD_TYPE_UNKNOWN;
+        board_card_id_measurement_t measurement;
+        const fw_status_t status = board_detect_card(
+            (index == 0U) ? BOARD_CARD_SLOT_1 : BOARD_CARD_SLOT_2,
+            &board_type,
+            &measurement,
+            error);
+        if (status != FW_STATUS_OK) {
+            memset(&s_device_configuration, 0,
+                   sizeof(s_device_configuration));
+            return status;
+        }
+        s_device_configuration.snapshot.card_slots[index] =
+            device_card_type_from_board(board_type);
+    }
     s_device_configuration.initialized = true;
     return FW_STATUS_OK;
 }
@@ -121,6 +155,18 @@ fw_status_t device_configuration_get(
     portENTER_CRITICAL(&s_device_configuration_lock);
     *snapshot = s_device_configuration.snapshot;
     portEXIT_CRITICAL(&s_device_configuration_lock);
+
+    board_power_rail_state_t rail_state;
+    fw_status_t status = board_get_power_rail_state(&rail_state, error);
+    if (status != FW_STATUS_OK) {
+        memset(snapshot, 0, sizeof(*snapshot));
+        return status;
+    }
+    snapshot->rail_3v3_enabled = rail_state.rail_3v3a_enabled;
+    snapshot->rail_9v_enabled = rail_state.rail_10v_enabled;
+    snapshot->rail_negative_5v_enabled =
+        rail_state.rail_negative_5v_enabled;
+    snapshot->rail_18v_enabled = rail_state.rail_18v_enabled;
     return platform_monotonic_time_100ns(&snapshot->timestamp_100ns, error);
 }
 
@@ -161,21 +207,19 @@ fw_status_t device_configuration_apply(
                          FW_ERROR_OPERATION_CONFIGURE, 0U);
     }
 
-    /*
-     * These fields are wire-writable, but their safe runtime owners are not
-     * implemented. Reject the complete update if any one would change so the
-     * ADC subset is never partially committed.
-     */
-    if (update->rail_3v3_enabled !=
-            s_device_configuration.snapshot.rail_3v3_enabled ||
-        update->rail_5v_enabled !=
+    board_power_rail_state_t rail_state;
+    const fw_status_t rail_status = board_get_power_rail_state(
+        &rail_state, error);
+    if (rail_status != FW_STATUS_OK) {
+        portEXIT_CRITICAL(&s_device_configuration_lock);
+        return rail_status;
+    }
+
+    /* +5 VA has no Rev-1 enable, and +18 V belongs to pulse control. */
+    if (update->rail_5v_enabled !=
             s_device_configuration.snapshot.rail_5v_enabled ||
-        update->rail_9v_enabled !=
-            s_device_configuration.snapshot.rail_9v_enabled ||
-        update->rail_negative_5v_enabled !=
-            s_device_configuration.snapshot.rail_negative_5v_enabled ||
         update->rail_18v_enabled !=
-            s_device_configuration.snapshot.rail_18v_enabled ||
+            rail_state.rail_18v_enabled ||
         update->imu_averaging_time_ms !=
             s_device_configuration.snapshot.imu_averaging_time_ms) {
         portEXIT_CRITICAL(&s_device_configuration_lock);
@@ -183,6 +227,20 @@ fw_status_t device_configuration_apply(
                          FW_ERROR_OPERATION_CONFIGURE, 0U);
     }
 
+    portEXIT_CRITICAL(&s_device_configuration_lock);
+
+    const board_acquisition_power_state_t requested_power = {
+        .rail_3v3a_enabled = update->rail_3v3_enabled,
+        .rail_10v_enabled = update->rail_9v_enabled,
+        .rail_negative_5v_enabled = update->rail_negative_5v_enabled,
+    };
+    const fw_status_t apply_status = board_set_acquisition_power_state(
+        &requested_power, error);
+    if (apply_status != FW_STATUS_OK) {
+        return apply_status;
+    }
+
+    portENTER_CRITICAL(&s_device_configuration_lock);
     s_device_configuration.snapshot.adc_sample_rate_sps =
         update->adc_sample_rate_sps;
     s_device_configuration.snapshot.adc_channel_mask =
@@ -190,6 +248,12 @@ fw_status_t device_configuration_apply(
     memcpy(s_device_configuration.snapshot.adc_gains,
            update->adc_gains,
            sizeof(s_device_configuration.snapshot.adc_gains));
+    s_device_configuration.snapshot.rail_3v3_enabled =
+        update->rail_3v3_enabled;
+    s_device_configuration.snapshot.rail_9v_enabled =
+        update->rail_9v_enabled;
+    s_device_configuration.snapshot.rail_negative_5v_enabled =
+        update->rail_negative_5v_enabled;
     portEXIT_CRITICAL(&s_device_configuration_lock);
     return FW_STATUS_OK;
 }
@@ -214,9 +278,5 @@ void device_configuration_set_acquisition_state(bool active,
     portENTER_CRITICAL(&s_device_configuration_lock);
     s_device_configuration.acquisition_active = active;
     s_device_configuration.snapshot.recording_in_progress = recording;
-    s_device_configuration.snapshot.rail_3v3_enabled = active;
-    s_device_configuration.snapshot.rail_9v_enabled = active;
-    s_device_configuration.snapshot.rail_negative_5v_enabled = active;
-    s_device_configuration.snapshot.rail_18v_enabled = false;
     portEXIT_CRITICAL(&s_device_configuration_lock);
 }

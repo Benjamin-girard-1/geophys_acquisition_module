@@ -7,6 +7,7 @@
 #include "adc_record.h"
 #include "ad7779.h"
 #include "board.h"
+#include "card_magnetic.h"
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -35,6 +36,7 @@ typedef enum {
     ACQUISITION_COMMAND_STOP,
     ACQUISITION_COMMAND_STREAMING_START,
     ACQUISITION_COMMAND_STREAMING_STOP,
+    ACQUISITION_COMMAND_MAGNETIC_PULSE,
 } acquisition_command_operation_t;
 
 typedef struct {
@@ -43,6 +45,8 @@ typedef struct {
     task_acquisition_recording_config_t config;
     uint8_t streaming_decimation;
     uint8_t streaming_channel_mask;
+    pulse_card_slot_t pulse_slot;
+    pulse_operation_t pulse_operation;
 } acquisition_command_t;
 
 typedef struct {
@@ -180,6 +184,84 @@ static bool recording_config_is_valid(
         }
     }
     return true;
+}
+
+static fw_status_t set_pulse_18v_rail(
+    void *context,
+    bool enabled,
+    fw_error_context_t *error)
+{
+    (void)context;
+    return board_set_power_rail(
+        BOARD_POWER_RAIL_18V, enabled, error);
+}
+
+static fw_status_t set_pulse_output(
+    void *context,
+    card_magnetic_slot_t slot,
+    card_magnetic_operation_t operation,
+    bool enabled,
+    fw_error_context_t *error)
+{
+    (void)context;
+    return board_set_magnetic_pulse_output(
+        (slot == CARD_MAGNETIC_SLOT_1) ?
+            BOARD_CARD_SLOT_1 : BOARD_CARD_SLOT_2,
+        (operation == CARD_MAGNETIC_OPERATION_SET) ?
+            BOARD_MAGNETIC_PULSE_SET : BOARD_MAGNETIC_PULSE_RESET,
+        enabled,
+        error);
+}
+
+static fw_status_t set_pulse_outputs_safe(
+    void *context,
+    fw_error_context_t *error)
+{
+    (void)context;
+    return board_magnetic_pulse_outputs_safe(error);
+}
+
+static void delay_pulse_us(void *context, uint32_t duration_us)
+{
+    (void)context;
+    platform_delay_ms(duration_us / UINT32_C(1000));
+    platform_delay_us(duration_us % UINT32_C(1000));
+}
+
+static fw_status_t perform_magnetic_pulse(
+    pulse_card_slot_t slot,
+    pulse_operation_t operation,
+    fw_error_context_t *error)
+{
+    if (s_acquisition.active) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_ENABLE, (uint32_t)operation);
+    }
+    if ((slot != PULSE_CARD_SLOT_1 && slot != PULSE_CARD_SLOT_2) ||
+        (operation != PULSE_OPERATION_SET &&
+         operation != PULSE_OPERATION_RESET)) {
+        return set_error(
+            error, FW_STATUS_INVALID_ARGUMENT,
+            FW_ERROR_OPERATION_ENABLE,
+            ((uint32_t)slot << 16U) | (uint32_t)operation);
+    }
+
+    const card_magnetic_config_t config = {
+        .set_18v_rail = set_pulse_18v_rail,
+        .set_output = set_pulse_output,
+        .outputs_safe = set_pulse_outputs_safe,
+        .delay_us = delay_pulse_us,
+        .context = NULL,
+        .rail_settling_us = CARD_MAGNETIC_RAIL_SETTLING_US,
+        .control_pulse_us = CARD_MAGNETIC_CONTROL_PULSE_US,
+    };
+    return card_magnetic_pulse(
+        &config,
+        (slot == PULSE_CARD_SLOT_1) ?
+            CARD_MAGNETIC_SLOT_1 : CARD_MAGNETIC_SLOT_2,
+        (operation == PULSE_OPERATION_SET) ?
+            CARD_MAGNETIC_OPERATION_SET : CARD_MAGNETIC_OPERATION_RESET,
+        error);
 }
 
 static uint16_t pack_gains(
@@ -1016,6 +1098,12 @@ static void handle_command(const acquisition_command_t *command,
     case ACQUISITION_COMMAND_STREAMING_STOP:
         response->status = stop_streaming(&response->error);
         break;
+    case ACQUISITION_COMMAND_MAGNETIC_PULSE:
+        response->status = perform_magnetic_pulse(
+            command->pulse_slot,
+            command->pulse_operation,
+            &response->error);
+        break;
     default:
         response->status = set_error(
             &response->error, FW_STATUS_INTERNAL,
@@ -1215,6 +1303,19 @@ fw_status_t task_acquisition_streaming_stop(fw_error_context_t *error)
 {
     acquisition_command_t command = {
         .operation = ACQUISITION_COMMAND_STREAMING_STOP,
+    };
+    return execute_command(&command, error);
+}
+
+fw_status_t task_acquisition_magnetic_pulse(
+    pulse_card_slot_t slot,
+    pulse_operation_t operation,
+    fw_error_context_t *error)
+{
+    acquisition_command_t command = {
+        .operation = ACQUISITION_COMMAND_MAGNETIC_PULSE,
+        .pulse_slot = slot,
+        .pulse_operation = operation,
     };
     return execute_command(&command, error);
 }

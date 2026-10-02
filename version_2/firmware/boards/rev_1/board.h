@@ -19,11 +19,38 @@ typedef enum {
     BOARD_POWER_RAIL_18V,
 } board_power_rail_t;
 
+typedef struct {
+    bool rail_3v3a_enabled;
+    bool rail_10v_enabled;
+    bool rail_negative_5v_enabled;
+    bool rail_18v_enabled;
+} board_power_rail_state_t;
+
+typedef struct {
+    bool rail_3v3a_enabled;
+    bool rail_10v_enabled;
+    bool rail_negative_5v_enabled;
+} board_acquisition_power_state_t;
+
 typedef enum {
     BOARD_CARD_SLOT_INVALID = 0,
     BOARD_CARD_SLOT_1,
     BOARD_CARD_SLOT_2,
 } board_card_slot_t;
+
+typedef enum {
+    BOARD_CARD_TYPE_UNKNOWN = 0,
+    BOARD_CARD_TYPE_ABSENT,
+    BOARD_CARD_TYPE_MAGNETIC,
+    BOARD_CARD_TYPE_ACC_GEOPH,
+    BOARD_CARD_TYPE_RESISTIVITY,
+} board_card_type_t;
+
+typedef enum {
+    BOARD_MAGNETIC_PULSE_INVALID = 0,
+    BOARD_MAGNETIC_PULSE_SET,
+    BOARD_MAGNETIC_PULSE_RESET,
+} board_magnetic_pulse_t;
 
 typedef void (*board_adc_drdy_handler_t)(void *context);
 
@@ -59,6 +86,22 @@ fw_status_t board_set_power_rail(board_power_rail_t rail,
                                  bool enabled,
                                  fw_error_context_t *error);
 
+/** @brief Return the latched state of every software-controlled rail. */
+fw_status_t board_get_power_rail_state(
+    board_power_rail_state_t *state,
+    fw_error_context_t *error);
+
+/**
+ * @brief Apply independently requested acquisition-rail states safely.
+ *
+ * Rails that are being disabled are changed in reverse startup order. Rails
+ * that are being enabled are changed in startup order with the documented
+ * per-rail settling delay. The pulse-only 18 V rail is not affected.
+ */
+fw_status_t board_set_acquisition_power_state(
+    const board_acquisition_power_state_t *state,
+    fw_error_context_t *error);
+
 /**
  * @brief Measure one Rev-1 card-slot analog ID over the configured window.
  *
@@ -68,6 +111,28 @@ fw_status_t board_set_power_rail(board_power_rail_t rail,
 fw_status_t board_measure_card_id(
     board_card_slot_t slot,
     board_card_id_measurement_t *measurement,
+    fw_error_context_t *error);
+
+/** @brief Measure and classify one card using the Rev-1 ID network. */
+fw_status_t board_detect_card(
+    board_card_slot_t slot,
+    board_card_type_t *type,
+    board_card_id_measurement_t *measurement,
+    fw_error_context_t *error);
+
+/** @brief Force all four magnetic SET/RESET outputs inactive atomically. */
+fw_status_t board_magnetic_pulse_outputs_safe(fw_error_context_t *error);
+
+/**
+ * @brief Drive one logical magnetic pulse output with mutual exclusion.
+ *
+ * Enabling one output atomically clears every other SET/RESET output first.
+ * Disabling an output returns all pulse outputs to their safe state.
+ */
+fw_status_t board_set_magnetic_pulse_output(
+    board_card_slot_t slot,
+    board_magnetic_pulse_t pulse,
+    bool enabled,
     fw_error_context_t *error);
 
 /**
@@ -88,7 +153,7 @@ fw_status_t board_host_uart_initialize(platform_uart_t **uart,
 fw_status_t board_adc_initialize(ad7779_t *adc,
                                  fw_error_context_t *error);
 
-/** Power the acquisition rails and wait for the analog feedback loop. */
+/** Force the pulse path safe, then power and settle the acquisition rails. */
 fw_status_t board_adc_power_up(fw_error_context_t *error);
 
 /** Disable the acquisition rails after ADC deinitialization. */

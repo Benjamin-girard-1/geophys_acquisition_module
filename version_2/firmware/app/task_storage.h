@@ -75,7 +75,7 @@ fw_status_t task_storage_recording_read_chunk(
     task_storage_recording_chunk_t *chunk,
     fw_error_context_t *error);
 
-/** Nonblocking fixed-pool operations used only by task_acquisition. */
+/** Nonblocking PSRAM ping-pong record operations used only by acquisition. */
 fw_status_t task_storage_record_acquire(
     uint8_t **record,
     fw_error_context_t *error);

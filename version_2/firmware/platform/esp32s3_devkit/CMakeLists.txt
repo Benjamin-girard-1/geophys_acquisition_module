@@ -5,6 +5,7 @@ idf_component_register(
         "src/platform_device.c"
         "src/platform_error.c"
         "src/platform_gpio.c"
+        "src/platform_memory.c"
         "src/platform_spi.c"
         "src/platform_storage.c"
         "src/platform_time.c"

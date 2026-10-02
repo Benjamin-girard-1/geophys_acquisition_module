@@ -98,7 +98,7 @@
 
 /* Zero means unresolved and therefore unavailable for initialization. */
 #define BOARD_REV1_CARD_I2C_CLOCK_HZ            UINT32_C(0)
-#define BOARD_REV1_SDMMC_CLOCK_HZ               UINT32_C(20000000)
+#define BOARD_REV1_SDMMC_CLOCK_HZ               UINT32_C(40000000)
 #define BOARD_REV1_SDMMC_BUS_WIDTH              UINT8_C(4)
 
 /*

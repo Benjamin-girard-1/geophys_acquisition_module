@@ -9,8 +9,10 @@ is in flight, raw validated-block capture, live continuity/error counters, and
 a Tk desktop application with manual USB/COM selection. The desktop app has a
 recording catalog, embedded raw-channel plots, and a functional configuration
 tab. The configuration tab can change ADC sample rate, select slot 1 (channels
-0–3), slot 2 (channels 4–7), or both, and set each channel's gain. Serial work
-runs on a background thread so the window remains responsive.
+0–3), slot 2 (channels 4–7), or both, set each channel's gain, display the five
+device-reported power-rail states, and include manually requested rail states
+in `DEVICE_SET_CONFIG`. Serial work runs on a background thread so the window
+remains responsive.
 
 The connection selector also supports the first Bluetooth Low Energy slice.
 It scans for `Geophys Acquisition`, connects, sends `HELLO`, and displays the
@@ -48,16 +50,20 @@ Select the device's USB/COM port, leave the baud rate at `921600`, and click
 automatically. In the **Config** tab, select **Acquire this slot** for slot 1
 to use only channels 0–3, choose any required sample rate and gains, and click
 **Apply changes**. Configuration changes are available while recording and
-live streaming are stopped. Power-rail and IMU fields are status-only because
-the current firmware does not apply those settings yet. ADC settings are
-runtime state and return to firmware defaults after a device reboot. Use the
-**Live Stream** tab to select channels and decimation, then click **Start live
-streaming**.
+live streaming are stopped. Power rails have separate **Reported** and
+**Manual request** columns; the reported state from the device is always
+authoritative. The +3.3 VA, +10 V / 9 VA, and -5 VA requests are applied by the
+firmware in the Rev-1 power sequence. +5 VA is status-only because Rev-1 has no
+software enable. +18 V is pulse-controlled: select a detected magnetic-card
+slot and SET or RESET, then click **Send pulse**. The button is available only
+while acquisition is stopped and no configuration edits are pending. IMU
+fields remain status-only.
+ADC settings are runtime state and return to firmware defaults after a device
+reboot. Use the **Live Stream** tab to select channels and decimation, then
+click **Start live streaming**.
 
-The shared protocol describes applying `DEVICE_SET_CONFIG` during a live
-stream, but the current Rev-1 firmware rejects changes whenever acquisition is
-active. The GUI follows the verified firmware behavior and therefore requires
-both live streaming and recording to be stopped before applying changes.
+The shared protocol and GUI require both live streaming and recording to be
+stopped before applying configuration changes or sending a magnetic pulse.
 Recording controls also require the device to report an SD card in the ready
 state. If an active recording stops asynchronously, the GUI now reports the
 stop explicitly, queries the retained failure through `RECORDING_STOP`, and

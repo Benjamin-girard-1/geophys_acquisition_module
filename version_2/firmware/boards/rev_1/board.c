@@ -348,6 +348,174 @@ fw_status_t board_set_power_rail(board_power_rail_t rail,
         &s_shift_register, (uint8_t)output, enabled, error);
 }
 
+fw_status_t board_get_power_rail_state(
+    board_power_rail_state_t *state,
+    fw_error_context_t *error)
+{
+    clear_error(error);
+    if (state == NULL) {
+        return set_board_error(
+            error, FW_STATUS_INVALID_ARGUMENT,
+            FW_ERROR_OPERATION_READ, 0U);
+    }
+    *state = (board_power_rail_state_t) {0};
+
+    uint16_t image = 0U;
+    fw_status_t status = hc595_get_shadow(
+        &s_shift_register, &image, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    bool outputs_enabled = false;
+    status = hc595_get_outputs_enabled(
+        &s_shift_register, &outputs_enabled, error);
+    if (status != FW_STATUS_OK || !outputs_enabled) {
+        return status;
+    }
+
+    state->rail_3v3a_enabled =
+        (image & BOARD_REV1_SHIFT_MASK(
+            BOARD_REV1_SHIFT_3V3A_ENABLE)) != 0U;
+    state->rail_10v_enabled =
+        (image & BOARD_REV1_SHIFT_MASK(
+            BOARD_REV1_SHIFT_10V_ENABLE)) != 0U;
+    state->rail_negative_5v_enabled =
+        (image & BOARD_REV1_SHIFT_MASK(
+            BOARD_REV1_SHIFT_NEGATIVE_5V_ENABLE)) != 0U;
+    state->rail_18v_enabled =
+        (image & BOARD_REV1_SHIFT_MASK(
+            BOARD_REV1_SHIFT_18V_ENABLE)) != 0U;
+    return FW_STATUS_OK;
+}
+
+static void disable_acquisition_power_best_effort(void)
+{
+    (void)board_set_power_rail(
+        BOARD_POWER_RAIL_NEGATIVE_5V, false, NULL);
+    (void)board_set_power_rail(BOARD_POWER_RAIL_10V, false, NULL);
+    (void)board_set_power_rail(BOARD_POWER_RAIL_3V3A, false, NULL);
+}
+
+static fw_status_t change_acquisition_rail(
+    board_power_rail_t rail,
+    bool requested,
+    bool *current,
+    fw_error_context_t *error)
+{
+    if (*current == requested) {
+        return FW_STATUS_OK;
+    }
+    const fw_status_t status = board_set_power_rail(
+        rail, requested, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    *current = requested;
+    if (requested) {
+        platform_delay_ms(BOARD_REV1_POWER_RAIL_SETTLING_MS);
+    }
+    return FW_STATUS_OK;
+}
+
+static fw_status_t disable_acquisition_rail_if_requested(
+    board_power_rail_t rail,
+    bool requested,
+    bool *current,
+    fw_error_context_t *error)
+{
+    if (!*current || requested) {
+        return FW_STATUS_OK;
+    }
+    return change_acquisition_rail(rail, false, current, error);
+}
+
+static fw_status_t enable_acquisition_rail_if_requested(
+    board_power_rail_t rail,
+    bool requested,
+    bool *current,
+    fw_error_context_t *error)
+{
+    if (*current || !requested) {
+        return FW_STATUS_OK;
+    }
+    return change_acquisition_rail(rail, true, current, error);
+}
+
+fw_status_t board_set_acquisition_power_state(
+    const board_acquisition_power_state_t *state,
+    fw_error_context_t *error)
+{
+    clear_error(error);
+    if (state == NULL) {
+        return set_board_error(
+            error, FW_STATUS_INVALID_ARGUMENT,
+            FW_ERROR_OPERATION_CONFIGURE, 0U);
+    }
+
+    board_power_rail_state_t current;
+    fw_status_t status = board_get_power_rail_state(&current, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    /* Disable in reverse startup order before enabling any requested rail. */
+    status = disable_acquisition_rail_if_requested(
+        BOARD_POWER_RAIL_NEGATIVE_5V,
+        state->rail_negative_5v_enabled,
+        &current.rail_negative_5v_enabled,
+        error);
+    if (status == FW_STATUS_OK) {
+        status = disable_acquisition_rail_if_requested(
+            BOARD_POWER_RAIL_10V,
+            state->rail_10v_enabled,
+            &current.rail_10v_enabled,
+            error);
+    }
+    if (status == FW_STATUS_OK) {
+        status = disable_acquisition_rail_if_requested(
+            BOARD_POWER_RAIL_3V3A,
+            state->rail_3v3a_enabled,
+            &current.rail_3v3a_enabled,
+            error);
+    }
+
+    /* Enable in startup order. Unchanged rails return immediately. */
+    if (status == FW_STATUS_OK) {
+        status = enable_acquisition_rail_if_requested(
+            BOARD_POWER_RAIL_3V3A,
+            state->rail_3v3a_enabled,
+            &current.rail_3v3a_enabled,
+            error);
+    }
+    if (status == FW_STATUS_OK) {
+        status = enable_acquisition_rail_if_requested(
+            BOARD_POWER_RAIL_10V,
+            state->rail_10v_enabled,
+            &current.rail_10v_enabled,
+            error);
+    }
+    if (status == FW_STATUS_OK) {
+        status = enable_acquisition_rail_if_requested(
+            BOARD_POWER_RAIL_NEGATIVE_5V,
+            state->rail_negative_5v_enabled,
+            &current.rail_negative_5v_enabled,
+            error);
+    }
+    if (status == FW_STATUS_OK) {
+        return FW_STATUS_OK;
+    }
+
+    fw_error_context_t original_error;
+    if (error != NULL) {
+        original_error = *error;
+    }
+    disable_acquisition_power_best_effort();
+    if (error != NULL) {
+        *error = original_error;
+    }
+    return status;
+}
+
 static fw_status_t initialize_card_id_inputs(fw_error_context_t *error)
 {
     if (s_card_id_inputs != NULL) {
@@ -444,6 +612,117 @@ fw_status_t board_measure_card_id(
     return FW_STATUS_OK;
 }
 
+fw_status_t board_detect_card(
+    board_card_slot_t slot,
+    board_card_type_t *type,
+    board_card_id_measurement_t *measurement,
+    fw_error_context_t *error)
+{
+    clear_error(error);
+    if (type == NULL || measurement == NULL) {
+        return set_card_id_error(
+            error, FW_STATUS_INVALID_ARGUMENT, FW_ERROR_OPERATION_READ,
+            (uint32_t)slot, 0U);
+    }
+    *type = BOARD_CARD_TYPE_UNKNOWN;
+    const fw_status_t status = board_measure_card_id(
+        slot, measurement, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    const uint32_t median_mv = measurement->median_mv;
+    if (median_mv >= BOARD_REV1_CARD_DETECT_NO_CARD_MIN_MV) {
+        *type = BOARD_CARD_TYPE_ABSENT;
+    } else if (median_mv >= BOARD_REV1_CARD_DETECT_MAGNETIC_MIN_MV) {
+        *type = BOARD_CARD_TYPE_MAGNETIC;
+    } else if (median_mv >= BOARD_REV1_CARD_DETECT_ACCEL_MIN_MV) {
+        *type = BOARD_CARD_TYPE_ACC_GEOPH;
+    } else if (median_mv >= BOARD_REV1_CARD_DETECT_RESISTIVITY_MIN_MV) {
+        *type = BOARD_CARD_TYPE_RESISTIVITY;
+    }
+    return FW_STATUS_OK;
+}
+
+fw_status_t board_magnetic_pulse_outputs_safe(fw_error_context_t *error)
+{
+    clear_error(error);
+    if (!s_board_initialized) {
+        return set_board_error(
+            error, FW_STATUS_NOT_INITIALIZED,
+            FW_ERROR_OPERATION_DISABLE,
+            BOARD_REV1_SHIFT_SET_RESET_MASK);
+    }
+    return hc595_update_masked(
+        &s_shift_register,
+        BOARD_REV1_SHIFT_SET_RESET_MASK,
+        0U,
+        error);
+}
+
+static bool magnetic_pulse_output(
+    board_card_slot_t slot,
+    board_magnetic_pulse_t pulse,
+    board_rev1_shift_output_t *output)
+{
+    if (slot == BOARD_CARD_SLOT_1) {
+        if (pulse == BOARD_MAGNETIC_PULSE_SET) {
+            *output = BOARD_REV1_SHIFT_SET_1;
+            return true;
+        }
+        if (pulse == BOARD_MAGNETIC_PULSE_RESET) {
+            *output = BOARD_REV1_SHIFT_RESET_1;
+            return true;
+        }
+    } else if (slot == BOARD_CARD_SLOT_2) {
+        if (pulse == BOARD_MAGNETIC_PULSE_SET) {
+            *output = BOARD_REV1_SHIFT_SET_2;
+            return true;
+        }
+        if (pulse == BOARD_MAGNETIC_PULSE_RESET) {
+            *output = BOARD_REV1_SHIFT_RESET_2;
+            return true;
+        }
+    }
+    return false;
+}
+
+fw_status_t board_set_magnetic_pulse_output(
+    board_card_slot_t slot,
+    board_magnetic_pulse_t pulse,
+    bool enabled,
+    fw_error_context_t *error)
+{
+    clear_error(error);
+    if (!s_board_initialized) {
+        return set_board_error(
+            error, FW_STATUS_NOT_INITIALIZED,
+            enabled ? FW_ERROR_OPERATION_ENABLE :
+                      FW_ERROR_OPERATION_DISABLE,
+            (uint32_t)slot);
+    }
+
+    board_rev1_shift_output_t output;
+    if (!magnetic_pulse_output(slot, pulse, &output)) {
+        return set_board_error(
+            error, FW_STATUS_INVALID_ARGUMENT,
+            enabled ? FW_ERROR_OPERATION_ENABLE :
+                      FW_ERROR_OPERATION_DISABLE,
+            ((uint32_t)slot << 16U) | (uint32_t)pulse);
+    }
+    const uint16_t set_mask = enabled ?
+        BOARD_REV1_SHIFT_MASK(output) : 0U;
+    const uint16_t clear_mask = enabled ?
+        (uint16_t)(BOARD_REV1_SHIFT_SET_RESET_MASK &
+                   (uint16_t)~set_mask) :
+        BOARD_REV1_SHIFT_SET_RESET_MASK;
+    return hc595_update_masked(
+        &s_shift_register,
+        clear_mask,
+        set_mask,
+        error);
+}
+
 fw_status_t board_host_uart_initialize(platform_uart_t **uart,
                                        fw_error_context_t *error)
 {
@@ -538,59 +817,30 @@ static void release_adc_spi_best_effort(void)
 
 fw_status_t board_adc_power_down(fw_error_context_t *error)
 {
-    clear_error(error);
-    fw_status_t first_status = FW_STATUS_OK;
-    fw_error_context_t first_error;
-    clear_error(&first_error);
-
-    const board_power_rail_t rails[] = {
-        BOARD_POWER_RAIL_NEGATIVE_5V,
-        BOARD_POWER_RAIL_10V,
-        BOARD_POWER_RAIL_3V3A,
-    };
-    for (size_t index = 0U;
-         index < sizeof(rails) / sizeof(rails[0]);
-         index++) {
-        fw_error_context_t current_error;
-        clear_error(&current_error);
-        const fw_status_t status = board_set_power_rail(
-            rails[index], false, &current_error);
-        if (first_status == FW_STATUS_OK && status != FW_STATUS_OK) {
-            first_status = status;
-            first_error = current_error;
-        }
-    }
-    if (first_status != FW_STATUS_OK && error != NULL) {
-        *error = first_error;
-    }
-    return first_status;
+    const board_acquisition_power_state_t state = {0};
+    return board_set_acquisition_power_state(&state, error);
 }
 
 fw_status_t board_adc_power_up(fw_error_context_t *error)
 {
-    clear_error(error);
-    const board_power_rail_t rails[] = {
-        BOARD_POWER_RAIL_3V3A,
-        BOARD_POWER_RAIL_10V,
-        BOARD_POWER_RAIL_NEGATIVE_5V,
+    fw_status_t status = board_magnetic_pulse_outputs_safe(error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    status = board_set_power_rail(
+        BOARD_POWER_RAIL_18V, false, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    const board_acquisition_power_state_t state = {
+        .rail_3v3a_enabled = true,
+        .rail_10v_enabled = true,
+        .rail_negative_5v_enabled = true,
     };
-    for (size_t index = 0U;
-         index < sizeof(rails) / sizeof(rails[0]);
-         index++) {
-        const fw_status_t status = board_set_power_rail(
-            rails[index], true, error);
-        if (status != FW_STATUS_OK) {
-            fw_error_context_t original_error;
-            if (error != NULL) {
-                original_error = *error;
-            }
-            (void)board_adc_power_down(NULL);
-            if (error != NULL) {
-                *error = original_error;
-            }
-            return status;
-        }
-        platform_delay_ms(BOARD_REV1_POWER_RAIL_SETTLING_MS);
+    status = board_set_acquisition_power_state(&state, error);
+    if (status != FW_STATUS_OK) {
+        return status;
     }
     platform_delay_ms(BOARD_REV1_ADC_FEEDBACK_SETTLING_MS);
     return FW_STATUS_OK;

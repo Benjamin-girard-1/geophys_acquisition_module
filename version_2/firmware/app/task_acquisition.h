@@ -161,6 +161,12 @@ fw_status_t task_acquisition_streaming_start(
 /** Stop live record production and return all queued live buffers. */
 fw_status_t task_acquisition_streaming_stop(fw_error_context_t *error);
 
+/** Execute one serialized SET or RESET pulse while acquisition is stopped. */
+fw_status_t task_acquisition_magnetic_pulse(
+    pulse_card_slot_t slot,
+    pulse_operation_t operation,
+    fw_error_context_t *error);
+
 /** Nonblocking ownership transfer from acquisition to communication. */
 fw_status_t task_acquisition_stream_record_take(
     uint8_t **record,

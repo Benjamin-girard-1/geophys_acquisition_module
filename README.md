@@ -80,15 +80,19 @@ and release CS around every DMA burst. A two-second channels-0–3 16 kSPS probe
 retained all 32,480 conversions with zero gaps, but two isolated phase errors
 remained. Per-frame CS is therefore fast enough but does not by itself correct
 the 20 MHz SDO integrity failure.
-Configuration currently applies the
-stopped-device ADC rate, channel
-mask, and per-channel gains; runtime rail and IMU changes remain unsupported
-until their owning subsystems exist. The Python host now has streaming
+Configuration currently applies the stopped-device ADC rate, channel mask,
+per-channel gains, and three sequenced acquisition rails; +5 VA and IMU remain
+status-only. The +18 V rail is owned by a dedicated stopped-acquisition
+magnetic SET/RESET command that returns the rail and pulse outputs to their
+safe state. The Python host now has streaming
 start/stop codecs, an incremental mixed command/data parser, named-reply
 matching during live data, byte-exact validated capture, continuity counters,
 and a desktop GUI with manual USB/COM selection, recording management, and a
 separate live-plot tab. Its Config tab now reads device status and applies the
-stopped-device ADC rate, four-channel slot selection, and per-channel gains.
+stopped-device ADC rate, four-channel slot selection, per-channel gains, and
+acquisition-rail requests.
+It also separates device-reported power-rail states from editable manual rail
+requests and provides a detected-card-gated SET/RESET pulse control.
 The GUI connection and recording catalog were exercised against Rev-1,
 including creation, stop/close, catalog, and deletion of a GUI test recording.
 A reversible channels-0–3 configuration update also passed on Rev-1. Firmware

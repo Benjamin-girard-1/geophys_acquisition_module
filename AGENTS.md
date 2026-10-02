@@ -84,9 +84,10 @@ create runtime SD/USB ownership switching.
   each selected ADC sample into exactly three bytes on the wire.
 - Never hide data loss. Preserve sequence gaps and expose overflow/error
   counters.
-- SET and RESET must never be active simultaneously. The current protocol does
-  not expose a host pulse command; any automatic recording-start pulse remains
-  serialized by firmware and marks affected samples transient/invalid.
+- SET and RESET must never be active simultaneously. The host-visible magnetic
+  pulse command remains serialized by `task_acquisition`, is accepted only
+  while acquisition is stopped, and must leave +18 V and every pulse output
+  inactive on every exit path.
 - Never insert debug text into the binary data stream.
 - Do not invent GPIO assignments, active levels, voltage thresholds, delays,
   pulse widths, or bus limits. Resolve them from the board contract, schematic,

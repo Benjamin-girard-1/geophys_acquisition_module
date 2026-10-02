@@ -603,6 +603,65 @@ protocol_message_status_t protocol_encode_recording_delete_reply(
                         payload, sizeof(payload), crc32, crc_context, frame);
 }
 
+static bool magnetic_card_slot_is_valid(uint8_t card_slot)
+{
+    return card_slot == PROTOCOL_MAGNETIC_CARD_SLOT_1 ||
+           card_slot == PROTOCOL_MAGNETIC_CARD_SLOT_2;
+}
+
+static bool magnetic_pulse_operation_is_valid(uint8_t operation)
+{
+    return operation == PROTOCOL_MAGNETIC_PULSE_SET ||
+           operation == PROTOCOL_MAGNETIC_PULSE_RESET;
+}
+
+protocol_message_status_t protocol_decode_magnetic_pulse_request(
+    const protocol_command_t *command,
+    protocol_magnetic_pulse_request_t *request)
+{
+    if (command == NULL || request == NULL) {
+        return PROTOCOL_MESSAGE_INVALID_ARGUMENT;
+    }
+    memset(request, 0, sizeof(*request));
+    if (command->command_id != PROTOCOL_COMMAND_MAGNETIC_PULSE) {
+        return PROTOCOL_MESSAGE_UNEXPECTED_ID;
+    }
+    if (command->direction != PROTOCOL_DIRECTION_TO_DEVICE) {
+        return PROTOCOL_MESSAGE_UNEXPECTED_DIRECTION;
+    }
+    if (command->payload_length !=
+        PROTOCOL_MAGNETIC_PULSE_PAYLOAD_SIZE_BYTES) {
+        return PROTOCOL_MESSAGE_UNEXPECTED_LENGTH;
+    }
+    request->card_slot = command->payload[0];
+    request->operation = command->payload[1];
+    return (magnetic_card_slot_is_valid(request->card_slot) &&
+            magnetic_pulse_operation_is_valid(request->operation)) ?
+           PROTOCOL_MESSAGE_OK : PROTOCOL_MESSAGE_INVALID_FIELD;
+}
+
+protocol_message_status_t protocol_encode_magnetic_pulse_reply(
+    const protocol_magnetic_pulse_result_t *result,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES])
+{
+    if (result == NULL || !result_is_valid(result->result) ||
+        !magnetic_card_slot_is_valid(result->card_slot) ||
+        !magnetic_pulse_operation_is_valid(result->operation)) {
+        return PROTOCOL_MESSAGE_INVALID_FIELD;
+    }
+    const uint8_t payload[
+        PROTOCOL_MAGNETIC_PULSE_REPLY_PAYLOAD_SIZE_BYTES] = {
+            result->result,
+            result->card_slot,
+            result->operation,
+        };
+    return encode_reply(
+        PROTOCOL_REPLY_MAGNETIC_PULSE_RESULT,
+        payload, sizeof(payload), crc32, crc_context, frame);
+}
+
 protocol_message_status_t protocol_decode_temp_recording_read_request(
     const protocol_command_t *command,
     protocol_temp_recording_read_request_t *request)

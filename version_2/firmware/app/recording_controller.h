@@ -27,6 +27,10 @@ fw_status_t recording_controller_streaming_stop(
     protocol_streaming_stop_result_t *result,
     fw_error_context_t *error);
 
+fw_status_t recording_controller_magnetic_pulse(
+    const protocol_magnetic_pulse_request_t *request,
+    fw_error_context_t *error);
+
 fw_status_t recording_controller_get_number(
     protocol_recording_number_t *number,
     fw_error_context_t *error);

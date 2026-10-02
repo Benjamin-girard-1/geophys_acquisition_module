@@ -148,9 +148,9 @@ Identity-field conventions:
 
 ### `DEVICE_GET_CONFIG` / `DEVICE_SET_CONFIG` -> `DEVICE_CONFIG`
 
-The command `GET_CONFIG` is used to read the current config and has an empty request. It return the structure as shown below. The command `SET_CONFIG` use the same structure as the answer but the payload is applied where applicable. The read only registers are not considered. After a `SET_CONFIG` command the device answer back with a `CONFIG` echo to see the applied values.
+The command `GET_CONFIG` reads the current configuration and has an empty request. `SET_CONFIG` uses the writable subset of the configuration payload below. After `SET_CONFIG`, the device replies with `DEVICE_CONFIG` so the host can see the applied and reported values.
 
-A new configuration can be sent at any time using the `SET_CONFIG`. In case that there is a live stream in progress, it is automatically applied. If there is a recording in progress, this recording has to be stopped before any modification of the config. So if the command `SET_CONFIG` is sent while there is a recording, it will only echo the unmodified config with the Recording in progress and no changes applied. In case of both live stream and recording are taking place new config will also be rejected due to the requirement to not have recording in progress for any modifications.
+Configuration changes are accepted only while acquisition is stopped: neither recording nor live streaming may be active. An unsuccessful request returns the current, unmodified configuration with its result byte set to the applicable error. The three software-controlled acquisition rails are changed in their board-defined order. The +5 VA field is status-only on Rev-1 because it has no software enable, and +18 V is status-only here because it belongs exclusively to `MAGNETIC_PULSE`.
 
 When using only 4 channels it is 40 conversions per payload block, when all 8 channels are being used, it is 20 conversions per block.
 
@@ -193,11 +193,11 @@ Config payload structure:
 | 25 | 1 | RW | ADC channel active mask: 0x00 no active channels; 0x0f channels 0 to 3 active; 0xf0 channels 4 to 7 active; 0xff channels 0 to 7 active, only those mask are valid |
 | 26 | 2 | RW | ADC gain: 0b00 x1; 0b01 x2; 0b10 x4; 0b11 x8. Each channel is shifted  by 2 times the number of the channel (<<(2*id)) |
 | 28 | 2 | R  | ADC temperature: signed 16 bits, 0.01°C per count (Unemplemented for now 0x0000)|
-| 30 | 1 | RW | 0x00 +3.3VA off; 0x01 +3.3VA on |
-| 31 | 1 | RW | 0x00 +5VA off; 0x01 +5VA on |
-| 32 | 1 | RW | 0x00 +9VA off; 0x01 +9VA on |
-| 33 | 1 | RW | 0x00 -5VA off; 0x01 -5VA on |
-| 34 | 1 | RW | 0x00 +18VA off; 0x01 +18VA on |
+| 30 | 1 | RW | 0x00 +3.3VA off; 0x01 +3.3VA on; stopped acquisition only |
+| 31 | 1 | R | 0x00 +5VA off; 0x01 +5VA on; no Rev-1 software enable |
+| 32 | 1 | RW | 0x00 +9VA off; 0x01 +9VA on; stopped acquisition only |
+| 33 | 1 | RW | 0x00 -5VA off; 0x01 -5VA on; stopped acquisition only |
+| 34 | 1 | R | 0x00 +18VA off; 0x01 +18VA on; controlled only by `MAGNETIC_PULSE` |
 | 35 | 1 | R  | 0x00 Solar not present; 0x01 Solar present |
 | 36 | 1 | R  | 0x00 +5V USB not present; 0x01 +5V USB present |
 | 37 | 1 | R  | GNSS state: 0x00 disabled/not present; 0x01 ready; 0x02 faulted; 0x03 searching |
@@ -681,10 +681,48 @@ Reply payload:
 
 ## Magnetic SET/RESET operation
 
-### `PULSE_REQUEST` -> `PULSE_RESULT`
+### `MAGNETIC_PULSE` -> `MAGNETIC_PULSE_RESULT`
 
-This command is not implemented for now. A set-reset pulse should be sent before starting a new recording. This should be implemented in the firmware not by host commands.
-- The card must be identified as pulse-capable.
+`MAGNETIC_PULSE` requests one independent SET or RESET pulse on one detected
+magnetic card. It is a state-changing command and is accepted only while
+recording and live streaming are stopped. The selected slot must have been
+identified as magnetic at startup.
+
+The device forces all SET/RESET outputs inactive, enables +18 V, waits 100 ms,
+asserts only the requested output for 200 us, returns all pulse outputs
+inactive, and disables +18 V. Every success and failure path leaves the pulse
+outputs inactive and +18 V disabled. A successful reply is sent only after
+that cleanup has completed. These timing values are initial values pending
+Rev-1 oscilloscope verification.
+
+Request frame:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 0 | 4 | `"\CMD"` | Synchronization value |
+| 4 | 2 | `0x000c` | Command ID |
+| 6 | 1 | `0x00` | Direction: device-bound |
+| 7 | 4 | `0x00000000` | Reserved |
+| 11 | 1 | `0x02` | Payload length |
+| 12 | 1 | `0x01` or `0x02` | Card slot 1 or 2 |
+| 13 | 1 | `0x01` or `0x02` | SET or RESET |
+| 14 | 46 | zero | Padding |
+| 60 | 4 | - | CRC32 of bytes 0 through 59 |
+
+Reply frame:
+
+| Offset | Size | Value | Notes |
+|---:|---:|:---|---|
+| 0 | 4 | `"\CMD"` | Synchronization value |
+| 4 | 2 | `0x00ac` | Reply ID |
+| 6 | 1 | `0x01` | Direction: host-bound |
+| 7 | 4 | `0x00000000` | Reserved |
+| 11 | 1 | `0x03` | Payload length |
+| 12 | 1 | - | Command result |
+| 13 | 1 | `0x01` or `0x02` | Echoed card slot 1 or 2 |
+| 14 | 1 | `0x01` or `0x02` | Echoed SET or RESET operation |
+| 15 | 45 | zero | Padding |
+| 60 | 4 | - | CRC32 of bytes 0 through 59 |
 
 ## Reserved commands for testing
 

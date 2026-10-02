@@ -221,7 +221,8 @@ Board rules:
 ### Magnetic-card pulse interface
 
 `analog_cards/magnetic/card_magnetic.*` implements the magnetic-card pulse operation. It owns the
-SET/RESET sequence, pulse width, inter-pulse dead time, and post-pulse settling requirement. The
+SET/RESET sequence, pulse width, and safe cleanup. Inter-pulse dead time and post-pulse settling
+remain bench-defined follow-up requirements. The
 module uses abstract callbacks for the monotonic clock/delay, the mainboard 18 V rail, and the
 selected slot's logical SET/RESET outputs.
 
@@ -229,9 +230,11 @@ The Rev-1 board implements the rail and output callbacks because the 18 V conver
 and output-to-slot mapping are on the mainboard. The magnetic module must not contain `EN_BST_18V`,
 SH1/SH2 positions, ESP32 GPIO numbers, or 74HC595 calls.
 
-`task_acquisition` accepts and serializes pulse commands, invokes the magnetic-card operation, and
-marks the affected ADC frames transient. It does not implement the electrical pulse waveform. The
-accelerometer-card module has no corresponding SET/RESET operation.
+`task_acquisition` accepts and serializes pulse commands and invokes the magnetic-card operation.
+The current host command is accepted only while acquisition is stopped, so no ADC frames exist to
+mark. Any future acquisition-time pulse must mark every affected frame transient. The task does not
+implement the electrical pulse waveform. The accelerometer-card module has no corresponding
+SET/RESET operation.
 
 ## 6. Driver lifecycle
 
@@ -300,13 +303,17 @@ Rules:
 - The protocol encoder packs each selected sample into exactly three little-endian two's-complement
   bytes.
 
-### Pulse request and result
+### Target internal pulse request and result
+
+The current wire command carries only slot and independent SET/RESET operation,
+and its reply carries result plus the echoed request. The richer timing fields
+below remain the target internal record for a future acquisition-time pulse.
 
 | Field | Meaning |
 |---|---|
 | Request identifier | Correlates command and response |
 | Card slot | Slot 1 or slot 2 |
-| Operation | SET, RESET, or on-demand SET-then-RESET diagnostic |
+| Operation | SET or RESET; a combined diagnostic remains unresolved |
 | Requested timestamp | Time command was accepted |
 | Configured control width | Magnetic-card command-pulse duration |
 | Actual timestamp | Time the pulse operation began |
@@ -339,10 +346,10 @@ Milestone-1 task rules:
   writes the other PSRAM buffer while acquisition continues.
 - Live streaming uses its own fixed pool and never consumes or returns an SD
   recording buffer. Acquisition never waits for a live buffer or UART write.
-- Gain, sample-rate, and channel-mask changes are applied atomically while
-  acquisition is stopped or live streaming, and are rejected while recording.
-  A live-streaming change is serialized through the acquisition command queue.
-- Pulse commands may execute during acquisition so affected frames can be marked.
+- Gain, sample-rate, channel-mask, and acquisition-rail changes are accepted
+  only while acquisition is stopped.
+- The current host pulse command is accepted only while acquisition is stopped.
+  A future acquisition-time pulse must mark affected frames transient.
 - Only one acquisition reconfiguration or pulse command is active at a time.
 - `task_bluetooth` owns BLE connection events and the initial `HELLO` handler.
   `task_processing`, `task_gnss`, and `task_imu` are not created in the current
@@ -415,6 +422,7 @@ Interface-level decisions:
 |---|---|---|
 | `HELLO/DEVICE_INFO` | Both | Negotiate protocol and report firmware/hardware identity |
 | `DEVICE_GET_CONFIG` / `DEVICE_SET_CONFIG` → `DEVICE_CONFIG` | Both | Read or atomically apply device configuration and current state |
+| `MAGNETIC_PULSE` → `MAGNETIC_PULSE_RESULT` | USB/UART | Send one stopped-acquisition SET or RESET pulse to a detected magnetic card |
 | `DEVICE_GET_DIAGNOSTIC` → `DEVICE_DIAGNOSTIC` | Both | Read the defined subsystem indications and cumulative counters |
 | `STREAMING_START` → `STREAMING_START_RESULT` | Both | Start the requested live stream profile |
 | `STREAMING_STOP` → `STREAMING_STOP_RESULT` | Both | Stop live delivery and stop acquisition when recording does not need it |

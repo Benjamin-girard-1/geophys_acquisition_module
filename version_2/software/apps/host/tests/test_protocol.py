@@ -15,7 +15,10 @@ from geophys_host.protocol import (  # noqa: E402
     CommandStreamParser,
     DeviceConfigUpdate,
     DIRECTION_TO_HOST,
+    MAGNETIC_CARD_SLOT_2,
+    MAGNETIC_PULSE_RESET,
     ProtocolError,
+    REPLY_MAGNETIC_PULSE_RESULT,
     REPLY_RECORDING_DELETE_RESULT,
     REPLY_RECORDING_INFO,
     REPLY_RECORDING_NUMBER,
@@ -27,6 +30,7 @@ from geophys_host.protocol import (  # noqa: E402
     decode_command,
     decode_device_config,
     decode_device_info,
+    decode_magnetic_pulse_result,
     decode_recording_delete_result,
     decode_recording_info,
     decode_recording_number,
@@ -39,6 +43,7 @@ from geophys_host.protocol import (  # noqa: E402
     encode_device_get_config,
     encode_device_set_config,
     encode_hello,
+    encode_magnetic_pulse,
     encode_recording_delete,
     encode_recording_get_info,
     encode_recording_get_number,
@@ -207,6 +212,24 @@ class ProtocolTests(unittest.TestCase):
         for decimation in (1, 3, 8):
             with self.assertRaisesRegex(ValueError, "decimation"):
                 encode_streaming_start(decimation, 0xFF)
+
+    def test_magnetic_pulse_request_and_reply_codecs(self) -> None:
+        request = decode_command(encode_magnetic_pulse(
+            MAGNETIC_CARD_SLOT_2, MAGNETIC_PULSE_RESET))
+        self.assertEqual(request.command_id, 0x000C)
+        self.assertEqual(request.payload, b"\x02\x02")
+
+        result = decode_magnetic_pulse_result(decode_command(encode_command(
+            REPLY_MAGNETIC_PULSE_RESULT,
+            DIRECTION_TO_HOST,
+            b"\x00\x02\x02",
+        )))
+        self.assertEqual(result.result, 0)
+        self.assertEqual(result.card_slot, MAGNETIC_CARD_SLOT_2)
+        self.assertEqual(result.operation, MAGNETIC_PULSE_RESET)
+
+        with self.assertRaisesRegex(ValueError, "slot"):
+            encode_magnetic_pulse(3, MAGNETIC_PULSE_RESET)
 
     def test_invalid_recording_names_are_rejected(self) -> None:
         for name in ("", "has space", "dot.name", "x" * 32, "é"):

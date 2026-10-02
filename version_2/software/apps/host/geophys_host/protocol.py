@@ -24,6 +24,7 @@ COMMAND_RECORDING_STOP = 0x0008
 COMMAND_RECORDING_GET_NUMBER = 0x0009
 COMMAND_RECORDING_GET_INFO = 0x000A
 COMMAND_RECORDING_DELETE = 0x000B
+COMMAND_MAGNETIC_PULSE = 0x000C
 COMMAND_TEMP_RECORDING_READ = 0xF000
 REPLY_DEVICE_INFO = 0x00A1
 REPLY_DEVICE_CONFIG = 0x00A2
@@ -34,6 +35,7 @@ REPLY_RECORDING_STOP_RESULT = 0x00A8
 REPLY_RECORDING_NUMBER = 0x00A9
 REPLY_RECORDING_INFO = 0x00AA
 REPLY_RECORDING_DELETE_RESULT = 0x00AB
+REPLY_MAGNETIC_PULSE_RESULT = 0x00AC
 REPLY_TEMP_RECORDING_READ = 0xF000
 
 RESULT_SUCCESS = 0x00
@@ -66,6 +68,10 @@ ADC_SAMPLE_RATE_16000_SPS = 0x05
 
 VALID_ADC_CHANNEL_MASKS = (0x00, 0x0F, 0xF0, 0xFF)
 VALID_STREAM_DECIMATIONS = (0, 2, 4, 5, 10, 20)
+MAGNETIC_CARD_SLOT_1 = 0x01
+MAGNETIC_CARD_SLOT_2 = 0x02
+MAGNETIC_PULSE_SET = 0x01
+MAGNETIC_PULSE_RESET = 0x02
 
 
 class ProtocolError(ValueError):
@@ -180,6 +186,13 @@ class RecordingDeleteResult:
     result: int
     recording_in_progress: bool
     name: str
+
+
+@dataclass(frozen=True)
+class MagneticPulseResult:
+    result: int
+    card_slot: int
+    operation: int
 
 
 @dataclass(frozen=True)
@@ -347,6 +360,18 @@ def encode_recording_get_info(index: int) -> bytes:
 def encode_recording_delete(name: str) -> bytes:
     return encode_command(COMMAND_RECORDING_DELETE, DIRECTION_TO_DEVICE,
                           _encode_recording_name(name))
+
+
+def encode_magnetic_pulse(card_slot: int, operation: int) -> bytes:
+    if card_slot not in (MAGNETIC_CARD_SLOT_1, MAGNETIC_CARD_SLOT_2):
+        raise ValueError("invalid magnetic-card slot")
+    if operation not in (MAGNETIC_PULSE_SET, MAGNETIC_PULSE_RESET):
+        raise ValueError("invalid magnetic pulse operation")
+    return encode_command(
+        COMMAND_MAGNETIC_PULSE,
+        DIRECTION_TO_DEVICE,
+        bytes((card_slot, operation)),
+    )
 
 
 def encode_temp_recording_read(name: str, offset_bytes: int) -> bytes:
@@ -535,6 +560,21 @@ def decode_recording_delete_result(
         recording_in_progress=bool(payload[1]),
         name=_decode_recording_name(
             payload[2:34], allow_empty=payload[0] != RESULT_SUCCESS),
+    )
+
+
+def decode_magnetic_pulse_result(command: Command) -> MagneticPulseResult:
+    payload = _require_reply(
+        command, REPLY_MAGNETIC_PULSE_RESULT, 3,
+        "MAGNETIC_PULSE_RESULT")
+    if payload[1] not in (MAGNETIC_CARD_SLOT_1, MAGNETIC_CARD_SLOT_2):
+        raise ProtocolError("invalid magnetic-card slot in reply")
+    if payload[2] not in (MAGNETIC_PULSE_SET, MAGNETIC_PULSE_RESET):
+        raise ProtocolError("invalid magnetic pulse operation in reply")
+    return MagneticPulseResult(
+        result=payload[0],
+        card_slot=payload[1],
+        operation=payload[2],
     )
 
 

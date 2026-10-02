@@ -323,6 +323,43 @@ fw_status_t recording_controller_streaming_stop(
     return status;
 }
 
+fw_status_t recording_controller_magnetic_pulse(
+    const protocol_magnetic_pulse_request_t *request,
+    fw_error_context_t *error)
+{
+    if (request == NULL) {
+        return FW_STATUS_INVALID_ARGUMENT;
+    }
+    if ((request->card_slot != PROTOCOL_MAGNETIC_CARD_SLOT_1 &&
+         request->card_slot != PROTOCOL_MAGNETIC_CARD_SLOT_2) ||
+        (request->operation != PROTOCOL_MAGNETIC_PULSE_SET &&
+         request->operation != PROTOCOL_MAGNETIC_PULSE_RESET)) {
+        return FW_STATUS_INVALID_ARGUMENT;
+    }
+    if (task_acquisition_is_active() ||
+        task_storage_recording_active() || streaming_snapshot()) {
+        return FW_STATUS_INVALID_STATE;
+    }
+
+    device_configuration_snapshot_t snapshot;
+    fw_status_t status = device_configuration_get(&snapshot, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    const size_t slot_index = (request->card_slot ==
+                               PROTOCOL_MAGNETIC_CARD_SLOT_1) ? 0U : 1U;
+    if (snapshot.card_slots[slot_index] != DEVICE_CARD_MAGNETIC) {
+        return FW_STATUS_NOT_FOUND;
+    }
+
+    return task_acquisition_magnetic_pulse(
+        (request->card_slot == PROTOCOL_MAGNETIC_CARD_SLOT_1) ?
+            PULSE_CARD_SLOT_1 : PULSE_CARD_SLOT_2,
+        (request->operation == PROTOCOL_MAGNETIC_PULSE_SET) ?
+            PULSE_OPERATION_SET : PULSE_OPERATION_RESET,
+        error);
+}
+
 fw_status_t recording_controller_get_number(
     protocol_recording_number_t *number,
     fw_error_context_t *error)

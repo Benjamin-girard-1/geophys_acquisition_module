@@ -64,6 +64,7 @@ fw_status_t platform_storage_file_read(
     size_t *bytes_read,
     fw_error_context_t *error);
 
+/** Write all bytes; external-RAM sources are staged through internal memory. */
 fw_status_t platform_storage_file_write(
     platform_storage_file_t *file,
     const uint8_t *data,

@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "driver/sdmmc_host.h"
+#include "esp_memory_utils.h"
 #include "esp_vfs_fat.h"
 #include "platform_error.h"
 #include "sdmmc_cmd.h"
@@ -18,6 +19,7 @@
 #define PLATFORM_STORAGE_MOUNT_POINT "/sdcard"
 #define PLATFORM_STORAGE_PATH_SIZE_BYTES UINT16_C(320)
 #define PLATFORM_STORAGE_INSTANCE UINT32_C(0)
+#define PLATFORM_STORAGE_EXTERNAL_WRITE_STAGE_BYTES (32U * 1024U)
 
 struct platform_storage {
     sdmmc_card_t *card;
@@ -38,6 +40,8 @@ struct platform_storage_directory {
 static struct platform_storage s_storage;
 static struct platform_storage_file s_file;
 static struct platform_storage_directory s_directory;
+static uint8_t s_external_write_stage[
+    PLATFORM_STORAGE_EXTERNAL_WRITE_STAGE_BYTES] __attribute__((aligned(64)));
 
 static fw_status_t storage_error(fw_error_context_t *error,
                                  fw_status_t status,
@@ -166,6 +170,21 @@ fw_status_t platform_storage_mount(
             FW_STATUS_INTERNAL : FW_STATUS_MEDIA_ABSENT;
         return storage_error(error, status, FW_ERROR_OPERATION_MOUNT,
                              (uint32_t)result);
+    }
+
+    int actual_frequency_khz = 0;
+    const esp_err_t frequency_result = sdmmc_host_get_real_freq(
+        host.slot, &actual_frequency_khz);
+    const uint32_t requested_frequency_khz =
+        config->clock_hz / UINT32_C(1000);
+    if (frequency_result != ESP_OK || actual_frequency_khz < 0 ||
+        (uint32_t)actual_frequency_khz < requested_frequency_khz) {
+        (void)esp_vfs_fat_sdcard_unmount(
+            PLATFORM_STORAGE_MOUNT_POINT, card);
+        const uint32_t detail = (frequency_result == ESP_OK) ?
+            (uint32_t)actual_frequency_khz : (uint32_t)frequency_result;
+        return storage_error(error, FW_STATUS_UNSUPPORTED,
+                             FW_ERROR_OPERATION_MOUNT, detail);
     }
 
     memset(&s_storage, 0, sizeof(s_storage));
@@ -337,19 +356,34 @@ fw_status_t platform_storage_file_write(
         return storage_error(error, FW_STATUS_INVALID_ARGUMENT,
                              FW_ERROR_OPERATION_WRITE, 0U);
     }
-    size_t offset = 0U;
-    while (offset < length_bytes) {
-        const ssize_t written = write(file->descriptor, data + offset,
-                                      length_bytes - offset);
-        if (written < 0) {
-            return errno_error(error, FW_ERROR_OPERATION_WRITE, errno);
+    size_t source_offset = 0U;
+    while (source_offset < length_bytes) {
+        const uint8_t *write_data = data + source_offset;
+        size_t write_length = length_bytes - source_offset;
+        if (esp_ptr_external_ram(write_data)) {
+            if (write_length > sizeof(s_external_write_stage)) {
+                write_length = sizeof(s_external_write_stage);
+            }
+            memcpy(s_external_write_stage, write_data, write_length);
+            write_data = s_external_write_stage;
         }
-        if (written == 0) {
-            return storage_error(error, FW_STATUS_IO,
-                                 FW_ERROR_OPERATION_WRITE,
-                                 (uint32_t)offset);
+
+        size_t write_offset = 0U;
+        while (write_offset < write_length) {
+            const ssize_t written = write(
+                file->descriptor, write_data + write_offset,
+                write_length - write_offset);
+            if (written < 0) {
+                return errno_error(error, FW_ERROR_OPERATION_WRITE, errno);
+            }
+            if (written == 0) {
+                return storage_error(error, FW_STATUS_IO,
+                                     FW_ERROR_OPERATION_WRITE,
+                                     (uint32_t)source_offset);
+            }
+            write_offset += (size_t)written;
         }
-        offset += (size_t)written;
+        source_offset += write_length;
     }
     return FW_STATUS_OK;
 }

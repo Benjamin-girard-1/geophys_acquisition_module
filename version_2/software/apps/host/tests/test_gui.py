@@ -28,8 +28,11 @@ from geophys_host.protocol import (  # noqa: E402
     ADC_SAMPLE_RATE_1000_SPS,
     ADC_SAMPLE_RATE_2000_SPS,
     DIRECTION_TO_HOST,
+    MAGNETIC_CARD_SLOT_1,
+    MAGNETIC_PULSE_SET,
     REPLY_DEVICE_CONFIG,
     REPLY_DEVICE_INFO,
+    REPLY_MAGNETIC_PULSE_RESULT,
     REPLY_RECORDING_INFO,
     REPLY_RECORDING_NUMBER,
     REPLY_RECORDING_STOP_RESULT,
@@ -106,14 +109,20 @@ def device_config_payload(
         channel_mask: int = 0xFF,
         packed_gain: int = 0,
         rail_3v3: bool = False,
+        rail_5v: bool = False,
         rail_9v: bool = False,
+        rail_negative_5v: bool = False,
+        rail_18v: bool = False,
         imu_averaging_ms: int = 0) -> bytes:
     payload = bytearray(40)
     payload[12] = sample_rate
     payload[13] = channel_mask
     struct.pack_into("<H", payload, 14, packed_gain)
     payload[18] = rail_3v3
+    payload[19] = rail_5v
     payload[20] = rail_9v
+    payload[21] = rail_negative_5v
+    payload[22] = rail_18v
     struct.pack_into("<H", payload, 28, imu_averaging_ms)
     return bytes(payload)
 
@@ -143,7 +152,7 @@ class GuiSupportTests(unittest.TestCase):
         self.assertEqual(packed, 0xE4E4)
         self.assertEqual(unpack_adc_gains(packed), gains)
 
-    def test_config_update_preserves_unsupported_device_fields(self) -> None:
+    def test_config_update_preserves_unedited_device_fields(self) -> None:
         current = decode_device_config(reply(
             REPLY_DEVICE_CONFIG,
             device_config_payload(
@@ -166,6 +175,31 @@ class GuiSupportTests(unittest.TestCase):
         self.assertTrue(update.rail_3v3_enabled)
         self.assertTrue(update.rail_9v_enabled)
         self.assertEqual(update.imu_averaging_time_ms, 250)
+
+    def test_config_update_uses_manual_power_rail_states(self) -> None:
+        current = decode_device_config(reply(
+            REPLY_DEVICE_CONFIG,
+            device_config_payload(
+                rail_3v3=True,
+                rail_5v=True,
+                rail_9v=True,
+                rail_18v=True,
+            ),
+        ))
+
+        update = build_device_config_update(
+            current,
+            ADC_SAMPLE_RATE_1000_SPS,
+            0xFF,
+            (1,) * 8,
+            (False, True, False),
+        )
+
+        self.assertFalse(update.rail_3v3_enabled)
+        self.assertTrue(update.rail_5v_enabled)
+        self.assertTrue(update.rail_9v_enabled)
+        self.assertFalse(update.rail_negative_5v_enabled)
+        self.assertTrue(update.rail_18v_enabled)
 
     def test_config_update_requires_at_least_one_slot(self) -> None:
         current = decode_device_config(reply(
@@ -192,6 +226,11 @@ class GuiSupportTests(unittest.TestCase):
                 channel: FakeVariable(label)
                 for channel, label in enumerate(gain_labels)
             },
+            config_rail_enabled_vars={
+                "rail_3v3": FakeVariable(False),
+                "rail_9v": FakeVariable(True),
+                "rail_negative_5v": FakeVariable(False),
+            },
         )
 
         update = GeophysHostApp._config_update_from_controls(app)
@@ -199,7 +238,11 @@ class GuiSupportTests(unittest.TestCase):
         self.assertEqual(update.adc_sample_rate, ADC_SAMPLE_RATE_2000_SPS)
         self.assertEqual(update.adc_channel_mask, 0x0F)
         self.assertEqual(update.adc_gain, 0xE4E4)
-        self.assertTrue(update.rail_3v3_enabled)
+        self.assertFalse(update.rail_3v3_enabled)
+        self.assertFalse(update.rail_5v_enabled)
+        self.assertTrue(update.rail_9v_enabled)
+        self.assertFalse(update.rail_negative_5v_enabled)
+        self.assertFalse(update.rail_18v_enabled)
         self.assertEqual(update.imu_averaging_time_ms, 100)
 
     def test_four_channel_config_limits_live_channel_choices(self) -> None:
@@ -311,6 +354,11 @@ class GuiSupportTests(unittest.TestCase):
             adc_sample_rate=ADC_SAMPLE_RATE_2000_SPS,
             adc_channel_mask=0x0F,
             adc_gain=0xE4E4,
+            rail_3v3_enabled=True,
+            rail_5v_enabled=False,
+            rail_9v_enabled=True,
+            rail_negative_5v_enabled=True,
+            rail_18v_enabled=False,
         )
 
         worker._set_config(update)
@@ -320,7 +368,31 @@ class GuiSupportTests(unittest.TestCase):
         self.assertEqual(event.payload.adc_channel_mask, 0x0F)
         command, reply_id, _on_record = client.requests[0]
         self.assertEqual(command.command_id, 0x0003)
+        self.assertEqual(command.payload[18:23], b"\x01\x00\x01\x01\x00")
         self.assertEqual(reply_id, REPLY_DEVICE_CONFIG)
+
+    def test_worker_sends_magnetic_pulse(self) -> None:
+        client = FakeClient([
+            reply(
+                REPLY_MAGNETIC_PULSE_RESULT,
+                bytes((0, MAGNETIC_CARD_SLOT_1, MAGNETIC_PULSE_SET)),
+            ),
+            reply(REPLY_DEVICE_CONFIG, device_config_payload()),
+        ])
+        worker = DeviceWorker("unused", 921_600)
+        worker._client = client
+
+        worker._magnetic_pulse(MAGNETIC_CARD_SLOT_1, MAGNETIC_PULSE_SET)
+
+        completed = worker.events.get_nowait()
+        config = worker.events.get_nowait()
+        self.assertEqual(completed.name, "pulse_completed")
+        self.assertEqual(completed.payload.card_slot, MAGNETIC_CARD_SLOT_1)
+        self.assertEqual(config.name, "config")
+        command, reply_id, _on_record = client.requests[0]
+        self.assertEqual(command.command_id, 0x000C)
+        self.assertEqual(command.payload, b"\x01\x01")
+        self.assertEqual(reply_id, REPLY_MAGNETIC_PULSE_RESULT)
 
     def test_worker_recovers_asynchronous_recording_failure(self) -> None:
         failure_payload = bytes((RESULT_STORAGE_FULL,)) + \
@@ -369,6 +441,10 @@ class GuiSupportTests(unittest.TestCase):
         config_gain_combos = {
             channel: FakeControl() for channel in range(8)
         }
+        config_rail_checkbuttons = {
+            rail: FakeControl() for rail in (
+                "rail_3v3", "rail_9v", "rail_negative_5v")
+        }
         app = SimpleNamespace(
             connected=True,
             ble_hello_only=False,
@@ -379,10 +455,17 @@ class GuiSupportTests(unittest.TestCase):
             current_config=SimpleNamespace(
                 adc_channel_mask=0xFF,
                 sd_card_state=1,
+                card_slot_1=1,
+                card_slot_2=0,
             ),
             config_dirty=False,
             config_slot_checkbuttons=config_slot_checkbuttons,
             config_gain_combos=config_gain_combos,
+            config_rail_checkbuttons=config_rail_checkbuttons,
+            pulse_slot_combo=FakeControl(),
+            pulse_operation_combo=FakeControl(),
+            pulse_button=FakeControl(),
+            pulse_slot_var=FakeVariable("Slot 1"),
             _selected_recording=lambda: None,
             **controls,
         )
@@ -395,6 +478,10 @@ class GuiSupportTests(unittest.TestCase):
         self.assertEqual(controls["start_live_button"].state, "normal")
         self.assertEqual(controls["config_sample_rate_combo"].state,
                          "readonly")
+        self.assertTrue(all(
+            control.state == "normal"
+            for control in config_rail_checkbuttons.values()))
+        self.assertEqual(app.pulse_button.state, "normal")
         self.assertEqual(controls["config_apply_button"].state, "disabled")
 
     def test_sd_fault_disables_recording_but_keeps_live_available(self) -> None:
@@ -424,6 +511,8 @@ class GuiSupportTests(unittest.TestCase):
             current_config=SimpleNamespace(
                 adc_channel_mask=0x0F,
                 sd_card_state=2,
+                card_slot_1=1,
+                card_slot_2=0,
             ),
             config_dirty=False,
             config_slot_checkbuttons={
@@ -432,6 +521,14 @@ class GuiSupportTests(unittest.TestCase):
             config_gain_combos={
                 channel: FakeControl() for channel in range(8)
             },
+            config_rail_checkbuttons={
+                rail: FakeControl() for rail in (
+                    "rail_3v3", "rail_9v", "rail_negative_5v")
+            },
+            pulse_slot_combo=FakeControl(),
+            pulse_operation_combo=FakeControl(),
+            pulse_button=FakeControl(),
+            pulse_slot_var=FakeVariable("Slot 1"),
             _selected_recording=lambda: None,
             **controls,
         )

@@ -448,6 +448,49 @@ static void test_recording_messages(void)
                   sizeof(read_reply.data)) == 0);
 }
 
+static void test_magnetic_pulse_messages(void)
+{
+    protocol_command_t request = {
+        .command_id = PROTOCOL_COMMAND_MAGNETIC_PULSE,
+        .direction = PROTOCOL_DIRECTION_TO_DEVICE,
+        .payload_length = PROTOCOL_MAGNETIC_PULSE_PAYLOAD_SIZE_BYTES,
+        .payload = {
+            PROTOCOL_MAGNETIC_CARD_SLOT_2,
+            PROTOCOL_MAGNETIC_PULSE_RESET,
+        },
+    };
+    protocol_magnetic_pulse_request_t decoded_request;
+    assert(protocol_decode_magnetic_pulse_request(
+               &request, &decoded_request) == PROTOCOL_MESSAGE_OK);
+    assert(decoded_request.card_slot == PROTOCOL_MAGNETIC_CARD_SLOT_2);
+    assert(decoded_request.operation == PROTOCOL_MAGNETIC_PULSE_RESET);
+
+    request.payload[0] = 3U;
+    assert(protocol_decode_magnetic_pulse_request(
+               &request, &decoded_request) ==
+           PROTOCOL_MESSAGE_INVALID_FIELD);
+
+    const protocol_magnetic_pulse_result_t result = {
+        .result = PROTOCOL_RESULT_SUCCESS,
+        .card_slot = PROTOCOL_MAGNETIC_CARD_SLOT_2,
+        .operation = PROTOCOL_MAGNETIC_PULSE_RESET,
+    };
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES];
+    protocol_command_t decoded_reply;
+    assert(protocol_encode_magnetic_pulse_reply(
+               &result, reference_crc32, NULL, frame) ==
+           PROTOCOL_MESSAGE_OK);
+    assert(protocol_command_decode(
+               frame, reference_crc32, NULL, &decoded_reply) ==
+           PROTOCOL_FRAME_OK);
+    assert(decoded_reply.command_id ==
+           PROTOCOL_REPLY_MAGNETIC_PULSE_RESULT);
+    assert(decoded_reply.payload_length ==
+           PROTOCOL_MAGNETIC_PULSE_REPLY_PAYLOAD_SIZE_BYTES);
+    assert(decoded_reply.payload[1] == PROTOCOL_MAGNETIC_CARD_SLOT_2);
+    assert(decoded_reply.payload[2] == PROTOCOL_MAGNETIC_PULSE_RESET);
+}
+
 static void test_garbage_concatenation_and_recovery(
     const uint8_t hello[PROTOCOL_COMMAND_SIZE_BYTES],
     const uint8_t bad_crc[PROTOCOL_COMMAND_SIZE_BYTES])
@@ -501,6 +544,7 @@ int main(int argc, char **argv)
     test_device_config_encode(device_config);
     test_streaming_messages();
     test_recording_messages();
+    test_magnetic_pulse_messages();
     test_fragmentation(hello);
     test_garbage_concatenation_and_recovery(hello, bad_crc);
     assert(protocol_command_decode(

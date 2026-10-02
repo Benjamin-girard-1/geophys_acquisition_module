@@ -583,6 +583,34 @@ static void handle_recording_delete(const protocol_command_t *command)
     }
 }
 
+static void handle_magnetic_pulse(const protocol_command_t *command)
+{
+    protocol_magnetic_pulse_request_t request;
+    protocol_magnetic_pulse_result_t result;
+    memset(&request, 0, sizeof(request));
+    memset(&result, 0, sizeof(result));
+
+    fw_status_t status = FW_STATUS_INVALID_ARGUMENT;
+    if (protocol_decode_magnetic_pulse_request(command, &request) ==
+        PROTOCOL_MESSAGE_OK) {
+        result.card_slot = request.card_slot;
+        result.operation = request.operation;
+        status = s_communication.config.magnetic_pulse(&request, NULL);
+    } else {
+        result.card_slot = PROTOCOL_MAGNETIC_CARD_SLOT_1;
+        result.operation = PROTOCOL_MAGNETIC_PULSE_SET;
+    }
+    result.result = protocol_result_from_status(status);
+
+    uint8_t reply[PROTOCOL_COMMAND_SIZE_BYTES];
+    if (protocol_encode_magnetic_pulse_reply(
+            &result, s_communication.config.crc32,
+            s_communication.config.crc_context, reply) ==
+        PROTOCOL_MESSAGE_OK) {
+        (void)write_complete_frame(reply);
+    }
+}
+
 static void handle_temp_recording_read(const protocol_command_t *command)
 {
     protocol_temp_recording_read_request_t request;
@@ -688,6 +716,10 @@ static void handle_parser_event(void *context,
         handle_recording_delete(command);
         return;
     }
+    if (command->command_id == PROTOCOL_COMMAND_MAGNETIC_PULSE) {
+        handle_magnetic_pulse(command);
+        return;
+    }
     if (command->command_id == PROTOCOL_COMMAND_TEMP_RECORDING_READ) {
         handle_temp_recording_read(command);
         return;
@@ -759,6 +791,7 @@ fw_status_t task_communication_start(
         config->apply_device_config == NULL ||
         config->streaming_start == NULL ||
         config->streaming_stop == NULL ||
+        config->magnetic_pulse == NULL ||
         config->stream_record_take == NULL ||
         config->stream_record_release == NULL ||
         config->recording_start == NULL ||

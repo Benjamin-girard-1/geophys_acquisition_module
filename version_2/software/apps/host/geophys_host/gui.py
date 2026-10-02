@@ -25,8 +25,13 @@ from .protocol import (
     ADC_SAMPLE_RATE_4000_SPS,
     ADC_SAMPLE_RATE_500_SPS,
     ADC_SAMPLE_RATE_8000_SPS,
+    MAGNETIC_CARD_SLOT_1,
+    MAGNETIC_CARD_SLOT_2,
+    MAGNETIC_PULSE_RESET,
+    MAGNETIC_PULSE_SET,
     REPLY_DEVICE_CONFIG,
     REPLY_DEVICE_INFO,
+    REPLY_MAGNETIC_PULSE_RESULT,
     REPLY_RECORDING_DELETE_RESULT,
     REPLY_RECORDING_INFO,
     REPLY_RECORDING_NUMBER,
@@ -42,6 +47,7 @@ from .protocol import (
     RecordingInfo,
     decode_device_config,
     decode_device_info,
+    decode_magnetic_pulse_result,
     decode_recording_delete_result,
     decode_recording_info,
     decode_recording_number,
@@ -52,6 +58,7 @@ from .protocol import (
     encode_device_get_config,
     encode_device_set_config,
     encode_hello,
+    encode_magnetic_pulse,
     encode_recording_delete,
     encode_recording_get_info,
     encode_recording_get_number,
@@ -112,6 +119,26 @@ SD_STATE_LABELS = {
 }
 SD_STATE_PRESENT = 1
 SD_STATE_FAULTED = 2
+POWER_RAIL_FIELDS = (
+    ("rail_3v3", "rail_3v3_enabled", "+3.3 VA"),
+    ("rail_5v", "rail_5v_enabled", "+5 VA"),
+    ("rail_9v", "rail_9v_enabled", "+10 V / 9 VA"),
+    ("rail_negative_5v", "rail_negative_5v_enabled", "−5 VA"),
+    ("rail_18v", "rail_18v_enabled", "+18 V"),
+)
+MANUAL_POWER_RAIL_KEYS = (
+    "rail_3v3",
+    "rail_9v",
+    "rail_negative_5v",
+)
+PULSE_SLOT_OPTIONS = {
+    "Slot 1": MAGNETIC_CARD_SLOT_1,
+    "Slot 2": MAGNETIC_CARD_SLOT_2,
+}
+PULSE_OPERATION_OPTIONS = {
+    "SET": MAGNETIC_PULSE_SET,
+    "RESET": MAGNETIC_PULSE_RESET,
+}
 
 
 def pack_adc_gains(gains: tuple[int, ...]) -> int:
@@ -144,19 +171,29 @@ def build_device_config_update(
         current: DeviceConfig,
         adc_sample_rate: int,
         adc_channel_mask: int,
-        gains: tuple[int, ...]) -> DeviceConfigUpdate:
-    """Build an update while preserving currently unsupported fields."""
+        gains: tuple[int, ...],
+        rail_states: tuple[bool, ...] | None = None) -> DeviceConfigUpdate:
+    """Build an update from editable fields and preserve hidden fields."""
     if adc_channel_mask not in (0x0F, 0xF0, 0xFF):
         raise ValueError("select at least one four-channel slot")
+    requested_rails = {
+        key: getattr(current, attribute)
+        for key, attribute, _label in POWER_RAIL_FIELDS
+    }
+    if rail_states is not None:
+        if len(rail_states) != len(MANUAL_POWER_RAIL_KEYS):
+            raise ValueError(
+                "exactly three acquisition-rail states are required")
+        requested_rails.update(zip(MANUAL_POWER_RAIL_KEYS, rail_states))
     return DeviceConfigUpdate(
         adc_sample_rate=adc_sample_rate,
         adc_channel_mask=adc_channel_mask,
         adc_gain=pack_adc_gains(gains),
-        rail_3v3_enabled=current.rail_3v3_enabled,
-        rail_5v_enabled=current.rail_5v_enabled,
-        rail_9v_enabled=current.rail_9v_enabled,
-        rail_negative_5v_enabled=current.rail_negative_5v_enabled,
-        rail_18v_enabled=current.rail_18v_enabled,
+        rail_3v3_enabled=requested_rails["rail_3v3"],
+        rail_5v_enabled=requested_rails["rail_5v"],
+        rail_9v_enabled=requested_rails["rail_9v"],
+        rail_negative_5v_enabled=requested_rails["rail_negative_5v"],
+        rail_18v_enabled=requested_rails["rail_18v"],
         imu_averaging_time_ms=current.imu_averaging_time_ms,
     )
 
@@ -307,6 +344,16 @@ class DeviceWorker:
         _require_success("DEVICE_SET_CONFIG", config.result)
         self._emit("config_applied", config)
 
+    def _magnetic_pulse(self, card_slot: int, operation: int) -> None:
+        result = decode_magnetic_pulse_result(self._request(
+            encode_magnetic_pulse(card_slot, operation),
+            REPLY_MAGNETIC_PULSE_RESULT,
+            self.ACQUISITION_TIMEOUT_S,
+        ))
+        _require_success("MAGNETIC_PULSE", result.result)
+        self._emit("pulse_completed", result)
+        self._read_config()
+
     def _refresh_recordings(self) -> None:
         self._emit("recordings_loading")
         try:
@@ -419,6 +466,9 @@ class DeviceWorker:
             self._stop_stream()
         elif name == "set_config":
             self._set_config(payload["update"])
+        elif name == "magnetic_pulse":
+            self._magnetic_pulse(
+                payload["card_slot"], payload["operation"])
         else:
             raise RuntimeError(f"unknown GUI action: {name}")
 
@@ -878,6 +928,8 @@ class GeophysHostApp(ttk.Frame):
         self.config_slot_checkbuttons: dict[int, ttk.Checkbutton] = {}
         self.config_gain_vars: dict[int, tk.StringVar] = {}
         self.config_gain_combos: dict[int, ttk.Combobox] = {}
+        self.config_rail_enabled_vars: dict[str, tk.BooleanVar] = {}
+        self.config_rail_checkbuttons: dict[str, ttk.Checkbutton] = {}
 
         canvas = tk.Canvas(
             self.config_tab, borderwidth=0, highlightthickness=0)
@@ -921,9 +973,9 @@ class GeophysHostApp(ttk.Frame):
         ).grid(row=0, column=0, sticky=tk.W)
         ttk.Label(
             content,
-            text=("ADC settings can be changed while acquisition is stopped. "
-                  "They remain active until the device reboots. Other fields "
-                  "show the current device status."),
+            text=("ADC settings and manual power-rail requests can be sent "
+                  "while acquisition is stopped. The reported values always "
+                  "show the state echoed by the device."),
             wraplength=650,
         ).grid(row=1, column=0, sticky=tk.W, pady=(2, 12))
 
@@ -950,14 +1002,73 @@ class GeophysHostApp(ttk.Frame):
         power = ttk.LabelFrame(content, text="Power rails", padding=10)
         power.grid(row=3, column=0, sticky=tk.EW, pady=(0, 10))
         power.columnconfigure(1, weight=1)
-        for row, (key, label) in enumerate((
-                ("rail_3v3", "+3.3 VA"),
-                ("rail_5v", "+5 VA"),
-                ("rail_9v", "+10 V / 9 VA"),
-                ("rail_negative_5v", "−5 VA"),
-                ("rail_18v", "+18 V"))):
+        ttk.Label(power, text="Reported").grid(
+            row=0, column=1, sticky=tk.E, padx=(0, 16))
+        ttk.Label(power, text="Manual request").grid(
+            row=0, column=2, sticky=tk.E)
+        for row, (key, _attribute, label) in enumerate(
+                POWER_RAIL_FIELDS, start=1):
             self.config_value_vars[key] = self._add_config_value(
                 power, row, label, "Unknown")
+            if key in MANUAL_POWER_RAIL_KEYS:
+                enabled_variable = tk.BooleanVar(power, value=False)
+                self.config_rail_enabled_vars[key] = enabled_variable
+                checkbutton = ttk.Checkbutton(
+                    power,
+                    text="On",
+                    variable=enabled_variable,
+                    command=self._mark_config_dirty,
+                    state=tk.DISABLED,
+                )
+                checkbutton.grid(row=row, column=2, sticky=tk.E)
+                self.config_rail_checkbuttons[key] = checkbutton
+            else:
+                ttk.Label(
+                    power,
+                    text=("Not switchable" if key == "rail_5v"
+                          else "Pulse-controlled"),
+                ).grid(row=row, column=2, sticky=tk.E)
+        ttk.Label(
+            power,
+            text=("Acquisition rails are applied in the required sequence. "
+                  "The +18 V rail is energized only during a pulse."),
+            wraplength=600,
+        ).grid(row=6, column=0, columnspan=3, sticky=tk.W, pady=(8, 0))
+
+        pulse = ttk.LabelFrame(power, text="Magnetic pulse", padding=8)
+        pulse.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(10, 0))
+        ttk.Label(pulse, text="Card").pack(side=tk.LEFT)
+        self.pulse_slot_var = tk.StringVar(pulse, value="Slot 1")
+        self.pulse_slot_combo = ttk.Combobox(
+            pulse,
+            textvariable=self.pulse_slot_var,
+            values=tuple(PULSE_SLOT_OPTIONS),
+            state=tk.DISABLED,
+            width=8,
+        )
+        self.pulse_slot_combo.pack(side=tk.LEFT, padx=(6, 12))
+        self.pulse_slot_combo.bind(
+            "<<ComboboxSelected>>", lambda _event: self._update_controls())
+        ttk.Label(pulse, text="Operation").pack(side=tk.LEFT)
+        self.pulse_operation_var = tk.StringVar(pulse, value="SET")
+        self.pulse_operation_combo = ttk.Combobox(
+            pulse,
+            textvariable=self.pulse_operation_var,
+            values=tuple(PULSE_OPERATION_OPTIONS),
+            state=tk.DISABLED,
+            width=8,
+        )
+        self.pulse_operation_combo.pack(side=tk.LEFT, padx=(6, 12))
+        self.pulse_button = ttk.Button(
+            pulse,
+            text="Send pulse",
+            command=self._send_magnetic_pulse,
+            state=tk.DISABLED,
+        )
+        self.pulse_button.pack(side=tk.LEFT)
+        self.pulse_status_var = tk.StringVar(pulse, value="Not connected")
+        ttk.Label(pulse, textvariable=self.pulse_status_var).pack(
+            side=tk.LEFT, padx=(12, 0))
 
         navigation = ttk.LabelFrame(
             content, text="GNSS and IMU", padding=10)
@@ -1027,7 +1138,7 @@ class GeophysHostApp(ttk.Frame):
         if self._config_loading:
             return
         self.config_dirty = True
-        self.config_status_var.set("Unsaved ADC configuration changes")
+        self.config_status_var.set("Unsaved configuration changes")
         self._update_controls()
 
     def _config_update_from_controls(self) -> DeviceConfigUpdate:
@@ -1058,6 +1169,10 @@ class GeophysHostApp(ttk.Frame):
             sample_rate,
             channel_mask,
             gains,
+            tuple(
+                self.config_rail_enabled_vars[key].get()
+                for key in MANUAL_POWER_RAIL_KEYS
+            ),
         )
 
     def _apply_config_changes(self) -> None:
@@ -1066,8 +1181,26 @@ class GeophysHostApp(ttk.Frame):
         except ValueError as error:
             messagebox.showerror("Configuration", str(error))
             return
-        self.config_status_var.set("Applying ADC configuration…")
+        self.config_status_var.set("Applying configuration…")
         self._submit("set_config", update=update)
+
+    def _send_magnetic_pulse(self) -> None:
+        card_slot = PULSE_SLOT_OPTIONS[self.pulse_slot_var.get()]
+        operation = PULSE_OPERATION_OPTIONS[self.pulse_operation_var.get()]
+        slot_label = self.pulse_slot_var.get()
+        operation_label = self.pulse_operation_var.get()
+        if not messagebox.askyesno(
+                "Magnetic pulse",
+                f"Send {operation_label} pulse to {slot_label}?\n\n"
+                "The +18 V rail will be energized briefly."):
+            return
+        self.pulse_status_var.set(
+            f"Sending {operation_label} pulse to {slot_label}…")
+        self._submit(
+            "magnetic_pulse",
+            card_slot=card_slot,
+            operation=operation,
+        )
 
     def _sync_live_channel_options(self, channel_mask: int) -> None:
         choices = tuple(
@@ -1097,7 +1230,10 @@ class GeophysHostApp(ttk.Frame):
             variable.set(False)
         for variable in self.config_gain_vars.values():
             variable.set("")
+        for variable in self.config_rail_enabled_vars.values():
+            variable.set(False)
         self.config_status_var.set("Not connected")
+        self.pulse_status_var.set("Not connected")
         self.current_config = None
         self.config_dirty = False
         self._sync_live_channel_options(0)
@@ -1359,6 +1495,27 @@ class GeophysHostApp(ttk.Frame):
                 state=tk.NORMAL if configuration_ready else tk.DISABLED)
         for combo in self.config_gain_combos.values():
             combo.configure(state=editor_state)
+        for checkbutton in self.config_rail_checkbuttons.values():
+            checkbutton.configure(
+                state=tk.NORMAL if configuration_ready else tk.DISABLED)
+        self.pulse_slot_combo.configure(
+            state="readonly" if configuration_ready else tk.DISABLED)
+        self.pulse_operation_combo.configure(
+            state="readonly" if configuration_ready else tk.DISABLED)
+        selected_slot = PULSE_SLOT_OPTIONS.get(self.pulse_slot_var.get())
+        selected_card = None
+        if self.current_config is not None:
+            selected_card = (
+                self.current_config.card_slot_1
+                if selected_slot == MAGNETIC_CARD_SLOT_1
+                else self.current_config.card_slot_2
+            )
+        pulse_ready = (
+            configuration_ready and not self.config_dirty and
+            selected_card == 1
+        )
+        self.pulse_button.configure(
+            state=tk.NORMAL if pulse_ready else tk.DISABLED)
         self.config_apply_button.configure(
             state=tk.NORMAL if configuration_ready and
             self.config_dirty else tk.DISABLED)
@@ -1432,6 +1589,11 @@ class GeophysHostApp(ttk.Frame):
                 for channel, gain in enumerate(
                         unpack_adc_gains(config.adc_gain)):
                     self.config_gain_vars[channel].set(GAIN_LABELS[gain])
+                for key, attribute, _label in POWER_RAIL_FIELDS:
+                    if key not in self.config_rail_enabled_vars:
+                        continue
+                    self.config_rail_enabled_vars[key].set(
+                        getattr(config, attribute))
                 self.config_dirty = False
             finally:
                 self._config_loading = False
@@ -1505,8 +1667,17 @@ class GeophysHostApp(ttk.Frame):
             self._apply_config(
                 event.payload,
                 force_editors=True,
-                status_message="ADC configuration applied",
+                status_message="Configuration applied",
             )
+        elif event.name == "pulse_completed":
+            self.pending_action = None
+            slot = f"Slot {event.payload.card_slot}"
+            operation = (
+                "SET" if event.payload.operation == MAGNETIC_PULSE_SET
+                else "RESET")
+            self.pulse_status_var.set(
+                f"{operation} pulse completed on {slot}")
+            self._update_controls()
         elif event.name == "recordings_loading":
             self.catalog_loading = True
             self.recordings_status_var.set("Reading recording catalog…")
@@ -1600,6 +1771,8 @@ class GeophysHostApp(ttk.Frame):
             elif event.payload["action"] == "set_config":
                 self.config_status_var.set(
                     f"Configuration was not applied: {message}")
+            elif event.payload["action"] == "magnetic_pulse":
+                self.pulse_status_var.set(f"Pulse failed: {message}")
             self._update_controls()
             messagebox.showerror(action.title(), message)
         elif event.name == "connection_error":

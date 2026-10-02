@@ -22,6 +22,7 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_COMMAND_RECORDING_GET_NUMBER UINT16_C(0x0009)
 #define PROTOCOL_COMMAND_RECORDING_GET_INFO   UINT16_C(0x000A)
 #define PROTOCOL_COMMAND_RECORDING_DELETE     UINT16_C(0x000B)
+#define PROTOCOL_COMMAND_MAGNETIC_PULSE       UINT16_C(0x000C)
 #define PROTOCOL_COMMAND_TEMP_RECORDING_READ  UINT16_C(0xF000)
 
 #define PROTOCOL_REPLY_DEVICE_INFO            UINT16_C(0x00A1)
@@ -34,6 +35,7 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_REPLY_RECORDING_NUMBER       UINT16_C(0x00A9)
 #define PROTOCOL_REPLY_RECORDING_INFO         UINT16_C(0x00AA)
 #define PROTOCOL_REPLY_RECORDING_DELETE_RESULT UINT16_C(0x00AB)
+#define PROTOCOL_REPLY_MAGNETIC_PULSE_RESULT  UINT16_C(0x00AC)
 #define PROTOCOL_REPLY_TEMP_RECORDING_READ    UINT16_C(0xF000)
 
 #define PROTOCOL_RESULT_SUCCESS               UINT8_C(0x00)
@@ -72,6 +74,8 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_RECORDING_INFO_PAYLOAD_SIZE_BYTES UINT8_C(48)
 #define PROTOCOL_RECORDING_DELETE_PAYLOAD_SIZE_BYTES UINT8_C(32)
 #define PROTOCOL_RECORDING_DELETE_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(34)
+#define PROTOCOL_MAGNETIC_PULSE_PAYLOAD_SIZE_BYTES UINT8_C(2)
+#define PROTOCOL_MAGNETIC_PULSE_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(3)
 #define PROTOCOL_TEMP_RECORDING_READ_REQUEST_PAYLOAD_SIZE_BYTES UINT8_C(36)
 #define PROTOCOL_TEMP_RECORDING_READ_REPLY_PAYLOAD_SIZE_BYTES UINT8_C(48)
 #define PROTOCOL_TEMP_RECORDING_READ_DATA_SIZE_BYTES UINT8_C(38)
@@ -111,6 +115,11 @@ typedef uint8_t protocol_command_result_t;
 #define PROTOCOL_SD_CARD_ABSENT                UINT8_C(0x00)
 #define PROTOCOL_SD_CARD_PRESENT               UINT8_C(0x01)
 #define PROTOCOL_SD_CARD_FAULTED               UINT8_C(0x02)
+
+#define PROTOCOL_MAGNETIC_CARD_SLOT_1           UINT8_C(0x01)
+#define PROTOCOL_MAGNETIC_CARD_SLOT_2           UINT8_C(0x02)
+#define PROTOCOL_MAGNETIC_PULSE_SET             UINT8_C(0x01)
+#define PROTOCOL_MAGNETIC_PULSE_RESET           UINT8_C(0x02)
 
 typedef enum {
     PROTOCOL_MESSAGE_OK = 0,
@@ -227,6 +236,17 @@ typedef struct {
     protocol_recording_name_t name;
 } protocol_recording_delete_result_t;
 
+typedef struct {
+    uint8_t card_slot;
+    uint8_t operation;
+} protocol_magnetic_pulse_request_t;
+
+typedef struct {
+    protocol_command_result_t result;
+    uint8_t card_slot;
+    uint8_t operation;
+} protocol_magnetic_pulse_result_t;
+
 /** Temporary UART-only file extraction request. */
 typedef struct {
     protocol_recording_name_t name;
@@ -327,6 +347,16 @@ protocol_message_status_t protocol_decode_recording_delete_request(
 
 protocol_message_status_t protocol_encode_recording_delete_reply(
     const protocol_recording_delete_result_t *result,
+    protocol_crc32_callback_t crc32,
+    void *crc_context,
+    uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
+
+protocol_message_status_t protocol_decode_magnetic_pulse_request(
+    const protocol_command_t *command,
+    protocol_magnetic_pulse_request_t *request);
+
+protocol_message_status_t protocol_encode_magnetic_pulse_reply(
+    const protocol_magnetic_pulse_result_t *result,
     protocol_crc32_callback_t crc32,
     void *crc_context,
     uint8_t frame[PROTOCOL_COMMAND_SIZE_BYTES]);
