@@ -112,12 +112,16 @@ recording failure through `RECORDING_STOP` returned `0x0a` (`storage full`).
 This isolates the failure from host configuration and four-channel
 acquisition; space must be freed or the FAT32 volume repaired before recording.
 
-The first Bluetooth Low Energy slice is also implemented. The ESP32-S3
-advertises `Geophys Acquisition` even while UART-to-USB is connected, accepts
-one BLE central, and answers `HELLO` with the existing `DEVICE_INFO` message.
-The desktop host can scan, connect, and display that identity; other commands
-and live data remain disabled on Bluetooth for now. Rev-1 bench verification
-passed BLE discovery and `HELLO` while a USB command session remained active.
+The first Bluetooth Low Energy slice is also implemented. When enabled, the
+ESP32-S3 advertises `Geophys Acquisition`, accepts one BLE central, and answers
+`HELLO` with the existing `DEVICE_INFO` message. The desktop host can scan,
+connect, and display that identity; other commands and live data remain
+disabled on Bluetooth for now. Rev-1 bench verification passed BLE discovery
+and `HELLO` while a USB command session remained active. The current
+2026-10-03 field-test build intentionally sets `APP_BLUETOOTH_ENABLED` to zero
+in `version_2/firmware/app/app.c`. This radio-silent diagnostic configuration
+removed the measured 60–70 ms BLE advertising disturbance and preserves the
+implemented BLE code for later re-enablement.
 
 The complete wire contract is
 [shared/protocol/protocol.md](shared/protocol/protocol.md). It is the sole

@@ -5,12 +5,20 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 import queue
 import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any
+
+import matplotlib
+
+# This application embeds Matplotlib in Tk.  On macOS, allowing Matplotlib to
+# keep its default native backend loads both Cocoa and Tk GUI backends into the
+# same process and can abort when the Live Stream canvas becomes visible.
+matplotlib.use("TkAgg", force=True)
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -139,6 +147,83 @@ PULSE_OPERATION_OPTIONS = {
     "SET": MAGNETIC_PULSE_SET,
     "RESET": MAGNETIC_PULSE_RESET,
 }
+LIVE_PLOT_OPTIONS = {
+    "Hidden": 0,
+    "Graph 1": 1,
+    "Graph 2": 2,
+}
+DEFAULT_LIVE_PLOT_SELECTIONS = (
+    "Graph 1",
+    "Graph 1",
+    "Graph 1",
+    "Hidden",
+    "Graph 2",
+    "Graph 2",
+    "Graph 2",
+    "Hidden",
+)
+
+
+def parse_live_display_settings(
+        plot_selections: tuple[str, ...],
+        subtraction_constants: tuple[str, ...],
+) -> tuple[tuple[int, ...], tuple[float, ...]]:
+    """Validate channel routing and raw-count display subtraction values."""
+    if len(plot_selections) != 8 or len(subtraction_constants) != 8:
+        raise ValueError("display settings require exactly eight channels")
+
+    assignments = []
+    offsets = []
+    for channel, (selection, raw_constant) in enumerate(zip(
+            plot_selections, subtraction_constants)):
+        try:
+            assignments.append(LIVE_PLOT_OPTIONS[selection])
+        except KeyError as error:
+            raise ValueError(
+                f"CH{channel} has an invalid graph selection") from error
+        try:
+            offset = float(raw_constant.strip() or "0")
+        except ValueError as error:
+            raise ValueError(
+                f"CH{channel} subtraction constant must be a number") \
+                from error
+        if not math.isfinite(offset):
+            raise ValueError(
+                f"CH{channel} subtraction constant must be finite")
+        offsets.append(offset)
+    return tuple(assignments), tuple(offsets)
+
+
+def subtract_display_constant(
+        samples: list[int], constant: float) -> list[float]:
+    """Apply a display-only offset without modifying captured raw samples."""
+    return [sample - constant for sample in samples]
+
+
+def active_live_plot_channels(
+        channel_mask: int,
+        assignments: tuple[int, ...],
+) -> dict[int, tuple[int, ...]]:
+    """Group enabled channels into the non-empty live overlay graphs."""
+    if not 0 <= channel_mask <= 0xFF:
+        raise ValueError("channel mask is outside uint8")
+    if len(assignments) != 8 or any(
+            assignment not in (0, 1, 2)
+            for assignment in assignments):
+        raise ValueError("invalid live-plot channel assignments")
+    return {
+        plot_number: tuple(
+            channel for channel in range(8)
+            if channel_mask & (1 << channel) and
+            assignments[channel] == plot_number
+        )
+        for plot_number in (1, 2)
+        if any(
+            channel_mask & (1 << channel) and
+            assignments[channel] == plot_number
+            for channel in range(8)
+        )
+    }
 
 
 def pack_adc_gains(gains: tuple[int, ...]) -> int:
@@ -588,42 +673,113 @@ class BleHelloWorker:
 
 
 class EmbeddedLivePlot(ttk.Frame):
-    """Eight raw-channel plots embedded in the Live Stream tab."""
+    """One or two overlay plots with configurable per-channel routing."""
 
     def __init__(self, parent: tk.Misc) -> None:
         super().__init__(parent)
         self.figure = Figure(figsize=(10, 7), dpi=100)
-        self.axes = []
-        self.lines = {}
-        for channel in range(8):
-            axis = self.figure.add_subplot(4, 2, channel + 1)
-            line, = axis.plot([], [], linewidth=0.8)
-            axis.set_title(f"CH{channel}", loc="left", fontsize=9)
-            axis.grid(True, alpha=0.25)
-            self.axes.append(axis)
-            self.lines[channel] = line
-        self.axes[6].set_xlabel("Device monotonic time (s)")
-        self.axes[7].set_xlabel("Device monotonic time (s)")
-        self.figure.tight_layout()
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        self.channel_mask = 0xFF
+        self.channel_mask = 0
+        self.assignments = tuple(
+            LIVE_PLOT_OPTIONS[value]
+            for value in DEFAULT_LIVE_PLOT_SELECTIONS
+        )
+        self.subtraction_constants = (0.0,) * 8
+        self.axes: dict[int, Any] = {}
+        self.lines: dict[int, Any] = {}
+        self._rebuild_axes()
 
-    def configure_channels(self, channel_mask: int) -> None:
-        self.channel_mask = channel_mask
-        for channel, axis in enumerate(self.axes):
-            axis.set_visible(bool(channel_mask & (1 << channel)))
-        self.figure.tight_layout()
+    def _rebuild_axes(self) -> None:
+        self.figure.clear()
+        self.axes.clear()
+        self.lines.clear()
+        plot_channels = active_live_plot_channels(
+            self.channel_mask, self.assignments)
+        active_plots = list(plot_channels)
+        if not active_plots:
+            self.figure.text(
+                0.5,
+                0.5,
+                "No acquisition slot is enabled in the device configuration",
+                ha="center",
+                va="center",
+                color="0.35",
+                fontsize=11,
+            )
+            self.canvas.draw_idle()
+            return
+
+        for row, plot_number in enumerate(active_plots, start=1):
+            axis = self.figure.add_subplot(
+                len(active_plots), 1, row,
+                sharex=(next(iter(self.axes.values()))
+                        if self.axes else None),
+            )
+            self.axes[plot_number] = axis
+            channels = plot_channels.get(plot_number, ())
+            for channel in channels:
+                line, = axis.plot([], [], linewidth=0.9, label=f"CH{channel}")
+                self.lines[channel] = line
+            channel_labels = ", ".join(
+                f"CH{channel}" for channel in channels) or "No channels"
+            axis.set_title(
+                f"Graph {plot_number} — {channel_labels}",
+                loc="left",
+                fontsize=10,
+            )
+            axis.set_ylabel("ADC counts\n(raw − constant)")
+            axis.grid(True, alpha=0.25)
+            if channels:
+                axis.legend(loc="upper right", ncol=min(4, len(channels)))
+
+        self.axes[active_plots[-1]].set_xlabel(
+            "Device monotonic time (s)")
+        self.figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
         self.canvas.draw_idle()
 
+    def configure_channels(self, channel_mask: int) -> None:
+        if channel_mask == self.channel_mask:
+            return
+        self.channel_mask = channel_mask
+        self._rebuild_axes()
+
+    def configure_display(
+            self,
+            assignments: tuple[int, ...],
+            subtraction_constants: tuple[float, ...],
+    ) -> None:
+        if len(assignments) != 8 or any(
+                assignment not in (0, 1, 2)
+                for assignment in assignments):
+            raise ValueError("invalid live-plot channel assignments")
+        if len(subtraction_constants) != 8 or any(
+                not math.isfinite(value)
+                for value in subtraction_constants):
+            raise ValueError("invalid live-plot subtraction constants")
+        self.assignments = tuple(assignments)
+        self.subtraction_constants = tuple(subtraction_constants)
+        self._rebuild_axes()
+
     def update_plot(self, model: LiveStreamModel, link_stats: dict[str, int]) -> None:
-        for channel, axis in enumerate(self.axes):
-            if not (self.channel_mask & (1 << channel)):
-                continue
+        latest_timestamp_by_plot: dict[int, float] = {}
+        for channel, line in self.lines.items():
             timestamps, samples = model.plot_data(channel)
-            self.lines[channel].set_data(timestamps, samples)
+            line.set_data(
+                timestamps,
+                subtract_display_constant(
+                    samples, self.subtraction_constants[channel]),
+            )
             if timestamps:
-                right = timestamps[-1]
+                plot_number = self.assignments[channel]
+                latest_timestamp_by_plot[plot_number] = max(
+                    timestamps[-1],
+                    latest_timestamp_by_plot.get(plot_number, 0.0),
+                )
+
+        for plot_number, axis in self.axes.items():
+            right = latest_timestamp_by_plot.get(plot_number)
+            if right is not None:
                 axis.set_xlim(
                     max(0.0, right - model.window_s),
                     max(model.window_s, right),
@@ -830,7 +986,7 @@ class GeophysHostApp(ttk.Frame):
 
     def _build_live_tab(self) -> None:
         self.live_tab.columnconfigure(0, weight=1)
-        self.live_tab.rowconfigure(1, weight=1)
+        self.live_tab.rowconfigure(2, weight=1)
         controls = ttk.Frame(self.live_tab)
         controls.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
 
@@ -864,8 +1020,74 @@ class GeophysHostApp(ttk.Frame):
         ttk.Label(controls, textvariable=self.live_status_var).pack(
             side=tk.LEFT, padx=(12, 0))
 
+        display = ttk.LabelFrame(
+            self.live_tab, text="Plot display", padding=6)
+        display.grid(row=1, column=0, sticky=tk.EW, pady=(0, 8))
+        for column in range(4):
+            display.columnconfigure(column, weight=1)
+        ttk.Label(
+            display,
+            text=("Route each channel to either overlay graph and optionally "
+                  "subtract a constant from its displayed raw values. "
+                  "Captured data remains unchanged."),
+        ).grid(row=0, column=0, columnspan=4, sticky=tk.W, pady=(0, 5))
+
+        self.live_plot_assignment_vars: dict[int, tk.StringVar] = {}
+        self.live_subtraction_vars: dict[int, tk.StringVar] = {}
+        for channel in range(8):
+            channel_controls = ttk.Frame(display)
+            channel_controls.grid(
+                row=1 + channel // 4,
+                column=channel % 4,
+                sticky=tk.W,
+                padx=(0, 12),
+                pady=2,
+            )
+            ttk.Label(channel_controls, text=f"CH{channel}").pack(
+                side=tk.LEFT)
+            assignment = tk.StringVar(
+                channel_controls,
+                value=DEFAULT_LIVE_PLOT_SELECTIONS[channel],
+            )
+            self.live_plot_assignment_vars[channel] = assignment
+            ttk.Combobox(
+                channel_controls,
+                textvariable=assignment,
+                values=tuple(LIVE_PLOT_OPTIONS),
+                state="readonly",
+                width=8,
+            ).pack(side=tk.LEFT, padx=(4, 5))
+            ttk.Label(channel_controls, text="subtract").pack(side=tk.LEFT)
+            subtraction = tk.StringVar(channel_controls, value="0")
+            self.live_subtraction_vars[channel] = subtraction
+            ttk.Entry(
+                channel_controls,
+                textvariable=subtraction,
+                width=9,
+            ).pack(side=tk.LEFT, padx=(4, 0))
+
+        display_actions = ttk.Frame(display)
+        display_actions.grid(
+            row=3, column=0, columnspan=4, sticky=tk.EW, pady=(5, 0))
+        ttk.Button(
+            display_actions,
+            text="Apply display settings",
+            command=self._apply_live_display_settings,
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            display_actions,
+            text="Reset display",
+            command=self._reset_live_display_settings,
+        ).pack(side=tk.LEFT, padx=6)
+        self.live_display_status_var = tk.StringVar(
+            display_actions, value="CH3 and CH7 are hidden by default")
+        ttk.Label(
+            display_actions,
+            textvariable=self.live_display_status_var,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
         self.live_plot = EmbeddedLivePlot(self.live_tab)
-        self.live_plot.grid(row=1, column=0, sticky=tk.NSEW)
+        self.live_plot.grid(row=2, column=0, sticky=tk.NSEW)
 
     @staticmethod
     def _add_config_value(parent: ttk.Frame, row: int, label: str,
@@ -1237,6 +1459,7 @@ class GeophysHostApp(ttk.Frame):
         self.current_config = None
         self.config_dirty = False
         self._sync_live_channel_options(0)
+        self.live_plot.configure_channels(0)
 
     def _build_status_bar(self) -> None:
         self.connection_status_var = tk.StringVar(value="Disconnected")
@@ -1426,6 +1649,34 @@ class GeophysHostApp(ttk.Frame):
         self.recordings_status_var.set(f"Deleting {recording.name}…")
         self._submit("delete_recording", name=recording.name)
 
+    def _apply_live_display_settings(self) -> None:
+        try:
+            assignments, constants = parse_live_display_settings(
+                tuple(
+                    self.live_plot_assignment_vars[channel].get()
+                    for channel in range(8)
+                ),
+                tuple(
+                    self.live_subtraction_vars[channel].get()
+                    for channel in range(8)
+                ),
+            )
+        except ValueError as error:
+            self.live_display_status_var.set(str(error))
+            messagebox.showerror("Plot display", str(error))
+            return
+        self.live_plot.configure_display(assignments, constants)
+        self.live_display_status_var.set("Display settings applied")
+
+    def _reset_live_display_settings(self) -> None:
+        for channel in range(8):
+            self.live_plot_assignment_vars[channel].set(
+                DEFAULT_LIVE_PLOT_SELECTIONS[channel])
+            self.live_subtraction_vars[channel].set("0")
+        self._apply_live_display_settings()
+        self.live_display_status_var.set(
+            "Display reset; CH3 and CH7 are hidden")
+
     def _start_live(self) -> None:
         channel_mask = self.CHANNELS[self.channels_var.get()]
         decimation = self.DECIMATIONS[self.decimation_var.get()]
@@ -1599,6 +1850,8 @@ class GeophysHostApp(ttk.Frame):
                 self._config_loading = False
 
         self._sync_live_channel_options(config.adc_channel_mask)
+        if not self.live_active:
+            self.live_plot.configure_channels(config.adc_channel_mask)
         if status_message is not None:
             self.config_status_var.set(status_message)
         if config.recording_in_progress:
@@ -1753,6 +2006,9 @@ class GeophysHostApp(ttk.Frame):
         elif event.name == "stream_stopped":
             self.pending_action = None
             self.live_active = False
+            self.live_plot.configure_channels(
+                self.current_config.adc_channel_mask
+                if self.current_config is not None else 0)
             self.live_status_var.set("Live stream stopped")
             if not self.config_dirty:
                 self.config_status_var.set("Configuration loaded")

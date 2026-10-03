@@ -9,18 +9,24 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+import matplotlib
+
 HOST_APP = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOST_APP))
 
 from geophys_host.gui import (  # noqa: E402
+    DEFAULT_LIVE_PLOT_SELECTIONS,
     DeviceWorker,
     GeophysHostApp,
     UiEvent,
+    active_live_plot_channels,
     build_device_config_update,
     format_size,
     format_timestamp,
     format_uptime,
     pack_adc_gains,
+    parse_live_display_settings,
+    subtract_display_constant,
     unexpected_recording_stop_message,
     unpack_adc_gains,
 )
@@ -128,6 +134,10 @@ def device_config_payload(
 
 
 class GuiSupportTests(unittest.TestCase):
+    def test_desktop_gui_uses_only_the_tk_matplotlib_backend(self) -> None:
+        self.assertEqual(matplotlib.get_backend().lower(), "tkagg")
+        self.assertNotIn("matplotlib.backends._macosx", sys.modules)
+
     def test_display_formatters(self) -> None:
         self.assertEqual(format_size(512), "512 B")
         self.assertEqual(format_size(1536), "1.5 KiB")
@@ -151,6 +161,56 @@ class GuiSupportTests(unittest.TestCase):
 
         self.assertEqual(packed, 0xE4E4)
         self.assertEqual(unpack_adc_gains(packed), gains)
+
+    def test_live_display_defaults_hide_channels_three_and_seven(self) -> None:
+        assignments, constants = parse_live_display_settings(
+            DEFAULT_LIVE_PLOT_SELECTIONS,
+            ("0",) * 8,
+        )
+
+        self.assertEqual(assignments, (1, 1, 1, 0, 2, 2, 2, 0))
+        self.assertEqual(constants, (0.0,) * 8)
+        self.assertEqual(
+            active_live_plot_channels(0xFF, assignments),
+            {1: (0, 1, 2), 2: (4, 5, 6)},
+        )
+        self.assertEqual(
+            active_live_plot_channels(0x0F, assignments),
+            {1: (0, 1, 2)},
+        )
+        self.assertEqual(active_live_plot_channels(0, assignments), {})
+
+    def test_hidden_channel_can_be_routed_to_a_second_graph(self) -> None:
+        assignments = (1, 1, 1, 2, 0, 0, 0, 0)
+
+        self.assertEqual(
+            active_live_plot_channels(0x0F, assignments),
+            {1: (0, 1, 2), 2: (3,)},
+        )
+
+    def test_live_display_subtracts_independent_channel_constant(self) -> None:
+        selections = list(DEFAULT_LIVE_PLOT_SELECTIONS)
+        selections[3] = "Graph 2"
+        constants = ["0"] * 8
+        constants[1] = "12.5"
+
+        assignments, offsets = parse_live_display_settings(
+            tuple(selections), tuple(constants))
+
+        self.assertEqual(assignments[3], 2)
+        self.assertEqual(offsets[1], 12.5)
+        self.assertEqual(
+            subtract_display_constant([10, 20], offsets[1]),
+            [-2.5, 7.5],
+        )
+
+    def test_live_display_rejects_nonfinite_constant(self) -> None:
+        constants = ["0"] * 8
+        constants[6] = "nan"
+
+        with self.assertRaisesRegex(ValueError, "CH6.*finite"):
+            parse_live_display_settings(
+                DEFAULT_LIVE_PLOT_SELECTIONS, tuple(constants))
 
     def test_config_update_preserves_unedited_device_fields(self) -> None:
         current = decode_device_config(reply(

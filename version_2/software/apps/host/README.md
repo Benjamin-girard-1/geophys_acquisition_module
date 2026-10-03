@@ -7,8 +7,13 @@ protocol. It now includes the command and ADC-record codecs, a corruption-
 tolerant mixed `\CMD`/`\DAT` parser, exact named-reply matching while ADC data
 is in flight, raw validated-block capture, live continuity/error counters, and
 a Tk desktop application with manual USB/COM selection. The desktop app has a
-recording catalog, embedded raw-channel plots, and a functional configuration
-tab. The configuration tab can change ADC sample rate, select slot 1 (channels
+recording catalog, embedded overlay plots, and a functional configuration tab.
+The live view uses at most two graphs, routes each channel to either graph or
+hides it, and applies user-set per-channel display subtraction constants without
+changing captured raw data. CH3 and CH7 are hidden by default. Graph visibility
+follows the configured acquisition slots, so the second graph is not created
+until slot 2 is enabled. The configuration tab can change ADC sample rate,
+select slot 1 (channels
 0–3), slot 2 (channels 4–7), or both, set each channel's gain, display the five
 device-reported power-rail states, and include manually requested rail states
 in `DEVICE_SET_CONFIG`. Serial work runs on a background thread so the window

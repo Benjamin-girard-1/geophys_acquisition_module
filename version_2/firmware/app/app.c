@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Temporary radio-silent diagnostic build for the BLE coupling test. */
+#define APP_BLUETOOTH_ENABLED 0
+
 #include "board.h"
 #include "device_configuration.h"
 #include "platform_crc.h"
@@ -12,7 +15,9 @@
 #include "protocol_messages.h"
 #include "recording_controller.h"
 #include "task_acquisition.h"
+#if APP_BLUETOOTH_ENABLED
 #include "task_bluetooth.h"
+#endif
 #include "task_communication.h"
 #include "transport_uart.h"
 
@@ -117,6 +122,7 @@ fw_status_t app_start(fw_error_context_t *error)
         return status;
     }
 
+#if APP_BLUETOOTH_ENABLED
     const task_bluetooth_config_t bluetooth_config = {
         .crc32 = protocol_crc32,
         .crc_context = NULL,
@@ -126,6 +132,7 @@ fw_status_t app_start(fw_error_context_t *error)
     if (status != FW_STATUS_OK) {
         return status;
     }
+#endif
 
     s_started = true;
     return FW_STATUS_OK;
