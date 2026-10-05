@@ -123,6 +123,16 @@ in `version_2/firmware/app/app.c`. This radio-silent diagnostic configuration
 removed the measured 60–70 ms BLE advertising disturbance and preserves the
 implemented BLE code for later re-enablement.
 
+The same field-test build enables unattended SD recording. Its defaults are
+8 kSPS, channels 0–3 enabled, gain x8 on channels 0–2, and gain x1 on channel
+3; channels 4–7 are disabled. It waits five seconds after application
+initialization, then creates the first free name from `field000` through
+`field254` and starts acquisition. Holding the ESP32-S3 DevKitC BOOT button for
+three seconds stops the ADC, drains the PSRAM buffers, syncs the file, and
+closes it. A hard power-off cannot run that cleanup: after holding BOOT, wait
+for the close to finish before switching the battery off. The RESET button
+remains an immediate reset and must not be used to stop a recording.
+
 The complete wire contract is
 [shared/protocol/protocol.md](shared/protocol/protocol.md). It is the sole
 authority for framing, identifiers, results, command payloads, and ADC data

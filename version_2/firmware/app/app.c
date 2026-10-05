@@ -6,6 +6,7 @@
 
 /* Temporary radio-silent diagnostic build for the BLE coupling test. */
 #define APP_BLUETOOTH_ENABLED 0
+#define APP_FIELD_RECORDING_ENABLED 1
 
 #include "board.h"
 #include "device_configuration.h"
@@ -19,6 +20,9 @@
 #include "task_bluetooth.h"
 #endif
 #include "task_communication.h"
+#if APP_FIELD_RECORDING_ENABLED
+#include "task_field_recording.h"
+#endif
 #include "transport_uart.h"
 
 #define APP_HOST_READ_TIMEOUT_US UINT32_C(100000)
@@ -129,6 +133,13 @@ fw_status_t app_start(fw_error_context_t *error)
         .device_info = device_info,
     };
     status = task_bluetooth_start(&bluetooth_config, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+#endif
+
+#if APP_FIELD_RECORDING_ENABLED
+    status = task_field_recording_start(error);
     if (status != FW_STATUS_OK) {
         return status;
     }

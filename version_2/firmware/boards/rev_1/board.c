@@ -157,6 +157,13 @@ static fw_status_t configure_input(platform_gpio_pin_t pin,
         pin, PLATFORM_GPIO_PULL_NONE, error);
 }
 
+static fw_status_t configure_pull_up_input(platform_gpio_pin_t pin,
+                                           fw_error_context_t *error)
+{
+    return platform_gpio_configure_input(
+        pin, PLATFORM_GPIO_PULL_UP, error);
+}
+
 static void disable_shift_outputs_best_effort(void)
 {
     if (s_shift_gpio_configured) {
@@ -224,6 +231,12 @@ static fw_status_t initialize_direct_gpio(fw_error_context_t *error)
         }
     }
 
+    status = configure_pull_up_input(
+        BOARD_REV1_GPIO_BOOT_BUTTON, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
     return FW_STATUS_OK;
 }
 
@@ -267,6 +280,45 @@ fw_status_t board_init(fw_error_context_t *error)
 
     s_board_initialized = true;
     return FW_STATUS_OK;
+}
+
+fw_status_t board_boot_button_pressed(bool *pressed,
+                                      fw_error_context_t *error)
+{
+    clear_error(error);
+    if (pressed == NULL) {
+        if (error != NULL) {
+            *error = (fw_error_context_t) {
+                .status = FW_STATUS_INVALID_ARGUMENT,
+                .resource = FW_ERROR_RESOURCE_GPIO,
+                .operation = FW_ERROR_OPERATION_READ,
+                .instance = BOARD_REV1_GPIO_BOOT_BUTTON,
+                .detail = 0U,
+            };
+        }
+        return FW_STATUS_INVALID_ARGUMENT;
+    }
+    *pressed = false;
+    if (!s_board_initialized) {
+        if (error != NULL) {
+            *error = (fw_error_context_t) {
+                .status = FW_STATUS_NOT_INITIALIZED,
+                .resource = FW_ERROR_RESOURCE_GPIO,
+                .operation = FW_ERROR_OPERATION_READ,
+                .instance = BOARD_REV1_GPIO_BOOT_BUTTON,
+                .detail = 0U,
+            };
+        }
+        return FW_STATUS_NOT_INITIALIZED;
+    }
+
+    platform_gpio_level_t level;
+    const fw_status_t status = platform_gpio_read(
+        BOARD_REV1_GPIO_BOOT_BUTTON, &level, error);
+    if (status == FW_STATUS_OK) {
+        *pressed = (level == BOARD_REV1_BOOT_BUTTON_ACTIVE_LEVEL);
+    }
+    return status;
 }
 
 fw_status_t board_enter_safe_state(fw_error_context_t *error)

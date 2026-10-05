@@ -249,6 +249,7 @@ or explicit request interfaces.
 | `task_storage` | Own filesystem operations, recordings, buffered writes, flushes, and storage faults | Implemented for SD recording; fault-injection tests open |
 | `task_communication` | Decode protocol messages, dispatch commands, encode responses, and send complete live records | Discovery, configuration, streaming, and recording commands implemented |
 | `task_bluetooth` | Manage Bluetooth connection state and asynchronous radio events without duplicating protocol behavior | BLE advertising, connection, and `HELLO`/`DEVICE_INFO` implemented; other commands remain disabled |
+| `task_field_recording` | Start a uniquely named unattended recording after boot and convert a long BOOT-button hold into the normal synchronized recording stop | Enabled in the radio-silent field build; hardware verification pending |
 
 `task_processing` should remain an ordinary application module unless its CPU
 time, latency, or buffering requirements justify an independent task.
@@ -547,6 +548,8 @@ component and analog-card instances
     v
 application queues, buffers, and tasks
     v
+optional unattended-recording startup delay
+    v
 normal operation
 ```
 
@@ -598,7 +601,7 @@ or implementation.
 | `app_main` composition root | Yes | No | No | No |
 | ESP32-S3 DevKit platform services | Partial | Partial | Partial | Partial |
 | Rev-1 custom board integration | Yes | Partial | Partial | No |
-| Application startup and shared types | Partial | Partial | Partial: acquisition data contracts and stopped-device configuration state | Partial: configuration state exercised through Rev-1 UART |
+| Application startup and shared types | Partial | Partial | Partial: acquisition data contracts, stopped-device configuration state, and radio-silent unattended field-recording control | Partial: configuration state exercised through Rev-1 UART; unattended start and BOOT-button close pending |
 | Acquisition task | Yes | Partial | Partial: shared recording/live ADC lifecycle, minimal DRDY ISR, prepared two-buffer SPI-DMA bursts on core 1, a 256-frame capture ring, core-0 validation/DAT processing, independent fixed live-record pool, decimation, and explicit gap accounting | Partial: DRDY is armed only after ADC startup and recording waits for eight consecutive CRC-valid frames. A final 1 kSPS control retained every conversion. A two-second channels-0–3 16 kSPS SD probe retained 32,840 consecutive conversions at 16,000.04 conversions/s with zero gaps; intermediate presets, eight-channel 16 kSPS, live-stream limits, and long-duration behavior remain open. |
 | Processing task | Yes | No | No | No |
 | Storage task and fixed SD ownership | Yes | Yes | Fixed 40 MHz four-bit SDMMC/FatFs mount, catalog, create/write/sync/close/delete/read, failure cleanup, two 2 MiB PSRAM ping-pong buffers, and a 32 KiB internal SDMMC staging window | Partial: a 50-second four-channel 8 kSPS probe crossed two complete PSRAM-buffer boundaries while acquisition remained active; sampled boundary records were CRC-valid, status-OK, and sequence-contiguous. Reformatting the Cactus card from 4 KiB to 32 KiB FAT32 clusters reduced the observed 2 MiB boundary stall from 1.70–1.77 s to 0.274–0.303 s. Long-duration, injected-latency, and removal tests remain open |

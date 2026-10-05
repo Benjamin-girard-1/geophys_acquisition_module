@@ -7,9 +7,11 @@
 #include "freertos/FreeRTOS.h"
 #include "platform_time.h"
 
-#define DEVICE_CONFIGURATION_DEFAULT_SAMPLE_RATE_SPS UINT32_C(1000)
-#define DEVICE_CONFIGURATION_DEFAULT_CHANNEL_MASK UINT8_C(0xFF)
+#define DEVICE_CONFIGURATION_DEFAULT_SAMPLE_RATE_SPS UINT32_C(8000)
+#define DEVICE_CONFIGURATION_DEFAULT_CHANNEL_MASK UINT8_C(0x0F)
 #define DEVICE_CONFIGURATION_DEFAULT_GAIN UINT8_C(1)
+#define DEVICE_CONFIGURATION_DEFAULT_MAGNETIC_GAIN UINT8_C(8)
+#define DEVICE_CONFIGURATION_MAGNETIC_CHANNEL_COUNT UINT8_C(3)
 
 typedef struct {
     device_configuration_snapshot_t snapshot;
@@ -111,7 +113,9 @@ fw_status_t device_configuration_initialize(fw_error_context_t *error)
          channel < DEVICE_CONFIGURATION_ADC_CHANNEL_COUNT;
          channel++) {
         s_device_configuration.snapshot.adc_gains[channel] =
-            DEVICE_CONFIGURATION_DEFAULT_GAIN;
+            (channel < DEVICE_CONFIGURATION_MAGNETIC_CHANNEL_COUNT) ?
+                DEVICE_CONFIGURATION_DEFAULT_MAGNETIC_GAIN :
+                DEVICE_CONFIGURATION_DEFAULT_GAIN;
     }
     s_device_configuration.snapshot.gnss_state = DEVICE_GNSS_DISABLED;
     s_device_configuration.snapshot.imu_state = DEVICE_IMU_DISABLED;

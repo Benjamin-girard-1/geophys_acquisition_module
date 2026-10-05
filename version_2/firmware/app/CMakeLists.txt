@@ -7,6 +7,7 @@ idf_component_register(
         "task_acquisition.c"
         "task_bluetooth.c"
         "task_communication.c"
+        "task_field_recording.c"
         "task_processing.c"
         "task_storage.c"
     INCLUDE_DIRS

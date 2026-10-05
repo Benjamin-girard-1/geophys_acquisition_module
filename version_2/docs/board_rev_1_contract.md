@@ -38,6 +38,7 @@
 | `SR_LATCH` | GPIO20 | Output | Rising edge | None | USB Serial/JTAG default | Low after claimed | `board` | Pulse only after complete 16-bit image | Schematic |
 | `SOLAR_PRESENT` | GPIO1 | Input | Low | Pull-up, 100 kΩ | Input | Input | `board` | - | Schematic |
 | `5V_USB_PRESENT` | GPIO2 | Input | Low | Pull-up, 100 kΩ | Input | Input | `board` | Debounce [TBD] | Schematic |
+| DevKitC `BOOT` button | GPIO0 | Input | Low | DevKitC pull-up + ESP32 pull-up | Boot strap, then input | Input | `board` | Three-second hold requests clean field-recording stop | DevKitC hardware |
 | `EN_SUPERCAP_CHARGE` | GPIO42 | Output | [TBD] | None | Input/high impedance | Inactive level [TBD] | `board` | Power-policy controlled | Schematic; polarity open |
 
 ## 3. Shift-register output assignments

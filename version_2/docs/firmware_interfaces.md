@@ -146,6 +146,19 @@ excluded without suppressing later integrity faults.
 - Debug text is never inserted into the binary protocol stream.
 - Milestone-1 target is 921600 baud, subject to the board reliability test.
 
+### Unattended field recording
+
+- The radio-silent field build defaults to 8 kSPS with channels 0–3 enabled,
+  x8 gain on channels 0–2, and x1 gain on channel 3; channels 4–7 are disabled.
+  It starts an SD recording five seconds after application initialization
+  using the first unused `fieldNNN` name.
+- A three-second hold of the active-low DevKitC BOOT button calls the same
+  recording-controller stop path as the host command. That path stops the ADC,
+  drains complete buffered records, syncs storage, and closes the file.
+- A physical power cut cannot execute firmware cleanup. The BOOT-button stop
+  must complete before battery power is switched off; RESET is not a clean
+  recording stop.
+
 ### GPIO and interrupts
 
 - Task-context operations configure a pin, set an output, and read an input.

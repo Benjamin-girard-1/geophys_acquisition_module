@@ -71,6 +71,10 @@ typedef struct {
  */
 fw_status_t board_init(fw_error_context_t *error);
 
+/** Read the active-low BOOT pushbutton on the ESP32-S3 DevKitC. */
+fw_status_t board_boot_button_pressed(bool *pressed,
+                                      fw_error_context_t *error);
+
 /** @brief Restore the complete Rev-1 safe image. */
 fw_status_t board_enter_safe_state(fw_error_context_t *error);
 
