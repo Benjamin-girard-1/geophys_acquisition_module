@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,13 +11,24 @@ from pathlib import Path
 import sys
 
 import numpy as np
+from numpy.typing import NDArray
+from scipy import fft as scipy_fft
+from scipy.signal import windows
 
-from geophys_data import RecordingFileError, iter_adc_records
+from geophys_data import (
+    RecordingFileError, RecordingHeader, iter_adc_records,
+    read_recording_header,
+)
 
-MAX_PLOT_POINTS = 100_000
 DEFAULT_START_TRIM_S = 1.0
 DEFAULT_END_TRIM_S = 0.0
 ADC_FULL_SCALE_COUNTS = (1 << 23) - 1
+ADC_BIPOLAR_CODES = 1 << 23
+ADC_REFERENCE_V = 2.5
+MAGNETIC_BRIDGE_V = 5.6
+MAGNETIC_SENSITIVITY_V_PER_V_PER_G = 0.0032
+MAGNETIC_INA_GAIN = 51.0
+NANOTESLA_PER_GAUSS = 100_000.0
 FFT_DBFS_FLOOR = -180.0
 CHANNEL_SELECTIONS = {
     "all": None,
@@ -31,25 +41,72 @@ STATUS_NAMES = {
     2: "conversion",
     3: "timing",
 }
+_qt_application = None
 
 
 @dataclass(frozen=True)
 class RecordingPlotData:
     path: Path
     channel_indices: tuple[int, ...]
-    timestamps_s: tuple[float, ...]
-    samples: dict[int, tuple[int, ...]]
+    timestamps_s: NDArray[np.float64]
+    samples: dict[int, NDArray[np.int32]]
     record_count: int
     status_counts: dict[int, int]
     payload_discontinuities: int
     sequence_discontinuities: int
     missing_conversions: int
+    sample_period_s: float | None = None
+    recording_header: RecordingHeader | None = None
+
+    def __post_init__(self) -> None:
+        """Normalize recording data into compact, immutable NumPy arrays."""
+        timestamps_s = np.ascontiguousarray(self.timestamps_s, dtype=np.float64)
+        if timestamps_s.ndim != 1:
+            raise ValueError("timestamps_s must be one-dimensional")
+        if timestamps_s.size and not np.all(np.isfinite(timestamps_s)):
+            raise ValueError("timestamps_s must contain only finite values")
+        if timestamps_s.size > 1 and np.any(np.diff(timestamps_s) < 0.0):
+            raise ValueError("timestamps_s must be monotonically increasing")
+        if self.sample_period_s is not None and (
+                not math.isfinite(self.sample_period_s) or
+                self.sample_period_s <= 0.0):
+            raise ValueError("sample_period_s must be positive and finite")
+
+        normalized_samples: dict[int, NDArray[np.int32]] = {}
+        for channel in self.channel_indices:
+            if channel not in self.samples:
+                raise ValueError(f"samples are missing CH{channel}")
+            values = np.ascontiguousarray(
+                self.samples[channel],
+                dtype=np.int32,
+            )
+            if values.ndim != 1:
+                raise ValueError(f"CH{channel} samples must be one-dimensional")
+            if values.size != timestamps_s.size:
+                raise ValueError(
+                    f"CH{channel} has {values.size} samples but "
+                    f"there are {timestamps_s.size} timestamps"
+                )
+            values.setflags(write=False)
+            normalized_samples[channel] = values
+
+        timestamps_s.setflags(write=False)
+        object.__setattr__(self, "timestamps_s", timestamps_s)
+        object.__setattr__(self, "samples", normalized_samples)
 
 
 @dataclass(frozen=True)
 class FrequencySpectrum:
-    frequencies_hz: np.ndarray
-    amplitudes: np.ndarray
+    frequencies_hz: NDArray[np.float64]
+    amplitudes: NDArray[np.float64]
+    sample_rate_hz: float
+    sample_count: int
+
+    @property
+    def bin_width_hz(self) -> float:
+        if self.frequencies_hz.size < 2:
+            return 0.0
+        return float(self.frequencies_hz[1] - self.frequencies_hz[0])
 
 
 def default_data_directory() -> Path:
@@ -57,58 +114,30 @@ def default_data_directory() -> Path:
     return repository_root.parent / "geophys_acquisition_data"
 
 
-def _select_recording_file_macos(data_directory: Path) -> str:
-    """Use Cocoa directly to avoid Tk file-dialog crashes on macOS."""
+def _get_qt_application():
+    """Keep one Qt application alive for the file dialog and plot window."""
+    global _qt_application
     try:
-        from AppKit import NSModalResponseOK, NSOpenPanel
-        from Foundation import NSURL
+        from PySide6.QtWidgets import QApplication
     except ImportError as error:
         raise RuntimeError(
-            "pyobjc-framework-Cocoa is required for file selection on macOS"
+            "PySide6-Essentials is required for the recording viewer"
         ) from error
-
-    panel = NSOpenPanel.openPanel()
-    panel.setTitle_("Select a Geophys recording")
-    panel.setPrompt_("Open")
-    panel.setCanChooseFiles_(True)
-    panel.setCanChooseDirectories_(False)
-    panel.setAllowsMultipleSelection_(False)
-    panel.setResolvesAliases_(True)
-    panel.setDirectoryURL_(NSURL.fileURLWithPath_(str(data_directory)))
-
-    if panel.runModal() != NSModalResponseOK:
-        return ""
-    selected_url = panel.URL()
-    return "" if selected_url is None else str(selected_url.path())
+    _qt_application = QApplication.instance() or QApplication(sys.argv[:1])
+    return _qt_application
 
 
-def _select_recording_file_tk(data_directory: Path) -> str:
-    """Cross-platform fallback used when Cocoa is unavailable."""
-    try:
-        import tkinter
-        from tkinter import filedialog
-    except ImportError as error:
-        raise RuntimeError(
-            "Tk is required for the recording file selector"
-        ) from error
+def _select_recording_file_qt(data_directory: Path) -> str:
+    from PySide6.QtWidgets import QFileDialog
 
-    root = None
-    try:
-        root = tkinter.Tk()
-        root.withdraw()
-        return filedialog.askopenfilename(
-            parent=root,
-            title="Select a Geophys recording",
-            initialdir=str(data_directory),
-            filetypes=(("All files", "*"),),
-        )
-    except tkinter.TclError as error:
-        raise RuntimeError(
-            f"could not open the recording file selector: {error}"
-        ) from error
-    finally:
-        if root is not None:
-            root.destroy()
+    _get_qt_application()
+    selected, _filter = QFileDialog.getOpenFileName(
+        None,
+        "Select a Geophys recording",
+        str(data_directory),
+        "All files (*)",
+    )
+    return selected
 
 
 def select_recording_file(
@@ -126,10 +155,8 @@ def select_recording_file(
             initialdir=str(data_directory),
             filetypes=(("All files", "*"),),
         )
-    elif sys.platform == "darwin":
-        selected = _select_recording_file_macos(data_directory)
     else:
-        selected = _select_recording_file_tk(data_directory)
+        selected = _select_recording_file_qt(data_directory)
 
     if not selected:
         return None
@@ -138,10 +165,11 @@ def select_recording_file(
 
 def load_recording(path: str | Path) -> RecordingPlotData:
     recording_path = Path(path).expanduser().resolve()
+    recording_header = read_recording_header(recording_path)
     channel_indices: tuple[int, ...] | None = None
     first_timestamp_100ns: int | None = None
-    timestamps_s: list[float] = []
-    samples: dict[int, list[int]] = {}
+    timestamp_blocks: list[NDArray[np.float64]] = []
+    sample_blocks: list[NDArray[np.int32]] = []
     statuses: Counter[int] = Counter()
     record_count = 0
     payload_discontinuities = 0
@@ -149,11 +177,11 @@ def load_recording(path: str | Path) -> RecordingPlotData:
     missing_conversions = 0
     expected_payload: int | None = None
     expected_sequence: int | None = None
+    sample_period_100ns: int | None = None
 
     for record in iter_adc_records(recording_path):
         if channel_indices is None:
             channel_indices = record.channel_indices
-            samples = {channel: [] for channel in channel_indices}
         elif record.channel_indices != channel_indices:
             raise RecordingFileError(
                 f"channel mask changed at record {record_count}"
@@ -161,6 +189,12 @@ def load_recording(path: str | Path) -> RecordingPlotData:
 
         if first_timestamp_100ns is None:
             first_timestamp_100ns = record.first_monotonic_timestamp_100ns
+        if sample_period_100ns is None:
+            sample_period_100ns = record.sample_period_100ns
+        elif record.sample_period_100ns != sample_period_100ns:
+            raise RecordingFileError(
+                f"sample period changed at record {record_count}"
+            )
         if expected_payload is not None and \
                 record.payload_number != expected_payload:
             payload_discontinuities += 1
@@ -173,16 +207,24 @@ def load_recording(path: str | Path) -> RecordingPlotData:
             if distance <= 0x7FFFFFFF:
                 missing_conversions += distance
 
-        for conversion_index, conversion in enumerate(record.conversions):
-            timestamp_100ns = (
-                record.first_monotonic_timestamp_100ns +
-                conversion_index * record.sample_period_100ns
+        conversion_count = len(record.conversions)
+        timestamp_blocks.append(
+            (
+                record.first_monotonic_timestamp_100ns -
+                first_timestamp_100ns +
+                np.arange(conversion_count, dtype=np.float64) *
+                record.sample_period_100ns
+            ) / 10_000_000.0
+        )
+        conversion_block = np.asarray(record.conversions, dtype=np.int32)
+        if conversion_block.shape != (
+                conversion_count, len(record.channel_indices)):
+            raise RecordingFileError(
+                f"invalid conversion shape at record {record_count}: "
+                f"{conversion_block.shape}"
             )
-            timestamps_s.append(
-                (timestamp_100ns - first_timestamp_100ns) / 10_000_000.0
-            )
-            for channel, value in zip(record.channel_indices, conversion):
-                samples[channel].append(value)
+        # Channel-major storage makes each final channel array contiguous.
+        sample_blocks.append(conversion_block.T)
 
         record_count += 1
         statuses[record.status] += 1
@@ -193,19 +235,48 @@ def load_recording(path: str | Path) -> RecordingPlotData:
 
     if channel_indices is None:
         raise RecordingFileError("recording contains no complete records")
+    assert sample_period_100ns is not None
+
+    timestamps_s = np.concatenate(timestamp_blocks)
+    sample_matrix = np.concatenate(sample_blocks, axis=1)
 
     return RecordingPlotData(
         path=recording_path,
         channel_indices=channel_indices,
-        timestamps_s=tuple(timestamps_s),
+        timestamps_s=timestamps_s,
         samples={
-            channel: tuple(values) for channel, values in samples.items()
+            channel: sample_matrix[index]
+            for index, channel in enumerate(channel_indices)
         },
         record_count=record_count,
         status_counts=dict(statuses),
         payload_discontinuities=payload_discontinuities,
         sequence_discontinuities=sequence_discontinuities,
         missing_conversions=missing_conversions,
+        sample_period_s=sample_period_100ns / 10_000_000.0,
+        recording_header=recording_header,
+    )
+
+
+def magnetic_nt_per_count(
+        header: RecordingHeader | None, channel: int) -> float | None:
+    """Nominal field-equivalent scale for an HMC100x magnetic axis.
+
+    The bridge balancing servo removes DC and very slow fields, so this is
+    only an approximate scale for field changes in the measurement band.
+    """
+    if header is None or not 0 <= channel < len(header.adc_gains):
+        return None
+    slot = header.channel_slots[channel]
+    if not 1 <= slot <= len(header.card_types) or \
+            header.card_types[slot - 1] != 1 or \
+            header.channel_inputs[channel] >= 3:
+        return None
+    return (
+        ADC_REFERENCE_V * NANOTESLA_PER_GAUSS /
+        (ADC_BIPOLAR_CODES * header.adc_gains[channel] *
+         MAGNETIC_INA_GAIN * MAGNETIC_BRIDGE_V *
+         MAGNETIC_SENSITIVITY_V_PER_V_PER_G)
     )
 
 
@@ -260,9 +331,17 @@ def valid_sample_bounds(
     if not math.isfinite(end_trim_s) or end_trim_s < 0.0:
         raise RecordingFileError("end trim must be a non-negative number")
 
-    valid_start = bisect_left(data.timestamps_s, start_trim_s)
+    valid_start = int(np.searchsorted(
+        data.timestamps_s,
+        start_trim_s,
+        side="left",
+    ))
     end_time_s = data.timestamps_s[-1] - end_trim_s
-    valid_stop = bisect_right(data.timestamps_s, end_time_s)
+    valid_stop = int(np.searchsorted(
+        data.timestamps_s,
+        end_time_s,
+        side="right",
+    ))
     if valid_stop - valid_start < 2:
         raise RecordingFileError(
             "trim settings leave fewer than two samples to plot"
@@ -270,55 +349,142 @@ def valid_sample_bounds(
     return valid_start, valid_stop
 
 
-def calculate_frequency_spectrum(
-        data: RecordingPlotData, channel: int,
-        start_trim_s: float = DEFAULT_START_TRIM_S,
-        end_trim_s: float = DEFAULT_END_TRIM_S) -> FrequencySpectrum:
-    """Return a Hann-windowed, single-sided amplitude spectrum."""
-    if channel not in data.channel_indices:
+def _uniform_sample_interval_s(
+        timestamps_s: NDArray[np.float64],
+        nominal_interval_s: float | None = None) -> float:
+    """Return the sample interval, rejecting data invalid for a regular FFT."""
+    sample_intervals = np.diff(timestamps_s)
+    if sample_intervals.size == 0 or np.any(sample_intervals <= 0.0):
         raise RecordingFileError(
-            f"CH{channel} is not present in the recording"
+            "FFT requires strictly increasing recording timestamps"
         )
+
+    sample_interval_s = (
+        float(np.median(sample_intervals))
+        if nominal_interval_s is None
+        else nominal_interval_s
+    )
+    floating_point_tolerance = max(
+        sample_interval_s * 0.1,
+        16.0 * np.finfo(np.float64).eps *
+        max(1.0, float(np.max(np.abs(timestamps_s)))),
+    )
+    if np.any(
+            np.abs(sample_intervals - sample_interval_s) >
+            floating_point_tolerance):
+        raise RecordingFileError(
+            "FFT requires uniformly sampled data; the selected range "
+            "contains a large timestamp gap or sample-rate change"
+        )
+    return sample_interval_s
+
+
+def calculate_frequency_spectra(
+        data: RecordingPlotData,
+        channels: tuple[int, ...],
+        start_trim_s: float = DEFAULT_START_TRIM_S,
+        end_trim_s: float = DEFAULT_END_TRIM_S,
+        window_type: str = "hann") -> dict[int, FrequencySpectrum]:
+    """Return full-bin spectra using SciPy's real FFT.
+
+    Channels are transformed as one batch so the window, frequency bins, and
+    worker pool are shared. The transform length always equals the selected
+    sample count: there is no zero padding, truncation, bin averaging, or
+    display-oriented FFT decimation.
+    """
+    if window_type not in ("hann", "rectangular"):
+        raise ValueError(f"unsupported FFT window: {window_type}")
+    unavailable = tuple(
+        channel for channel in channels
+        if channel not in data.channel_indices
+    )
+    if unavailable:
+        formatted = ", ".join(f"CH{channel}" for channel in unavailable)
+        raise RecordingFileError(
+            f"selected FFT channels are not present: {formatted}"
+        )
+    if not channels:
+        return {}
+
     valid_start, valid_stop = valid_sample_bounds(
         data,
         start_trim_s,
         end_trim_s,
     )
-    timestamps = np.asarray(
-        data.timestamps_s[valid_start:valid_stop],
-        dtype=float,
+    timestamps = data.timestamps_s[valid_start:valid_stop]
+    sample_interval_s = _uniform_sample_interval_s(
+        timestamps,
+        data.sample_period_s,
     )
-    samples = np.asarray(
-        data.samples[channel][valid_start:valid_stop],
-        dtype=float,
+    sample_count = timestamps.size
+    window = (
+        windows.hann(sample_count, sym=True)
+        if window_type == "hann"
+        else np.ones(sample_count, dtype=np.float64)
     )
-    sample_intervals = np.diff(timestamps)
-    positive_intervals = sample_intervals[sample_intervals > 0.0]
-    if positive_intervals.size == 0:
-        raise RecordingFileError(
-            "recording timestamps do not contain a positive sample interval"
-        )
-
-    sample_interval_s = float(np.median(positive_intervals))
-    window = np.hanning(samples.size)
     window_sum = float(np.sum(window))
     if window_sum == 0.0:
-        window = np.ones(samples.size)
-        window_sum = float(samples.size)
-    weighted_mean = float(np.sum(samples * window) / window_sum)
-    centered_samples = samples - weighted_mean
+        window = np.ones(sample_count, dtype=np.float64)
+        window_sum = float(sample_count)
 
-    amplitudes = (
-        2.0 * np.abs(np.fft.rfft(centered_samples * window)) / window_sum
+    working_samples = np.empty(
+        (len(channels), sample_count),
+        dtype=np.float64,
     )
-    amplitudes[0] *= 0.5
-    if samples.size % 2 == 0:
-        amplitudes[-1] *= 0.5
-    frequencies_hz = np.fft.rfftfreq(
-        samples.size,
+    for row, channel in enumerate(channels):
+        np.copyto(
+            working_samples[row],
+            data.samples[channel][valid_start:valid_stop],
+            casting="safe",
+        )
+
+    weighted_means = working_samples @ window / window_sum
+    working_samples -= weighted_means[:, np.newaxis]
+    working_samples *= window
+    transformed = scipy_fft.rfft(
+        working_samples,
+        axis=1,
+        overwrite_x=True,
+        workers=-1,
+    )
+    amplitudes = np.abs(transformed)
+    amplitudes *= 2.0 / window_sum
+    amplitudes[:, 0] *= 0.5
+    if sample_count % 2 == 0:
+        amplitudes[:, -1] *= 0.5
+    frequencies_hz = scipy_fft.rfftfreq(
+        sample_count,
         d=sample_interval_s,
     )
-    return FrequencySpectrum(frequencies_hz, amplitudes)
+    frequencies_hz.setflags(write=False)
+
+    spectra: dict[int, FrequencySpectrum] = {}
+    sample_rate_hz = 1.0 / sample_interval_s
+    for row, channel in enumerate(channels):
+        channel_amplitudes = amplitudes[row]
+        channel_amplitudes.setflags(write=False)
+        spectra[channel] = FrequencySpectrum(
+            frequencies_hz=frequencies_hz,
+            amplitudes=channel_amplitudes,
+            sample_rate_hz=sample_rate_hz,
+            sample_count=sample_count,
+        )
+    return spectra
+
+
+def calculate_frequency_spectrum(
+        data: RecordingPlotData, channel: int,
+        start_trim_s: float = DEFAULT_START_TRIM_S,
+        end_trim_s: float = DEFAULT_END_TRIM_S,
+        window_type: str = "hann") -> FrequencySpectrum:
+    """Return one full-bin, single-sided spectrum."""
+    return calculate_frequency_spectra(
+        data,
+        (channel,),
+        start_trim_s,
+        end_trim_s,
+        window_type,
+    )[channel]
 
 
 def amplitudes_to_dbfs(amplitudes: np.ndarray) -> np.ndarray:
@@ -328,374 +494,15 @@ def amplitudes_to_dbfs(amplitudes: np.ndarray) -> np.ndarray:
     return 20.0 * np.log10(ratios)
 
 
-class RecordingPlotWindow:
-    """Interactive waveform and FFT viewer for one recording."""
-
-    def __init__(self, data: RecordingPlotData,
-                 waveform_channels: tuple[int, ...],
-                 fft_channels: tuple[int, ...],
-                 start_trim_s: float = DEFAULT_START_TRIM_S,
-                 end_trim_s: float = DEFAULT_END_TRIM_S) -> None:
-        from matplotlib import pyplot as plt
-        from matplotlib.widgets import (
-            Button,
-            CheckButtons,
-            RadioButtons,
-            TextBox,
-        )
-
-        self.data = data
-        valid_sample_bounds(data, start_trim_s, end_trim_s)
-        self.start_trim_s = start_trim_s
-        self.end_trim_s = end_trim_s
-        self._plt = plt
-        self.figure = plt.figure(figsize=(14, 8.5))
-        self.figure.subplots_adjust(
-            left=0.075,
-            right=0.75,
-            top=0.91,
-            bottom=0.08,
-            hspace=0.34,
-        )
-        grid = self.figure.add_gridspec(2, 1)
-        self.waveform_axis = self.figure.add_subplot(grid[0, 0])
-        self.fft_axis = self.figure.add_subplot(grid[1, 0])
-
-        try:
-            self.figure.canvas.manager.set_window_title(
-                f"Geophys recording - {data.path.name}"
-            )
-        except AttributeError:
-            pass
-
-        self._channel_labels = tuple(
-            f"CH{channel}" for channel in data.channel_indices
-        )
-        self._label_channels = dict(
-            zip(self._channel_labels, data.channel_indices)
-        )
-        self._waveform_lines: dict[int, object] = {}
-        self._fft_lines: dict[int, object] = {}
-        self._fft_spectra: dict[int, FrequencySpectrum] = {}
-        self._fft_scale = "dbfs"
-        self._plot_all_channels(waveform_channels, fft_channels)
-
-        self._waveform_empty_text = self.waveform_axis.text(
-            0.5,
-            0.5,
-            "Select a waveform channel",
-            ha="center",
-            va="center",
-            transform=self.waveform_axis.transAxes,
-        )
-        self._fft_empty_text = self.fft_axis.text(
-            0.5,
-            0.5,
-            "Select an FFT channel",
-            ha="center",
-            va="center",
-            transform=self.fft_axis.transAxes,
-        )
-
-        self._add_information_panel()
-        waveform_box_axis = self.figure.add_axes(
-            (0.79, 0.59, 0.17, 0.16),
-            title="Waveform channels",
-        )
-        fft_box_axis = self.figure.add_axes(
-            (0.79, 0.31, 0.17, 0.16),
-            title="FFT channels",
-        )
-        waveform_states = tuple(
-            channel in waveform_channels for channel in data.channel_indices
-        )
-        fft_states = tuple(
-            channel in fft_channels for channel in data.channel_indices
-        )
-        self.waveform_checkboxes = CheckButtons(
-            waveform_box_axis,
-            self._channel_labels,
-            waveform_states,
-        )
-        self.fft_checkboxes = CheckButtons(
-            fft_box_axis,
-            self._channel_labels,
-            fft_states,
-        )
-        self.waveform_checkboxes.on_clicked(self._toggle_waveform)
-        self.fft_checkboxes.on_clicked(self._toggle_fft)
-
-        self._waveform_all_button = Button(
-            self.figure.add_axes((0.79, 0.525, 0.078, 0.04)),
-            "All",
-        )
-        self._waveform_none_button = Button(
-            self.figure.add_axes((0.882, 0.525, 0.078, 0.04)),
-            "None",
-        )
-        self._fft_all_button = Button(
-            self.figure.add_axes((0.79, 0.245, 0.078, 0.04)),
-            "All",
-        )
-        self._fft_none_button = Button(
-            self.figure.add_axes((0.882, 0.245, 0.078, 0.04)),
-            "None",
-        )
-        self._waveform_all_button.on_clicked(
-            lambda _event: self._set_all(self.waveform_checkboxes, True)
-        )
-        self._waveform_none_button.on_clicked(
-            lambda _event: self._set_all(self.waveform_checkboxes, False)
-        )
-        self._fft_all_button.on_clicked(
-            lambda _event: self._set_all(self.fft_checkboxes, True)
-        )
-        self._fft_none_button.on_clicked(
-            lambda _event: self._set_all(self.fft_checkboxes, False)
-        )
-        self.fft_scale_selector = RadioButtons(
-            self.figure.add_axes(
-                (0.79, 0.135, 0.17, 0.075),
-                title="FFT scale",
-            ),
-            ("dBFS (log)", "Linear"),
-            active=0,
-        )
-        self.fft_scale_selector.on_clicked(self._set_fft_scale)
-        self.trim_start_box = TextBox(
-            self.figure.add_axes((0.88, 0.075, 0.08, 0.032)),
-            "Trim start (s) ",
-            initial=f"{self.start_trim_s:g}",
-        )
-        self.trim_end_box = TextBox(
-            self.figure.add_axes((0.88, 0.035, 0.08, 0.032)),
-            "Trim end (s) ",
-            initial=f"{self.end_trim_s:g}",
-        )
-        self._trim_status = self.figure.text(
-            0.79,
-            0.01,
-            "Press Enter to apply trim",
-            fontsize=7.5,
-            color="0.35",
-        )
-        self.trim_start_box.on_submit(self._apply_trim)
-        self.trim_end_box.on_submit(self._apply_trim)
-
-        self._refresh_axis(
-            self.waveform_axis,
-            self._waveform_lines,
-            self._waveform_empty_text,
-        )
-        self._refresh_axis(
-            self.fft_axis,
-            self._fft_lines,
-            self._fft_empty_text,
-        )
-        self.figure.suptitle(
-            f"{data.path.name} — recording analysis",
-            fontsize=14,
-            fontweight="bold",
-        )
-
-    def _plot_all_channels(
-            self, waveform_channels: tuple[int, ...],
-            fft_channels: tuple[int, ...]) -> None:
-        colors = self._plt.get_cmap("tab10")
-
-        for color_index, channel in enumerate(self.data.channel_indices):
-            color = colors(color_index % 10)
-            waveform_line, = self.waveform_axis.plot(
-                (),
-                (),
-                color=color,
-                linewidth=0.8,
-                label=f"CH{channel}",
-                visible=channel in waveform_channels,
-            )
-            fft_line, = self.fft_axis.plot(
-                (),
-                (),
-                color=color,
-                linewidth=0.9,
-                label=f"CH{channel}",
-                visible=channel in fft_channels,
-            )
-            self._waveform_lines[channel] = waveform_line
-            self._fft_lines[channel] = fft_line
-
-        self.waveform_axis.set_xlabel(
-            "Device monotonic time since first sample (s)"
-        )
-        self.waveform_axis.set_ylabel("Raw ADC counts")
-        self.waveform_axis.grid(True, alpha=0.25)
-        self.fft_axis.set_xlabel("Frequency (Hz)")
-        self.fft_axis.set_ylabel("Amplitude (dBFS)")
-        self.fft_axis.grid(True, alpha=0.25)
-        self._update_trimmed_plots(redraw=False)
-
-    def _update_trimmed_plots(self, redraw: bool = True) -> None:
-        valid_start, valid_stop = valid_sample_bounds(
-            self.data,
-            self.start_trim_s,
-            self.end_trim_s,
-        )
-        point_count = valid_stop - valid_start
-        stride = max(1, math.ceil(point_count / MAX_PLOT_POINTS))
-        timestamps = self.data.timestamps_s[
-            valid_start:valid_stop:stride
-        ]
-        trim_description = (
-            f"trim {self.start_trim_s:g} s start / "
-            f"{self.end_trim_s:g} s end"
-        )
-
-        for channel in self.data.channel_indices:
-            self._waveform_lines[channel].set_data(
-                timestamps,
-                self.data.samples[channel][valid_start:valid_stop:stride],
-            )
-            spectrum = calculate_frequency_spectrum(
-                self.data,
-                channel,
-                self.start_trim_s,
-                self.end_trim_s,
-            )
-            self._fft_spectra[channel] = spectrum
-            self._fft_lines[channel].set_data(
-                spectrum.frequencies_hz[1:],
-                amplitudes_to_dbfs(spectrum.amplitudes[1:])
-                if self._fft_scale == "dbfs"
-                else spectrum.amplitudes[1:],
-            )
-
-        self.waveform_axis.set_title(f"Waveforms ({trim_description})")
-        self.fft_axis.set_title(
-            f"Frequency spectrum ({trim_description}, Hann window)"
-        )
-        if redraw:
-            self._refresh_axis(
-                self.waveform_axis,
-                self._waveform_lines,
-                self._waveform_empty_text,
-            )
-            self._refresh_axis(
-                self.fft_axis,
-                self._fft_lines,
-                self._fft_empty_text,
-            )
-
-    def _add_information_panel(self) -> None:
-        duration = self.data.timestamps_s[-1]
-        status_lines = "\n".join(
-            f"  {STATUS_NAMES.get(status, str(status))}: {count}"
-            for status, count in sorted(self.data.status_counts.items())
-        )
-        information = (
-            f"Records: {self.data.record_count}\n"
-            f"Conversions: {len(self.data.timestamps_s)}\n"
-            f"Duration: {duration:.3f} s\n"
-            f"Status:\n{status_lines}\n"
-            f"Missing: {self.data.missing_conversions}"
-        )
-        self.figure.text(
-            0.79,
-            0.94,
-            information,
-            va="top",
-            fontsize=8.5,
-            linespacing=1.15,
-        )
-
-    def _toggle_waveform(self, label: str) -> None:
-        channel = self._label_channels[label]
-        index = self.data.channel_indices.index(channel)
-        self._waveform_lines[channel].set_visible(
-            self.waveform_checkboxes.get_status()[index]
-        )
-        self._refresh_axis(
-            self.waveform_axis,
-            self._waveform_lines,
-            self._waveform_empty_text,
-        )
-
-    def _toggle_fft(self, label: str) -> None:
-        channel = self._label_channels[label]
-        index = self.data.channel_indices.index(channel)
-        self._fft_lines[channel].set_visible(
-            self.fft_checkboxes.get_status()[index]
-        )
-        self._refresh_axis(
-            self.fft_axis,
-            self._fft_lines,
-            self._fft_empty_text,
-        )
-
-    def _set_fft_scale(self, label: str) -> None:
-        self._fft_scale = "dbfs" if label == "dBFS (log)" else "linear"
-        for channel, line in self._fft_lines.items():
-            amplitudes = self._fft_spectra[channel].amplitudes[1:]
-            if self._fft_scale == "dbfs":
-                line.set_ydata(amplitudes_to_dbfs(amplitudes))
-            else:
-                line.set_ydata(amplitudes)
-        self.fft_axis.set_ylabel(
-            "Amplitude (dBFS)"
-            if self._fft_scale == "dbfs"
-            else "Amplitude (ADC counts)"
-        )
-        self._refresh_axis(
-            self.fft_axis,
-            self._fft_lines,
-            self._fft_empty_text,
-        )
-
-    def _apply_trim(self, _submitted_text: str) -> None:
-        try:
-            start_trim_s = float(self.trim_start_box.text.strip())
-            end_trim_s = float(self.trim_end_box.text.strip())
-            valid_sample_bounds(self.data, start_trim_s, end_trim_s)
-        except (ValueError, RecordingFileError) as error:
-            self._trim_status.set_text(f"Invalid trim: {error}")
-            self._trim_status.set_color("crimson")
-            self.figure.canvas.draw_idle()
-            return
-
-        self.start_trim_s = start_trim_s
-        self.end_trim_s = end_trim_s
-        self._update_trimmed_plots()
-        self._trim_status.set_text(
-            f"Applied: {start_trim_s:g} s start, {end_trim_s:g} s end"
-        )
-        self._trim_status.set_color("darkgreen")
-        self.figure.canvas.draw_idle()
-
-    def _set_all(self, checkboxes: object, selected: bool) -> None:
-        for index, current in enumerate(checkboxes.get_status()):
-            if current != selected:
-                checkboxes.set_active(index)
-
-    def _refresh_axis(self, axis: object, lines: dict[int, object],
-                      empty_text: object) -> None:
-        visible_lines = [line for line in lines.values() if line.get_visible()]
-        empty_text.set_visible(not visible_lines)
-        current_legend = axis.get_legend()
-        if current_legend is not None:
-            current_legend.remove()
-        if visible_lines:
-            axis.legend(handles=visible_lines, loc="upper right", ncols=2)
-            axis.relim(visible_only=True)
-            axis.autoscale_view(scalex=True, scaley=True)
-        self.figure.canvas.draw_idle()
-
-
 def show_plot(data: RecordingPlotData,
               channel_indices: tuple[int, ...] | None = None,
               fft_channel_indices: tuple[int, ...] | None = None) -> None:
     try:
-        import matplotlib.pyplot as plt
+        from .qt_viewer import RecordingPlotWindow as QtRecordingPlotWindow
     except ImportError as error:
-        raise RuntimeError("matplotlib is required to plot recordings") from error
+        raise RuntimeError(
+            "PySide6-Essentials and pyqtgraph are required to plot recordings"
+        ) from error
 
     waveform_channels = (
         data.channel_indices if channel_indices is None else channel_indices
@@ -716,13 +523,14 @@ def show_plot(data: RecordingPlotData,
         raise RecordingFileError(
             f"selected channels are not present in the recording: {formatted}"
         )
-    window = RecordingPlotWindow(
+    application = _get_qt_application()
+    window = QtRecordingPlotWindow(
         data,
         waveform_channels,
         fft_channels,
     )
-    window.figure._geophys_plot_window = window
-    plt.show()
+    window.showMaximized()
+    application.exec()
 
 
 def main(argv: list[str] | None = None) -> int:

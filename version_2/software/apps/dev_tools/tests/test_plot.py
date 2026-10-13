@@ -4,8 +4,11 @@ import math
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+
+import numpy as np
 
 DEV_TOOLS_ROOT = Path(__file__).resolve().parents[1]
 SOFTWARE_ROOT = Path(__file__).resolve().parents[3]
@@ -19,10 +22,11 @@ from geophys_dev_tools.plot import (  # noqa: E402
     ADC_FULL_SCALE_COUNTS,
     amplitudes_to_dbfs,
     calculate_frequency_spectrum,
+    calculate_frequency_spectra,
     default_data_directory,
     load_recording,
+    magnetic_nt_per_count,
     RecordingPlotData,
-    RecordingPlotWindow,
     resolve_plot_channels,
     select_recording_file,
 )
@@ -49,6 +53,16 @@ class PlotDataTests(unittest.TestCase):
         self.assertEqual(len(data.timestamps_s), 20)
         self.assertEqual(data.samples[0][0], -80)
         self.assertEqual(data.samples[7][-1], 79)
+        self.assertAlmostEqual(data.sample_period_s, 0.001)
+        self.assertIsInstance(data.timestamps_s, np.ndarray)
+        self.assertEqual(data.timestamps_s.dtype, np.float64)
+        self.assertTrue(data.timestamps_s.flags.c_contiguous)
+        self.assertFalse(data.timestamps_s.flags.writeable)
+        for values in data.samples.values():
+            self.assertIsInstance(values, np.ndarray)
+            self.assertEqual(values.dtype, np.int32)
+            self.assertTrue(values.flags.c_contiguous)
+            self.assertFalse(values.flags.writeable)
         self.assertEqual(data.payload_discontinuities, 0)
         self.assertEqual(data.sequence_discontinuities, 0)
 
@@ -150,7 +164,7 @@ class PlotDataTests(unittest.TestCase):
     def test_fft_does_not_decimate_or_alias_long_recordings(self) -> None:
         sample_rate_hz = 1000
         tone_hz = 450
-        sample_count = plot_module.MAX_PLOT_POINTS + 1000
+        sample_count = 101_000
         timestamps = tuple(
             index / sample_rate_hz for index in range(sample_count)
         )
@@ -184,6 +198,115 @@ class PlotDataTests(unittest.TestCase):
             places=2,
         )
         self.assertAlmostEqual(float(spectrum.frequencies_hz[-1]), 500.0)
+        self.assertEqual(
+            spectrum.frequencies_hz.size,
+            sample_count // 2 + 1,
+        )
+        self.assertEqual(spectrum.amplitudes.size, sample_count // 2 + 1)
+
+    def test_batched_fft_matches_individual_fft_without_bin_reduction(
+            self) -> None:
+        sample_rate_hz = 2000
+        sample_count = 4096
+        timestamps = np.arange(sample_count) / sample_rate_hz
+        data = RecordingPlotData(
+            path=Path("two-channels"),
+            channel_indices=(0, 1),
+            timestamps_s=timestamps,
+            samples={
+                0: np.rint(
+                    2000 * np.sin(2 * np.pi * 125 * timestamps)
+                ),
+                1: np.rint(
+                    3000 * np.sin(2 * np.pi * 375 * timestamps)
+                ),
+            },
+            record_count=1,
+            status_counts={0: 1},
+            payload_discontinuities=0,
+            sequence_discontinuities=0,
+            missing_conversions=0,
+        )
+
+        batched = calculate_frequency_spectra(
+            data,
+            (0, 1),
+            start_trim_s=0.0,
+        )
+        individual = calculate_frequency_spectrum(
+            data,
+            1,
+            start_trim_s=0.0,
+        )
+
+        np.testing.assert_array_equal(
+            batched[1].frequencies_hz,
+            individual.frequencies_hz,
+        )
+        np.testing.assert_allclose(
+            batched[1].amplitudes,
+            individual.amplitudes,
+            rtol=1e-7,
+            atol=1e-12,
+        )
+        self.assertEqual(
+            batched[0].frequencies_hz.size,
+            sample_count // 2 + 1,
+        )
+
+    def test_rectangular_window_keeps_event_spectrum_when_selection_moves(
+            self) -> None:
+        timestamps = np.arange(4000, dtype=np.float64)
+        samples = np.zeros(4000, dtype=np.int32)
+        samples[1000] = 100_000
+        data = RecordingPlotData(
+            Path("single-event"), (0,), timestamps, {0: samples},
+            1, {0: 1}, 0, 0, 0, 1.0,
+        )
+
+        def spectrum(start: int, window_type: str):
+            return calculate_frequency_spectrum(
+                data, 0, start_trim_s=float(start),
+                end_trim_s=float(3999 - (start + 2047)),
+                window_type=window_type,
+            )
+
+        rectangular_a = spectrum(0, "rectangular")
+        rectangular_b = spectrum(200, "rectangular")
+        np.testing.assert_allclose(
+            rectangular_a.amplitudes,
+            rectangular_b.amplitudes,
+            rtol=1e-12, atol=1e-12,
+        )
+        hann_a = spectrum(0, "hann")
+        hann_b = spectrum(200, "hann")
+        self.assertGreater(
+            float(hann_a.amplitudes[100] / hann_b.amplitudes[100]), 1.05
+        )
+
+    def test_fft_rejects_nonuniform_timestamps_instead_of_mislabeling_bins(
+            self) -> None:
+        timestamps = np.arange(1000, dtype=float) / 1000.0
+        timestamps[500:] += 0.001
+        data = RecordingPlotData(
+            path=Path("gap"),
+            channel_indices=(0,),
+            timestamps_s=timestamps,
+            samples={0: np.arange(1000)},
+            record_count=1,
+            status_counts={0: 1},
+            payload_discontinuities=0,
+            sequence_discontinuities=1,
+            missing_conversions=1,
+        )
+
+        with self.assertRaisesRegex(
+                RecordingFileError, "uniformly sampled"):
+            calculate_frequency_spectrum(
+                data,
+                0,
+                start_trim_s=0.0,
+            )
 
     def test_fft_dbfs_conversion(self) -> None:
         converted = amplitudes_to_dbfs(
@@ -196,66 +319,24 @@ class PlotDataTests(unittest.TestCase):
         self.assertAlmostEqual(float(converted[1]), -6.0206, places=3)
         self.assertEqual(float(converted[2]), plot_module.FFT_DBFS_FLOOR)
 
-    def test_waveform_and_fft_channel_selections_are_independent(self) -> None:
-        timestamps = tuple(index / 1000 for index in range(3000))
-        data = RecordingPlotData(
-            path=Path("recording"),
-            channel_indices=tuple(range(8)),
-            timestamps_s=timestamps,
-            samples={
-                channel: tuple(
-                    index + channel for index in range(len(timestamps))
-                )
-                for channel in range(8)
-            },
-            record_count=100,
-            status_counts={0: 100},
-            payload_discontinuities=0,
-            sequence_discontinuities=0,
-            missing_conversions=0,
+    def test_nominal_magnetic_scale_uses_per_channel_gain_and_axis_type(
+            self) -> None:
+        header = SimpleNamespace(
+            adc_gains=(8, 4, 8, 1, 1, 1, 1, 1),
+            card_types=(1, 0),
+            channel_slots=(1, 1, 1, 1, 2, 2, 2, 2),
+            channel_inputs=(0, 1, 2, 3, 0, 1, 2, 3),
         )
-
-        with patch("matplotlib.pyplot.draw"):
-            window = RecordingPlotWindow(data, (0,), (1,))
-            self.assertGreaterEqual(
-                float(window._waveform_lines[0].get_xdata()[0]),
-                1.0,
-            )
-            self.assertTrue(window._waveform_lines[0].get_visible())
-            self.assertFalse(window._waveform_lines[1].get_visible())
-            self.assertFalse(window._fft_lines[0].get_visible())
-            self.assertTrue(window._fft_lines[1].get_visible())
-            self.assertEqual(
-                window.fft_axis.get_ylabel(),
-                "Amplitude (dBFS)",
-            )
-            self.assertGreater(
-                float(window._fft_lines[1].get_xdata()[0]),
-                0.0,
-            )
-
-            window.fft_scale_selector.set_active(1)
-
-            self.assertEqual(
-                window.fft_axis.get_ylabel(),
-                "Amplitude (ADC counts)",
-            )
-            self.assertTrue(window._fft_lines[1].get_visible())
-
-            window.trim_start_box.set_val("0.5")
-            window.trim_end_box.set_val("0.25")
-
-            waveform_times = window._waveform_lines[1].get_xdata()
-            self.assertGreaterEqual(float(waveform_times[0]), 0.5)
-            self.assertLessEqual(float(waveform_times[-1]), 2.749)
-            self.assertEqual(window.start_trim_s, 0.5)
-            self.assertEqual(window.end_trim_s, 0.25)
-
-            window.waveform_checkboxes.set_active(0)
-
-            self.assertFalse(window._waveform_lines[0].get_visible())
-            self.assertTrue(window._fft_lines[1].get_visible())
-            window._plt.close(window.figure)
+        scale = magnetic_nt_per_count(header, 0)
+        expected = (
+            2.5 * 100_000 /
+            ((1 << 23) * 8 * 51 * 5.6 * 0.0032)
+        )
+        self.assertAlmostEqual(scale, expected)
+        self.assertAlmostEqual(magnetic_nt_per_count(header, 1), 2 * scale)
+        self.assertIsNone(magnetic_nt_per_count(header, 3))
+        self.assertIsNone(magnetic_nt_per_count(header, 4))
+        self.assertIsNone(magnetic_nt_per_count(None, 0))
 
     def test_short_recording_has_no_valid_plot_data(self) -> None:
         data = RecordingPlotData(
@@ -291,14 +372,13 @@ class PlotDataTests(unittest.TestCase):
     def test_canceling_selector_returns_none(self) -> None:
         self.assertIsNone(select_recording_file(lambda **_options: ""))
 
-    def test_macos_uses_cocoa_file_selector(self) -> None:
+    def test_file_selector_uses_qt(self) -> None:
         expected = default_data_directory() / "scratch" / "test_2"
-        with patch.object(plot_module.sys, "platform", "darwin"), \
-                patch.object(
-                    plot_module,
-                    "_select_recording_file_macos",
-                    return_value=str(expected),
-                ) as selector:
+        with patch.object(
+                plot_module,
+                "_select_recording_file_qt",
+                return_value=str(expected),
+        ) as selector:
             selected = select_recording_file()
 
         selector.assert_called_once_with(default_data_directory())
