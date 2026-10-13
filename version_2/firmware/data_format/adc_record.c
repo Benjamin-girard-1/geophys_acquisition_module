@@ -136,7 +136,13 @@ adc_record_codec_status_t adc_record_builder_begin(
         return ADC_RECORD_CODEC_INVALID_FIELD;
     }
 
-    memset(record, 0, ADC_RECORD_SIZE_BYTES);
+    /*
+     * Do not clear the record here. The header fields below and the first
+     * append populate bytes 0..27, all payload bytes are written before
+     * finalization, and finalization writes bytes 508..511. Clearing the
+     * PSRAM-backed record would add a redundant 512-byte burst at every
+     * record boundary.
+     */
     record[0] = ADC_RECORD_MAGIC_BYTE_0;
     record[1] = ADC_RECORD_MAGIC_BYTE_1;
     record[2] = ADC_RECORD_MAGIC_BYTE_2;
@@ -172,7 +178,7 @@ adc_record_codec_status_t adc_record_builder_append(
     if (builder == NULL || samples == NULL) {
         return ADC_RECORD_CODEC_INVALID_ARGUMENT;
     }
-    if (!builder->begun || builder->finalized || builder->record == NULL) {
+    if (!builder->begun || builder->complete || builder->record == NULL) {
         return ADC_RECORD_CODEC_INVALID_STATE;
     }
     if (builder->appended_conversions >= builder->required_conversions) {
@@ -257,7 +263,7 @@ adc_record_codec_status_t adc_record_builder_set_status(
     if (builder == NULL) {
         return ADC_RECORD_CODEC_INVALID_ARGUMENT;
     }
-    if (!builder->begun || builder->finalized || builder->record == NULL) {
+    if (!builder->begun || builder->complete || builder->record == NULL) {
         return ADC_RECORD_CODEC_INVALID_STATE;
     }
     if (!status_is_valid(status)) {
@@ -268,26 +274,51 @@ adc_record_codec_status_t adc_record_builder_set_status(
     return ADC_RECORD_CODEC_OK;
 }
 
-adc_record_codec_status_t adc_record_builder_finalize(
-    adc_record_builder_t *builder,
-    adc_record_crc32_callback_t crc32,
-    void *crc_context)
+adc_record_codec_status_t adc_record_builder_complete(
+    adc_record_builder_t *builder)
 {
-    if (builder == NULL || crc32 == NULL) {
+    if (builder == NULL) {
         return ADC_RECORD_CODEC_INVALID_ARGUMENT;
     }
-    if (!builder->begun || builder->finalized || builder->record == NULL) {
+    if (!builder->begun || builder->complete || builder->record == NULL) {
         return ADC_RECORD_CODEC_INVALID_STATE;
     }
     if (builder->appended_conversions != builder->required_conversions ||
         builder->payload_offset != ADC_RECORD_CRC_OFFSET_BYTES) {
         return ADC_RECORD_CODEC_INCOMPLETE;
     }
-    const uint32_t checksum = crc32(
-        crc_context, builder->record, ADC_RECORD_CRC_OFFSET_BYTES);
-    write_u32_le(builder->record + ADC_RECORD_CRC_OFFSET_BYTES, checksum);
-    builder->finalized = true;
+    builder->complete = true;
     return ADC_RECORD_CODEC_OK;
+}
+
+adc_record_codec_status_t adc_record_write_crc(
+    uint8_t record[ADC_RECORD_SIZE_BYTES],
+    adc_record_crc32_callback_t crc32,
+    void *crc_context)
+{
+    if (record == NULL || crc32 == NULL) {
+        return ADC_RECORD_CODEC_INVALID_ARGUMENT;
+    }
+    const uint32_t checksum = crc32(
+        crc_context, record, ADC_RECORD_CRC_OFFSET_BYTES);
+    write_u32_le(record + ADC_RECORD_CRC_OFFSET_BYTES, checksum);
+    return ADC_RECORD_CODEC_OK;
+}
+
+adc_record_codec_status_t adc_record_builder_finalize(
+    adc_record_builder_t *builder,
+    adc_record_crc32_callback_t crc32,
+    void *crc_context)
+{
+    if (crc32 == NULL) {
+        return ADC_RECORD_CODEC_INVALID_ARGUMENT;
+    }
+    const adc_record_codec_status_t status =
+        adc_record_builder_complete(builder);
+    if (status != ADC_RECORD_CODEC_OK) {
+        return status;
+    }
+    return adc_record_write_crc(builder->record, crc32, crc_context);
 }
 
 adc_record_codec_status_t adc_record_validate(

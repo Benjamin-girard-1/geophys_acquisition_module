@@ -417,15 +417,19 @@ verified against the schematic and datasheets.
 
 ### Portable ADC records
 
-`firmware/data_format/` owns the portable 512-byte ADC record shared by UART
-capture, future Bluetooth capture, and SD recording. It explicitly serializes
-record metadata and packed signed 24-bit
-samples without depending on the AD7779 driver, application queues, UART,
-Bluetooth, ESP-IDF, FatFs, or SD hardware.
+`firmware/data_format/` owns both the portable 512-byte ADC record shared by
+UART capture, future Bluetooth capture, and SD recording and the immutable
+4096-byte JSON descriptor of the SD recording container. It explicitly serializes
+record metadata, packed signed 24-bit samples, and applied session
+configuration without depending on the AD7779 driver, application queues,
+UART, Bluetooth, ESP-IDF, FatFs, or SD hardware.
 
 The 512-byte logical record size is independent of the acquisition task's RAM
 block size and the storage task's eventual multi-record filesystem write size.
-The byte contract is defined by `shared/protocol/protocol.md`.
+New SD files reserve a 32 KiB header region, begin ADC records at byte 32768,
+and leave the checkpoint array zeroed until GNSS and IMU producers exist.
+DAT-only files remain a host-decoder concern. The byte contract is
+defined by `shared/protocol/protocol.md`.
 
 ## Communication architecture
 
@@ -599,12 +603,12 @@ or implementation.
 | ESP-IDF project and build configuration | Partial | No | No | No |
 | Common firmware status, error-context, and time types | Yes | Yes | Yes | N/A |
 | `app_main` composition root | Yes | No | No | No |
-| ESP32-S3 DevKit platform services | Partial | Partial | Partial | Partial |
+| ESP32-S3 DevKit platform services | Partial | Partial | Partial: GPIO, SPI, UART, time, CRC, memory, SD storage, and opaque NVS settings blobs | Partial |
 | Rev-1 custom board integration | Yes | Partial | Partial | No |
-| Application startup and shared types | Partial | Partial | Partial: acquisition data contracts, stopped-device configuration state, and radio-silent unattended field-recording control | Partial: configuration state exercised through Rev-1 UART; unattended start and BOOT-button close pending |
+| Application startup and shared types | Partial | Partial | Partial: acquisition data contracts, versioned/CRC-protected persistent ADC settings, stopped-device configuration state, and radio-silent unattended field-recording control | Partial: a 4 kSPS/`0x0F`/`0x003F` configuration survived a non-erasing Rev-1 reset and was then restored to persisted 8 kSPS. Unattended startup remains enabled; its recording attempt on the final powered-state check was blocked by the existing ADC integrity condition at both 4 and 8 kSPS. BOOT-button close remains pending. |
 | Acquisition task | Yes | Partial | Partial: shared recording/live ADC lifecycle, minimal DRDY ISR, prepared two-buffer SPI-DMA bursts on core 1, a 256-frame capture ring, core-0 validation/DAT processing, independent fixed live-record pool, decimation, and explicit gap accounting | Partial: DRDY is armed only after ADC startup and recording waits for eight consecutive CRC-valid frames. A final 1 kSPS control retained every conversion. A two-second channels-0–3 16 kSPS SD probe retained 32,840 consecutive conversions at 16,000.04 conversions/s with zero gaps; intermediate presets, eight-channel 16 kSPS, live-stream limits, and long-duration behavior remain open. |
 | Processing task | Yes | No | No | No |
-| Storage task and fixed SD ownership | Yes | Yes | Fixed 40 MHz four-bit SDMMC/FatFs mount, catalog, create/write/sync/close/delete/read, failure cleanup, two 2 MiB PSRAM ping-pong buffers, and a 32 KiB internal SDMMC staging window | Partial: a 50-second four-channel 8 kSPS probe crossed two complete PSRAM-buffer boundaries while acquisition remained active; sampled boundary records were CRC-valid, status-OK, and sequence-contiguous. Reformatting the Cactus card from 4 KiB to 32 KiB FAT32 clusters reduced the observed 2 MiB boundary stall from 1.70–1.77 s to 0.274–0.303 s. Long-duration, injected-latency, and removal tests remain open |
+| Storage task and fixed SD ownership | Yes | Yes | Fixed 40 MHz four-bit SDMMC/FatFs mount, catalog, create/write/sync/close/delete/read, failure cleanup, immutable 4096-byte ASCII JSON descriptor plus a zero-filled 32 KiB reserved header, three 2 MiB PSRAM buffers with conversion-count-scheduled two-buffer SD batches, deferred stored-record CRC generation in the SD activity window, and a 32 KiB internal SDMMC staging window | Partial: the earlier two-buffer policy passed a 50-second four-channel 8 kSPS probe. The three-buffer policy then recorded 35,333 status-OK records at 8 kSPS; sampled records across all five scheduled 6,000-record boundaries were CRC-valid and sequence-contiguous, and the final partial batch closed cleanly. The JSON descriptor passed native/Python tests and a Rev-1 `field023` readback: its CRC-valid, printable metadata included all eight gains, and its first CRC-valid DAT block began at byte 32768. A follow-up `field025` check confirmed that a wired STOP leaves unattended recording idle and permits closed-file reads. Deferred stored-record CRC generation still needs Rev-1 recording and magnetic-noise verification. Reformatting the Cactus card from 4 KiB to 32 KiB FAT32 clusters previously reduced a 2 MiB write from 1.70–1.77 s to 0.274–0.303 s. Magnetic-noise comparison, long-duration, injected-latency, and removal tests remain open |
 | Communication task | Yes | Partial: startup, discovery, configuration, streaming, recording dispatch, complete DAT writes, and temporary file extraction | Partial: UART discovery, device configuration, live start/stop and bounded block ownership, all recording commands, and test-only `0xf000` closed-file reads | Partial: live start/stop, CRC-valid DAT delivery, disconnect expiry/reconnect, discovery/configuration, recording control, and stored-block extraction passed on Rev-1 |
 | Bluetooth task | Yes | No | No | No |
 | AD7779 driver | Yes | Partial | Partial: register map, lifecycle, hardware plus SPI reset, tolerant post-reset polling with strict response validation, expected reset acknowledgement, channel/gain/reference setup, synchronized fixed output-rate configuration, hardware-CS-framed prepared DMA capture callbacks, signed frame decoding, and header/status/pair-CRC validation | Partial: four-channel 16 kSPS throughput is gap-free at 20 MHz, but long captures expose isolated CRC-marked frame-phase errors. Fixed 8 MHz through 12 MHz miss the current full-frame deadline, fixed 16 MHz loses conversions during longer storage activity, and a hardware-CS-framed 20 MHz probe retained every conversion but still contained two phase errors. A shorter spec-compliant read path remains open; eight-channel coverage also remains open. |
@@ -615,12 +619,12 @@ or implementation.
 | Magnetic analog card | Yes | Partial: independent SET/RESET pulse operation | Partial: callback-owned +18 V/output sequence with safe cleanup | Partial: Slot 1 SET and RESET commands passed on Rev-1; physical waveform remains unmeasured |
 | Geophysical accelerometer card | Yes | No | No | No |
 | Shared protocol specification | Yes | Defined in `protocol.md` | No | N/A |
-| Portable ADC-record format | Yes | Defined in `protocol.md` | Complete encoder/validator plus shared Python decoder and golden vector | Native C/Python tests |
+| Portable ADC-record/container format | Yes | Defined in `protocol.md` | Complete DAT encoder/validator, immutable recording-header encoder/validator, legacy/container-aware shared Python decoder, and golden DAT vector | Native C/Python tests |
 | Firmware protocol implementation | Yes | Partial: command frame, discovery, configuration, streaming, recording, magnetic pulse, and temporary extraction codecs | Partial: incremental `\CMD` parser, discovery/configuration/streaming/recording/pulse messages, and test-only `0xf000` file chunks | Partial: live start/stop plus interleaved DAT, discovery, configuration, recording commands, stored-block retrieval, acquisition-rail control, and magnetic SET/RESET exercised over Rev-1 UART; pulse waveform remains unmeasured |
 | UART transport | Yes | Yes | Yes | Partial: 921600-baud discovery and configuration exchange |
 | USB transport | Yes | No | No | No |
 | Host application | Yes | Partial: discovery/configuration/streaming/recording/pulse/extraction codecs, mixed-stream parsing, capture, and desktop GUI | Partial: manual USB/COM connection, stopped-device ADC and acquisition-rail configuration, reported rail status, magnetic SET/RESET control, recording catalog/actions, SD-ready gating and asynchronous recording-failure reporting, separate embedded live plots, named replies during interleaved data, continuity counters, and byte-exact capture | Partial: desktop recording, live transport, reversible configuration, acquisition-rail switching, and magnetic SET/RESET command paths passed on Rev-1; pulse waveform and physical channel labels/calibration remain open |
-| Developer diagnostics | Yes | Raw-record loading, validation, continuity summary, binary-to-CSV conversion, and plotting | Converts the portable 512-byte format to analysis-ready CSV and plots every recorded ADC channel without decimating FFT input | Converter and plotter covered by Python tests; plotting exercised with the `scratch/test_2` Rev-1 recording |
+| Developer diagnostics | Yes | Raw-record loading, validation, continuity summary, binary-to-CSV conversion, and plotting | Converts the portable 512-byte format to analysis-ready CSV; the standalone Qt viewer shows a full waveform, draggable FFT region, selection-based waveform Y fit, background exact FFT, and zoom-dependent display reduction without decimating FFT input | Converter and plotter covered by Python tests; Qt viewer exercised offscreen with a 39 MB Rev-1 recording and `field021` on macOS; interactive macOS and Windows checks remain open |
 | Automated tests and continuous integration | Partial | Partial: protocol-vector tests | Partial: native C and Python discovery/configuration tests | N/A |
 
 Update this table when an interface becomes usable, an implementation builds and

@@ -150,7 +150,7 @@ Identity-field conventions:
 
 The command `GET_CONFIG` reads the current configuration and has an empty request. `SET_CONFIG` uses the writable subset of the configuration payload below. After `SET_CONFIG`, the device replies with `DEVICE_CONFIG` so the host can see the applied and reported values.
 
-Configuration changes are accepted only while acquisition is stopped: neither recording nor live streaming may be active. An unsuccessful request returns the current, unmodified configuration with its result byte set to the applicable error. The three software-controlled acquisition rails are changed in their board-defined order. The +5 VA field is status-only on Rev-1 because it has no software enable, and +18 V is status-only here because it belongs exclusively to `MAGNETIC_PULSE`.
+Configuration changes are accepted only while acquisition is stopped: neither recording nor live streaming may be active. An unsuccessful request returns the current, unmodified configuration with its result byte set to the applicable error. A successful request commits the ADC sample rate, channel mask, and all eight gains to internal flash before replying; these fields are restored after reset or power loss. Missing, incompatible, or corrupt saved settings use the firmware defaults. Runtime status and power-rail states are not persistent. The three software-controlled acquisition rails are changed in their board-defined order for the current session. The +5 VA field is status-only on Rev-1 because it has no software enable, and +18 V is status-only here because it belongs exclusively to `MAGNETIC_PULSE`.
 
 When using only 4 channels it is 40 conversions per payload block, when all 8 channels are being used, it is 20 conversions per block.
 
@@ -399,12 +399,56 @@ The name of the file has the following restrictions:
 - all names must be different, duplicate name is rejected
 - no extension is required since the recording are saved in memory in a custom format
 
-A recording file is a direct concatenation of complete 512-byte `\DAT` blocks.
-It has no separate file header or footer, and its size is therefore always a
-multiple of 512 bytes. On stop, a partially filled block is discarded, all
-complete queued blocks are written, the filesystem is synchronized, and the
-file is closed before the reply is sent. A zero-byte recording is valid when
-recording was stopped before the first complete block was produced.
+A recording is one self-contained container. Its first 4096 bytes are an
+immutable, printable ASCII JSON descriptor padded with spaces and a final
+newline. Bytes 4096 through 32767 reserve 896 fixed 32-byte time/orientation
+checkpoints. Complete 512-byte `\DAT` blocks begin at byte 32768, so the
+data offset and total reserved-header size remain 32 KiB. There is no
+separate metadata file. The JSON is readable at the beginning of the file in
+a text editor; the following checkpoints and ADC records are binary.
+
+The current firmware has no GNSS source and no implemented IMU owner, so it
+initializes all checkpoint slots to zero and writes no valid checkpoints.
+Zero slots are placeholders, not measurements. The intended future collection
+interval is 10 seconds. The descriptor has version 2; the old binary `\GEO`
+descriptor is intentionally unsupported by the current host decoder.
+Headerless files beginning with `\DAT` remain readable by the developer tools.
+
+The JSON object starts at byte 0 with `{` and has these fields:
+
+| Field | Value or meaning |
+|:---|:---|
+| `format`, `format_version` | `"GEO_RECORDING"`, `2` |
+| `tools_url` | `https://github.com/Benjamin-girard-1/geophys_acquisition_module` |
+| `recording_name`, `device_id` | Name at creation; factory base MAC as six colon-separated uppercase hex bytes |
+| `hardware_version`, `hardware_revision`, `firmware_version`, `protocol_version` | Same numeric conventions as `DEVICE_INFO` |
+| `start_monotonic_timestamp_100ns`, `start_unix_timestamp_us` | Unsigned integers; UTC microseconds is zero when unavailable |
+| `adc_sample_rate_sps`, `adc_sample_period_100ns` | Applied conversion rate and period |
+| `adc_channel_mask`, `adc_channel_count` | Enabled-channel mask and its population count |
+| `adc_gains` | Eight numeric gains in channel order 0–7, each 1, 2, 4, or 8, including disabled channels |
+| `packed_gain` | Two-bit-per-channel gain code matching `\DAT` |
+| `card_types`, `gnss_state`, `imu_state`, `imu_averaging_time_ms` | Start-state information; card types are slot 1 then slot 2 |
+| `power_rail_flags` | Bit 0: 3V3; bit 1: 5V; bit 2: 9V/10V; bit 3: -5V; bit 4: 18V |
+| `channel_slots`, `channel_inputs` | Eight-element mapping arrays; slots are one-based, inputs zero-based |
+| `descriptor_size_bytes`, `checkpoint_offset_bytes` | Both `4096` |
+| `checkpoint_entry_size_bytes`, `checkpoint_capacity`, `checkpoint_interval_ms` | `32`, `896`, `10000` |
+| `data_offset_bytes`, `record_size_bytes`, `sample_encoding` | `32768`, `512`, `"signed24_le"` |
+| `header_crc32` | Eight uppercase hexadecimal digits |
+
+The descriptor is ordinary JSON followed only by ASCII whitespace through
+byte 4095. No NUL bytes occur in this area. To verify `header_crc32`, replace
+its eight digits with ASCII `00000000`, compute CRC-32/ISO-HDLC over all 4096
+descriptor bytes, and compare with the stored hexadecimal value. The entire
+descriptor is fixed at file creation; checkpoint bytes may be filled later.
+
+The container size is always a multiple of 512 bytes. On stop, a partially
+filled `\DAT` block is discarded, all complete queued blocks are written, the
+filesystem is synchronized, and the file is closed before the reply is sent.
+A recording stopped before its first complete ADC block is a valid 32768-byte
+header-only container. `RECORDING_INFO` and the temporary raw-read command
+report and transfer the complete container size, including the header.
+
+New firmware writes only the JSON-descriptor container form.
 
 #### Command semantics:
 

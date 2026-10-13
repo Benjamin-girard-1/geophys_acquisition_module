@@ -10,6 +10,8 @@
 #define TASK_STORAGE_RECORDING_NAME_SIZE_BYTES UINT8_C(32)
 #define TASK_STORAGE_RECORDING_MAX_COUNT UINT16_C(255)
 #define TASK_STORAGE_READ_CHUNK_SIZE_BYTES UINT8_C(38)
+#define TASK_STORAGE_ADC_CHANNEL_COUNT UINT8_C(8)
+#define TASK_STORAGE_CARD_SLOT_COUNT UINT8_C(2)
 
 typedef enum {
     TASK_STORAGE_MEDIA_ABSENT = 0,
@@ -25,6 +27,19 @@ typedef struct {
     task_storage_media_state_callback_t media_state_changed;
     task_storage_recording_failed_callback_t recording_failed;
 } task_storage_config_t;
+
+/** Applied, immutable configuration copied into a new recording header. */
+typedef struct {
+    uint64_t start_monotonic_timestamp_100ns;
+    uint32_t adc_sample_rate_sps;
+    uint8_t adc_channel_mask;
+    uint8_t adc_gains[TASK_STORAGE_ADC_CHANNEL_COUNT];
+    uint8_t card_types[TASK_STORAGE_CARD_SLOT_COUNT];
+    uint8_t gnss_state;
+    uint8_t imu_state;
+    uint16_t imu_averaging_time_ms;
+    uint16_t power_rail_flags;
+} task_storage_recording_config_t;
 
 typedef struct {
     uint16_t index;
@@ -47,6 +62,7 @@ fw_status_t task_storage_start(const task_storage_config_t *config,
 
 fw_status_t task_storage_recording_open(
     const char name[TASK_STORAGE_RECORDING_NAME_SIZE_BYTES],
+    const task_storage_recording_config_t *recording_config,
     fw_error_context_t *error);
 
 fw_status_t task_storage_recording_close(
@@ -75,7 +91,7 @@ fw_status_t task_storage_recording_read_chunk(
     task_storage_recording_chunk_t *chunk,
     fw_error_context_t *error);
 
-/** Nonblocking PSRAM ping-pong record operations used only by acquisition. */
+/** Nonblocking PSRAM record operations used only by acquisition. */
 fw_status_t task_storage_record_acquire(
     uint8_t **record,
     fw_error_context_t *error);

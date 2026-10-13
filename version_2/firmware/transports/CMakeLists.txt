@@ -9,5 +9,4 @@ idf_component_register(
         common
         bt
         esp32s3_devkit
-        nvs_flash
 )

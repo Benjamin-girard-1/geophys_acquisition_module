@@ -109,22 +109,29 @@ Host decoder and scientific export
 
 ### Step 5: Freeze the file/session metadata
 
-- [ ] Define the file-header size and data-record start offset.
+- [x] Define the 32 KiB file-header size and byte-32768 data-record start offset.
 - [ ] Define the session UUID representation.
-- [ ] Store the device identifier.
-- [ ] Store firmware and hardware revisions.
+- [x] Store the device identifier.
+- [x] Store firmware and hardware revisions.
 - [ ] Store the recording segment number.
 - [ ] Store card type and revision for each slot.
-- [ ] Store the ADC channel-to-measurement mapping.
-- [ ] Store the active channel mask.
-- [ ] Store the gain for every ADC channel.
+- [x] Store the ADC channel-to-slot/input mapping.
+- [x] Store the active channel mask.
+- [x] Store the gain for every ADC channel.
 - [ ] Store requested and applied sample rates.
 - [ ] Store the ADC reference configuration.
 - [ ] Store the calibration identifier.
-- [ ] Store the initial sequence and monotonic timestamp.
-- [ ] Reserve fields for UTC time, validity, and uncertainty.
-- [ ] Protect any optional file header with CRC-32/ISO-HDLC.
-- [ ] Reserve space for backward-compatible metadata extensions.
+- [ ] Store the initial ADC sequence; the recording-start monotonic timestamp is stored.
+- [x] Reserve the start-UTC field and 896 fixed 32-byte checkpoint slots.
+- [x] Protect the immutable file header with CRC-32/ISO-HDLC.
+- [x] Reserve room in the 4096-byte ASCII JSON descriptor for more metadata.
+
+The current implementation writes applied ADC settings, device/firmware/
+hardware identity, card types, power state, channel mapping, and the project
+tools URL as readable JSON. GNSS is not
+installed and the IMU owner is not implemented, so the start UTC value and the
+entire checkpoint array remain zero placeholders. Session UUID, card revision,
+ADC reference, and calibration identifiers remain open.
 
 ## Phase 3: Create reference vectors and a host decoder
 

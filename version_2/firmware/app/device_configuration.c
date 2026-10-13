@@ -5,6 +5,8 @@
 
 #include "board.h"
 #include "freertos/FreeRTOS.h"
+#include "platform_crc.h"
+#include "platform_settings.h"
 #include "platform_time.h"
 
 #define DEVICE_CONFIGURATION_DEFAULT_SAMPLE_RATE_SPS UINT32_C(8000)
@@ -12,10 +14,18 @@
 #define DEVICE_CONFIGURATION_DEFAULT_GAIN UINT8_C(1)
 #define DEVICE_CONFIGURATION_DEFAULT_MAGNETIC_GAIN UINT8_C(8)
 #define DEVICE_CONFIGURATION_MAGNETIC_CHANNEL_COUNT UINT8_C(3)
+#define DEVICE_CONFIGURATION_SETTINGS_NAMESPACE "geophys"
+#define DEVICE_CONFIGURATION_SETTINGS_KEY "device_cfg"
+#define DEVICE_CONFIGURATION_SETTINGS_SIZE_BYTES 24U
+#define DEVICE_CONFIGURATION_SETTINGS_VERSION UINT8_C(1)
+#define DEVICE_CONFIGURATION_SETTINGS_CRC_OFFSET 20U
+
+static const uint8_t s_settings_magic[4] = {'G', 'C', 'F', 'G'};
 
 typedef struct {
     device_configuration_snapshot_t snapshot;
     bool acquisition_active;
+    bool settings_persisted;
     bool initialized;
 } device_configuration_state_t;
 
@@ -81,6 +91,146 @@ static bool gain_is_valid(uint8_t gain)
            gain == UINT8_C(4) || gain == UINT8_C(8);
 }
 
+static void write_u32_le(uint8_t *destination, uint32_t value)
+{
+    destination[0] = (uint8_t)value;
+    destination[1] = (uint8_t)(value >> 8U);
+    destination[2] = (uint8_t)(value >> 16U);
+    destination[3] = (uint8_t)(value >> 24U);
+}
+
+static uint32_t read_u32_le(const uint8_t *source)
+{
+    return (uint32_t)source[0] |
+           ((uint32_t)source[1] << 8U) |
+           ((uint32_t)source[2] << 16U) |
+           ((uint32_t)source[3] << 24U);
+}
+
+static uint32_t settings_crc32(const uint8_t *data, size_t length_bytes)
+{
+    return platform_crc32_le(
+               UINT32_C(0xFFFFFFFF), data, length_bytes) ^
+           UINT32_C(0xFFFFFFFF);
+}
+
+static void encode_persistent_settings(
+    uint32_t sample_rate_sps,
+    uint8_t channel_mask,
+    const uint8_t gains[DEVICE_CONFIGURATION_ADC_CHANNEL_COUNT],
+    uint8_t record[DEVICE_CONFIGURATION_SETTINGS_SIZE_BYTES])
+{
+    memset(record, 0, DEVICE_CONFIGURATION_SETTINGS_SIZE_BYTES);
+    memcpy(record, s_settings_magic, sizeof(s_settings_magic));
+    record[4] = DEVICE_CONFIGURATION_SETTINGS_VERSION;
+    record[5] = DEVICE_CONFIGURATION_SETTINGS_SIZE_BYTES;
+    record[6] = channel_mask;
+    write_u32_le(&record[8], sample_rate_sps);
+    memcpy(&record[12], gains, DEVICE_CONFIGURATION_ADC_CHANNEL_COUNT);
+    write_u32_le(&record[DEVICE_CONFIGURATION_SETTINGS_CRC_OFFSET],
+                 settings_crc32(record,
+                                DEVICE_CONFIGURATION_SETTINGS_CRC_OFFSET));
+}
+
+static bool decode_persistent_settings(
+    const uint8_t record[DEVICE_CONFIGURATION_SETTINGS_SIZE_BYTES],
+    uint32_t *sample_rate_sps,
+    uint8_t *channel_mask,
+    uint8_t gains[DEVICE_CONFIGURATION_ADC_CHANNEL_COUNT])
+{
+    if (memcmp(record, s_settings_magic, sizeof(s_settings_magic)) != 0 ||
+        record[4] != DEVICE_CONFIGURATION_SETTINGS_VERSION ||
+        record[5] != DEVICE_CONFIGURATION_SETTINGS_SIZE_BYTES ||
+        record[7] != 0U ||
+        read_u32_le(&record[DEVICE_CONFIGURATION_SETTINGS_CRC_OFFSET]) !=
+            settings_crc32(record,
+                           DEVICE_CONFIGURATION_SETTINGS_CRC_OFFSET)) {
+        return false;
+    }
+
+    const uint32_t decoded_rate = read_u32_le(&record[8]);
+    const uint8_t decoded_mask = record[6];
+    if (!sample_rate_is_valid(decoded_rate) ||
+        !channel_mask_is_valid(decoded_mask)) {
+        return false;
+    }
+    for (size_t channel = 0U;
+         channel < DEVICE_CONFIGURATION_ADC_CHANNEL_COUNT;
+         channel++) {
+        if (!gain_is_valid(record[12U + channel])) {
+            return false;
+        }
+    }
+
+    *sample_rate_sps = decoded_rate;
+    *channel_mask = decoded_mask;
+    memcpy(gains, &record[12], DEVICE_CONFIGURATION_ADC_CHANNEL_COUNT);
+    return true;
+}
+
+static fw_status_t restore_persistent_settings(
+    device_configuration_snapshot_t *snapshot,
+    bool *restored,
+    fw_error_context_t *error)
+{
+    uint8_t record[DEVICE_CONFIGURATION_SETTINGS_SIZE_BYTES];
+    size_t length_bytes = 0U;
+    *restored = false;
+    const fw_status_t status = platform_settings_read_blob(
+        DEVICE_CONFIGURATION_SETTINGS_NAMESPACE,
+        DEVICE_CONFIGURATION_SETTINGS_KEY,
+        record,
+        sizeof(record),
+        &length_bytes,
+        error);
+    if (status == FW_STATUS_NOT_FOUND || status == FW_STATUS_OVERFLOW) {
+        clear_error(error);
+        return FW_STATUS_OK;
+    }
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    if (length_bytes != sizeof(record) ||
+        !decode_persistent_settings(
+            record,
+            &snapshot->adc_sample_rate_sps,
+            &snapshot->adc_channel_mask,
+            snapshot->adc_gains)) {
+        clear_error(error);
+        return FW_STATUS_OK;
+    }
+
+    *restored = true;
+    return FW_STATUS_OK;
+}
+
+static fw_status_t save_persistent_settings(
+    const device_configuration_update_t *update,
+    fw_error_context_t *error)
+{
+    uint8_t record[DEVICE_CONFIGURATION_SETTINGS_SIZE_BYTES];
+    encode_persistent_settings(update->adc_sample_rate_sps,
+                               update->adc_channel_mask,
+                               update->adc_gains,
+                               record);
+    return platform_settings_write_blob(
+        DEVICE_CONFIGURATION_SETTINGS_NAMESPACE,
+        DEVICE_CONFIGURATION_SETTINGS_KEY,
+        record,
+        sizeof(record),
+        error);
+}
+
+static bool persistent_settings_match(
+    const device_configuration_snapshot_t *snapshot,
+    const device_configuration_update_t *update)
+{
+    return snapshot->adc_sample_rate_sps == update->adc_sample_rate_sps &&
+           snapshot->adc_channel_mask == update->adc_channel_mask &&
+           memcmp(snapshot->adc_gains, update->adc_gains,
+                  sizeof(snapshot->adc_gains)) == 0;
+}
+
 static device_card_type_t device_card_type_from_board(
     board_card_type_t type)
 {
@@ -121,10 +271,20 @@ fw_status_t device_configuration_initialize(fw_error_context_t *error)
     s_device_configuration.snapshot.imu_state = DEVICE_IMU_DISABLED;
     s_device_configuration.snapshot.sd_card_state = DEVICE_SD_CARD_ABSENT;
 
+    fw_status_t status = restore_persistent_settings(
+        &s_device_configuration.snapshot,
+        &s_device_configuration.settings_persisted,
+        error);
+    if (status != FW_STATUS_OK) {
+        memset(&s_device_configuration, 0,
+               sizeof(s_device_configuration));
+        return status;
+    }
+
     for (size_t index = 0U; index < 2U; index++) {
         board_card_type_t board_type = BOARD_CARD_TYPE_UNKNOWN;
         board_card_id_measurement_t measurement;
-        const fw_status_t status = board_detect_card(
+        status = board_detect_card(
             (index == 0U) ? BOARD_CARD_SLOT_1 : BOARD_CARD_SLOT_2,
             &board_type,
             &measurement,
@@ -203,10 +363,16 @@ fw_status_t device_configuration_apply(
                 ((uint32_t)channel << 16U) | update->adc_gains[channel]);
         }
     }
+    device_configuration_snapshot_t current_snapshot;
+    bool acquisition_active;
+    bool settings_persisted;
     portENTER_CRITICAL(&s_device_configuration_lock);
-    if (s_device_configuration.snapshot.recording_in_progress ||
-        s_device_configuration.acquisition_active) {
-        portEXIT_CRITICAL(&s_device_configuration_lock);
+    current_snapshot = s_device_configuration.snapshot;
+    acquisition_active = s_device_configuration.acquisition_active;
+    settings_persisted = s_device_configuration.settings_persisted;
+    portEXIT_CRITICAL(&s_device_configuration_lock);
+
+    if (current_snapshot.recording_in_progress || acquisition_active) {
         return set_error(error, FW_STATUS_INVALID_STATE,
                          FW_ERROR_OPERATION_CONFIGURE, 0U);
     }
@@ -215,23 +381,19 @@ fw_status_t device_configuration_apply(
     const fw_status_t rail_status = board_get_power_rail_state(
         &rail_state, error);
     if (rail_status != FW_STATUS_OK) {
-        portEXIT_CRITICAL(&s_device_configuration_lock);
         return rail_status;
     }
 
     /* +5 VA has no Rev-1 enable, and +18 V belongs to pulse control. */
     if (update->rail_5v_enabled !=
-            s_device_configuration.snapshot.rail_5v_enabled ||
+            current_snapshot.rail_5v_enabled ||
         update->rail_18v_enabled !=
             rail_state.rail_18v_enabled ||
         update->imu_averaging_time_ms !=
-            s_device_configuration.snapshot.imu_averaging_time_ms) {
-        portEXIT_CRITICAL(&s_device_configuration_lock);
+            current_snapshot.imu_averaging_time_ms) {
         return set_error(error, FW_STATUS_UNSUPPORTED,
                          FW_ERROR_OPERATION_CONFIGURE, 0U);
     }
-
-    portEXIT_CRITICAL(&s_device_configuration_lock);
 
     const board_acquisition_power_state_t requested_power = {
         .rail_3v3a_enabled = update->rail_3v3_enabled,
@@ -242,6 +404,31 @@ fw_status_t device_configuration_apply(
         &requested_power, error);
     if (apply_status != FW_STATUS_OK) {
         return apply_status;
+    }
+
+    const bool write_required = !settings_persisted ||
+        !persistent_settings_match(&current_snapshot, update);
+    if (write_required) {
+        const fw_status_t save_status = save_persistent_settings(
+            update, error);
+        if (save_status != FW_STATUS_OK) {
+            fw_error_context_t original_error;
+            if (error != NULL) {
+                original_error = *error;
+            }
+            const board_acquisition_power_state_t previous_power = {
+                .rail_3v3a_enabled = rail_state.rail_3v3a_enabled,
+                .rail_10v_enabled = rail_state.rail_10v_enabled,
+                .rail_negative_5v_enabled =
+                    rail_state.rail_negative_5v_enabled,
+            };
+            (void)board_set_acquisition_power_state(
+                &previous_power, NULL);
+            if (error != NULL) {
+                *error = original_error;
+            }
+            return save_status;
+        }
     }
 
     portENTER_CRITICAL(&s_device_configuration_lock);
@@ -258,6 +445,7 @@ fw_status_t device_configuration_apply(
         update->rail_9v_enabled;
     s_device_configuration.snapshot.rail_negative_5v_enabled =
         update->rail_negative_5v_enabled;
+    s_device_configuration.settings_persisted = true;
     portEXIT_CRITICAL(&s_device_configuration_lock);
     return FW_STATUS_OK;
 }

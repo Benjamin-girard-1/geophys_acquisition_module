@@ -75,7 +75,11 @@ typedef struct {
     uint16_t imu_averaging_time_ms;
 } device_configuration_update_t;
 
-/** Initialize the stopped-device defaults before communication starts. */
+/**
+ * Initialize stopped-device state and restore valid saved ADC settings.
+ *
+ * Missing, incompatible, or corrupt saved settings use the compiled defaults.
+ */
 fw_status_t device_configuration_initialize(fw_error_context_t *error);
 
 /** Copy a coherent status/configuration snapshot and stamp it when read. */
@@ -87,8 +91,10 @@ fw_status_t device_configuration_get(
  * Validate and atomically apply currently supported writable fields.
  *
  * ADC rate, mask, gains, and the three acquisition-rail states are accepted
- * while stopped. +5 VA has no Rev-1 software enable, +18 V remains owned by
- * the pulse path, and IMU changes remain unsupported.
+ * while stopped. ADC rate, mask, and gains are committed to internal flash
+ * before success is returned; live rail states are not persistent. +5 VA has
+ * no Rev-1 software enable, +18 V remains owned by the pulse path, and IMU
+ * changes remain unsupported.
  */
 fw_status_t device_configuration_apply(
     const device_configuration_update_t *update,

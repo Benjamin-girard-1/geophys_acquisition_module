@@ -5,25 +5,34 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "app.h"
 #include "board.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "platform_crc.h"
+#include "platform_device.h"
 #include "platform_memory.h"
 #include "platform_storage.h"
+#include "protocol_messages.h"
+#include "recording_header.h"
 
 #define TASK_STORAGE_STACK_SIZE_BYTES UINT32_C(8192)
 #define TASK_STORAGE_PRIORITY (tskIDLE_PRIORITY + 1U)
-#define TASK_STORAGE_PSRAM_BUFFER_COUNT UINT8_C(2)
+#define TASK_STORAGE_PSRAM_BUFFER_COUNT UINT8_C(3)
 #define TASK_STORAGE_PSRAM_BUFFER_SIZE_BYTES (2U * 1024U * 1024U)
 #define TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER \
     (TASK_STORAGE_PSRAM_BUFFER_SIZE_BYTES / ADC_RECORD_SIZE_BYTES)
+#define TASK_STORAGE_BATCH_BUFFER_COUNT UINT8_C(2)
+#define TASK_STORAGE_BATCH_CAPACITY_RECORDS \
+    (TASK_STORAGE_BATCH_BUFFER_COUNT * \
+     TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER)
+#define TASK_STORAGE_FOUR_CHANNEL_1KSPS_BATCH_RECORDS UINT32_C(7500)
+#define TASK_STORAGE_FOUR_CHANNEL_FAST_BATCH_RECORDS UINT32_C(6000)
 #define TASK_STORAGE_INVALID_BUFFER_INDEX UINT8_MAX
 #define TASK_STORAGE_COMMAND_QUEUE_LENGTH UINT8_C(4)
 #define TASK_STORAGE_RESPONSE_QUEUE_LENGTH UINT8_C(4)
 #define TASK_STORAGE_COMMAND_TIMEOUT_MS UINT32_C(10000)
-#define TASK_STORAGE_SYNC_INTERVAL_RECORDS \
-    TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER
 #define TASK_STORAGE_RECORDING_DIRECTORY "/recordings"
 #define TASK_STORAGE_RECORDING_PATH_SIZE_BYTES UINT8_C(48)
 
@@ -42,6 +51,7 @@ typedef struct {
     storage_command_operation_t operation;
     uint16_t index;
     uint32_t offset_bytes;
+    task_storage_recording_config_t recording_config;
     char name[TASK_STORAGE_RECORDING_NAME_SIZE_BYTES];
 } storage_command_t;
 
@@ -63,6 +73,7 @@ typedef struct {
 typedef enum {
     RECORD_BUFFER_FREE = 0,
     RECORD_BUFFER_FILLING,
+    RECORD_BUFFER_SEALED,
     RECORD_BUFFER_READY,
     RECORD_BUFFER_WRITING,
 } record_buffer_state_t;
@@ -86,9 +97,10 @@ typedef struct {
     uint16_t catalog_count;
     char active_name[TASK_STORAGE_RECORDING_NAME_SIZE_BYTES];
     uint32_t active_size_bytes;
-    uint32_t records_since_sync;
     uint32_t next_buffer_order;
     uint32_t acquired_record_index;
+    uint32_t batch_target_records;
+    uint32_t records_in_batch;
     uint8_t filling_buffer_index;
     uint8_t acquired_buffer_index;
     volatile task_storage_media_state_t media_state;
@@ -100,6 +112,8 @@ typedef struct {
 static task_storage_state_t s_storage;
 static portMUX_TYPE s_record_buffer_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_next_command_identifier;
+static uint8_t s_static_header[RECORDING_HEADER_STATIC_SIZE_BYTES];
+static const uint8_t s_empty_header_sector[ADC_RECORD_SIZE_BYTES];
 
 _Static_assert(TASK_STORAGE_RECORDING_NAME_SIZE_BYTES == 32U,
                "recording names must match the wire protocol");
@@ -107,9 +121,27 @@ _Static_assert(TASK_STORAGE_RECORDING_MAX_COUNT == 255U,
                "recording limit must match the wire protocol");
 _Static_assert(TASK_STORAGE_READ_CHUNK_SIZE_BYTES == 38U,
                "temporary read chunks must fit one command payload");
+_Static_assert(TASK_STORAGE_RECORDING_NAME_SIZE_BYTES ==
+                   RECORDING_HEADER_RECORDING_NAME_SIZE_BYTES,
+               "storage and recording-header names must match");
+_Static_assert(TASK_STORAGE_ADC_CHANNEL_COUNT ==
+                   RECORDING_HEADER_ADC_CHANNEL_COUNT,
+               "storage and recording-header channels must match");
+_Static_assert(TASK_STORAGE_CARD_SLOT_COUNT ==
+                   RECORDING_HEADER_CARD_SLOT_COUNT,
+               "storage and recording-header card slots must match");
 _Static_assert((TASK_STORAGE_PSRAM_BUFFER_SIZE_BYTES %
                 ADC_RECORD_SIZE_BYTES) == 0U,
                "PSRAM buffers must contain complete ADC records");
+_Static_assert(TASK_STORAGE_BATCH_BUFFER_COUNT <
+                   TASK_STORAGE_PSRAM_BUFFER_COUNT,
+               "one PSRAM buffer must remain available during SD writes");
+_Static_assert(TASK_STORAGE_FOUR_CHANNEL_1KSPS_BATCH_RECORDS <=
+                   TASK_STORAGE_BATCH_CAPACITY_RECORDS,
+               "the five-minute 1 kSPS batch must fit two buffers");
+_Static_assert(TASK_STORAGE_FOUR_CHANNEL_FAST_BATCH_RECORDS <=
+                   TASK_STORAGE_BATCH_CAPACITY_RECORDS,
+               "the faster-rate batch must fit two buffers");
 
 static void clear_error(fw_error_context_t *error)
 {
@@ -139,6 +171,109 @@ static fw_status_t set_error(fw_error_context_t *error,
         };
     }
     return status;
+}
+
+static uint32_t storage_record_crc32(void *context,
+                                     const uint8_t *data,
+                                     size_t length_bytes)
+{
+    (void)context;
+    return platform_crc32_le(UINT32_C(0xFFFFFFFF), data, length_bytes) ^
+           UINT32_C(0xFFFFFFFF);
+}
+
+static fw_status_t initialize_recording_header(
+    const storage_command_t *command,
+    fw_error_context_t *error)
+{
+    if (command == NULL || s_storage.active_file == NULL) {
+        return set_error(error, FW_STATUS_INVALID_STATE,
+                         FW_ERROR_OPERATION_WRITE, 0U);
+    }
+
+    recording_header_metadata_t metadata;
+    memset(&metadata, 0, sizeof(metadata));
+    memcpy(metadata.recording_name, command->name,
+           sizeof(metadata.recording_name));
+    fw_status_t status = platform_device_read_base_mac(
+        metadata.device_id, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    metadata.hardware_version = BOARD_HARDWARE_VERSION;
+    metadata.hardware_revision = BOARD_HARDWARE_REVISION;
+    metadata.firmware_version = APP_FIRMWARE_VERSION;
+    metadata.protocol_version = PROTOCOL_VERSION_CURRENT;
+    metadata.start_monotonic_timestamp_100ns =
+        command->recording_config.start_monotonic_timestamp_100ns;
+    metadata.start_unix_timestamp_us = 0U;
+    metadata.adc_sample_rate_sps =
+        command->recording_config.adc_sample_rate_sps;
+    metadata.adc_channel_mask =
+        command->recording_config.adc_channel_mask;
+    memcpy(metadata.adc_gains, command->recording_config.adc_gains,
+           sizeof(metadata.adc_gains));
+    memcpy(metadata.card_types, command->recording_config.card_types,
+           sizeof(metadata.card_types));
+    metadata.gnss_state = command->recording_config.gnss_state;
+    metadata.imu_state = command->recording_config.imu_state;
+    metadata.imu_averaging_time_ms =
+        command->recording_config.imu_averaging_time_ms;
+    metadata.power_rail_flags =
+        command->recording_config.power_rail_flags;
+
+    if (recording_header_encode_static(
+            &metadata, storage_record_crc32, NULL, s_static_header) !=
+        RECORDING_HEADER_CODEC_OK) {
+        return set_error(error, FW_STATUS_INVALID_ARGUMENT,
+                         FW_ERROR_OPERATION_WRITE, 0U);
+    }
+    status = platform_storage_file_write(
+        s_storage.active_file, s_static_header, sizeof(s_static_header), error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+
+    const uint32_t remaining_sectors =
+        (RECORDING_HEADER_TOTAL_SIZE_BYTES -
+         RECORDING_HEADER_STATIC_SIZE_BYTES) /
+        sizeof(s_empty_header_sector);
+    for (uint32_t sector = 0U; sector < remaining_sectors; sector++) {
+        status = platform_storage_file_write(
+            s_storage.active_file, s_empty_header_sector,
+            sizeof(s_empty_header_sector), error);
+        if (status != FW_STATUS_OK) {
+            return status;
+        }
+    }
+    status = platform_storage_file_sync(s_storage.active_file, error);
+    if (status != FW_STATUS_OK) {
+        return status;
+    }
+    s_storage.active_size_bytes = RECORDING_HEADER_TOTAL_SIZE_BYTES;
+    return FW_STATUS_OK;
+}
+
+static fw_status_t write_buffer_record_crcs(uint8_t *data,
+                                            size_t size_bytes,
+                                            fw_error_context_t *error)
+{
+    if (data == NULL || size_bytes == 0U ||
+        (size_bytes % ADC_RECORD_SIZE_BYTES) != 0U) {
+        return set_error(error, FW_STATUS_INTERNAL,
+                         FW_ERROR_OPERATION_WRITE, (uint32_t)size_bytes);
+    }
+
+    const size_t record_count = size_bytes / ADC_RECORD_SIZE_BYTES;
+    for (size_t index = 0U; index < record_count; index++) {
+        uint8_t *record = data + (index * ADC_RECORD_SIZE_BYTES);
+        if (adc_record_write_crc(record, storage_record_crc32, NULL) !=
+            ADC_RECORD_CODEC_OK) {
+            return set_error(error, FW_STATUS_INTERNAL,
+                             FW_ERROR_OPERATION_WRITE, (uint32_t)index);
+        }
+    }
+    return FW_STATUS_OK;
 }
 
 static bool name_is_valid(const char name[TASK_STORAGE_RECORDING_NAME_SIZE_BYTES])
@@ -179,6 +314,78 @@ static bool make_recording_path(
                                 "%s/%s", TASK_STORAGE_RECORDING_DIRECTORY,
                                 name);
     return length > 0 && length < TASK_STORAGE_RECORDING_PATH_SIZE_BYTES;
+}
+
+static uint32_t batch_interval_seconds(uint32_t sample_rate_sps)
+{
+    switch (sample_rate_sps) {
+    case UINT32_C(500):
+    case UINT32_C(1000):
+        return UINT32_C(300);
+    case UINT32_C(2000):
+        return UINT32_C(120);
+    case UINT32_C(4000):
+        return UINT32_C(60);
+    case UINT32_C(8000):
+        return UINT32_C(30);
+    case UINT32_C(16000):
+        return UINT32_C(15);
+    default:
+        return 0U;
+    }
+}
+
+static uint8_t conversions_per_record(uint8_t channel_mask)
+{
+    if (channel_mask == UINT8_C(0x0F) ||
+        channel_mask == UINT8_C(0xF0)) {
+        return ADC_RECORD_FOUR_CHANNEL_CONVERSIONS;
+    }
+    if (channel_mask == UINT8_C(0xFF)) {
+        return ADC_RECORD_EIGHT_CHANNEL_CONVERSIONS;
+    }
+    return 0U;
+}
+
+static bool calculate_batch_target_records(uint32_t sample_rate_sps,
+                                           uint8_t channel_mask,
+                                           uint32_t *target_records)
+{
+    if (target_records == NULL) {
+        return false;
+    }
+    const uint32_t interval_seconds =
+        batch_interval_seconds(sample_rate_sps);
+    const uint8_t record_conversions =
+        conversions_per_record(channel_mask);
+    if (interval_seconds == 0U || record_conversions == 0U) {
+        return false;
+    }
+
+    const uint64_t conversions =
+        (uint64_t)sample_rate_sps * interval_seconds;
+    uint64_t records = conversions / record_conversions;
+    if ((conversions % record_conversions) != 0U || records == 0U) {
+        return false;
+    }
+
+    /*
+     * Four-channel recording reaches the requested wall-clock cadence.
+     * Eight-channel records hold half as many conversions, so cap the batch
+     * to the same bounded PSRAM footprint and write twice as often.
+     */
+    const uint32_t capacity_limit =
+        (sample_rate_sps <= UINT32_C(1000)) ?
+            TASK_STORAGE_FOUR_CHANNEL_1KSPS_BATCH_RECORDS :
+            TASK_STORAGE_FOUR_CHANNEL_FAST_BATCH_RECORDS;
+    if (records > capacity_limit) {
+        records = capacity_limit;
+    }
+    if (records > TASK_STORAGE_BATCH_CAPACITY_RECORDS) {
+        return false;
+    }
+    *target_records = (uint32_t)records;
+    return true;
 }
 
 static void update_media_state(task_storage_media_state_t state)
@@ -317,6 +524,7 @@ static void reset_record_buffers_locked(void)
     s_storage.acquired_buffer_index = TASK_STORAGE_INVALID_BUFFER_INDEX;
     s_storage.acquired_record_index = 0U;
     s_storage.next_buffer_order = 0U;
+    s_storage.records_in_batch = 0U;
     s_storage.record_acquired = false;
 }
 
@@ -342,10 +550,11 @@ static bool activate_free_buffer_locked(void)
     return false;
 }
 
-static void start_record_buffers(void)
+static void start_record_buffers(uint32_t batch_target_records)
 {
     portENTER_CRITICAL(&s_record_buffer_lock);
     reset_record_buffers_locked();
+    s_storage.batch_target_records = batch_target_records;
     (void)activate_free_buffer_locked();
     s_storage.recording_active = true;
     portEXIT_CRITICAL(&s_record_buffer_lock);
@@ -356,7 +565,20 @@ static void discard_record_buffers(void)
     portENTER_CRITICAL(&s_record_buffer_lock);
     s_storage.recording_active = false;
     reset_record_buffers_locked();
+    s_storage.batch_target_records = 0U;
     portEXIT_CRITICAL(&s_record_buffer_lock);
+}
+
+static void make_sealed_buffers_ready_locked(void)
+{
+    for (uint8_t index = 0U;
+         index < TASK_STORAGE_PSRAM_BUFFER_COUNT;
+         index++) {
+        if (s_storage.record_buffers[index].state ==
+            RECORD_BUFFER_SEALED) {
+            s_storage.record_buffers[index].state = RECORD_BUFFER_READY;
+        }
+    }
 }
 
 static bool seal_record_buffers(void)
@@ -373,6 +595,8 @@ static bool seal_record_buffers(void)
             s_storage.filling_buffer_index =
                 TASK_STORAGE_INVALID_BUFFER_INDEX;
         }
+        make_sealed_buffers_ready_locked();
+        s_storage.records_in_batch = 0U;
         s_storage.recording_active = false;
         sealed = true;
     }
@@ -471,7 +695,6 @@ static void fail_active_recording(fw_status_t failure_status)
     s_storage.active_file = NULL;
     memset(s_storage.active_name, 0, sizeof(s_storage.active_name));
     s_storage.active_size_bytes = 0U;
-    s_storage.records_since_sync = 0U;
 }
 
 static fw_status_t write_one_ready_buffer(fw_error_context_t *error)
@@ -492,8 +715,16 @@ static fw_status_t write_one_ready_buffer(fw_error_context_t *error)
                            FW_ERROR_OPERATION_WRITE,
                            s_storage.active_size_bytes);
     } else {
-        status = platform_storage_file_write(
-            s_storage.active_file, data, size_bytes, error);
+        /*
+         * CRC calculation rereads each 508-byte record from PSRAM. Keep that
+         * burst inside the scheduled SD-write noise window instead of doing
+         * it at the 40-conversion record cadence in task_acquisition.
+         */
+        status = write_buffer_record_crcs(data, size_bytes, error);
+        if (status == FW_STATUS_OK) {
+            status = platform_storage_file_write(
+                s_storage.active_file, data, size_bytes, error);
+        }
     }
     if (status != FW_STATUS_OK) {
         update_media_state(TASK_STORAGE_MEDIA_FAULTED);
@@ -502,28 +733,27 @@ static fw_status_t write_one_ready_buffer(fw_error_context_t *error)
     }
 
     s_storage.active_size_bytes += (uint32_t)size_bytes;
-    s_storage.records_since_sync +=
-        (uint32_t)(size_bytes / ADC_RECORD_SIZE_BYTES);
     release_written_buffer(index);
-
-    if (s_storage.records_since_sync >=
-        TASK_STORAGE_SYNC_INTERVAL_RECORDS) {
-        status = platform_storage_file_sync(s_storage.active_file, error);
-        if (status != FW_STATUS_OK) {
-            update_media_state(TASK_STORAGE_MEDIA_FAULTED);
-            fail_active_recording(status);
-            return status;
-        }
-        s_storage.records_since_sync = 0U;
-    }
     return FW_STATUS_OK;
 }
 
-static fw_status_t drain_ready_buffers(fw_error_context_t *error)
+static fw_status_t drain_ready_buffers(bool sync_after_write,
+                                       fw_error_context_t *error)
 {
+    bool wrote_data = false;
     while (ready_buffer_available()) {
         const fw_status_t status = write_one_ready_buffer(error);
         if (status != FW_STATUS_OK) {
+            return status;
+        }
+        wrote_data = true;
+    }
+    if (sync_after_write && wrote_data) {
+        const fw_status_t status =
+            platform_storage_file_sync(s_storage.active_file, error);
+        if (status != FW_STATUS_OK) {
+            update_media_state(TASK_STORAGE_MEDIA_FAULTED);
+            fail_active_recording(status);
             return status;
         }
     }
@@ -549,7 +779,7 @@ static fw_status_t close_active_file(bool delete_after_close,
                          FW_ERROR_OPERATION_CLOSE, 0U);
     }
 
-    fw_status_t status = drain_ready_buffers(error);
+    fw_status_t status = drain_ready_buffers(false, error);
     if (status == FW_STATUS_OK) {
         status = platform_storage_file_sync(s_storage.active_file, error);
     }
@@ -585,7 +815,7 @@ static fw_status_t close_active_file(bool delete_after_close,
     }
     memset(s_storage.active_name, 0, sizeof(s_storage.active_name));
     s_storage.active_size_bytes = 0U;
-    s_storage.records_since_sync = 0U;
+    s_storage.batch_target_records = 0U;
     return status;
 }
 
@@ -602,6 +832,17 @@ static void handle_command(const storage_command_t *command,
             response->status = set_error(
                 &response->error, FW_STATUS_INVALID_ARGUMENT,
                 FW_ERROR_OPERATION_OPEN, 0U);
+            break;
+        }
+        uint32_t batch_target_records = 0U;
+        if (!calculate_batch_target_records(
+                command->recording_config.adc_sample_rate_sps,
+                command->recording_config.adc_channel_mask,
+                &batch_target_records)) {
+            response->status = set_error(
+                &response->error, FW_STATUS_INVALID_ARGUMENT,
+                FW_ERROR_OPERATION_OPEN,
+                command->recording_config.adc_sample_rate_sps);
             break;
         }
         if (s_storage.recording_active) {
@@ -633,11 +874,22 @@ static void handle_command(const storage_command_t *command,
         if (response->status != FW_STATUS_OK) {
             break;
         }
+        response->status = initialize_recording_header(
+            command, &response->error);
+        if (response->status != FW_STATUS_OK) {
+            const fw_error_context_t original_error = response->error;
+            (void)platform_storage_file_close(
+                s_storage.active_file, NULL);
+            s_storage.active_file = NULL;
+            (void)platform_storage_file_delete(
+                s_storage.storage, path, NULL);
+            s_storage.active_size_bytes = 0U;
+            response->error = original_error;
+            break;
+        }
         memcpy(s_storage.active_name, command->name,
                sizeof(s_storage.active_name));
-        s_storage.active_size_bytes = 0U;
-        s_storage.records_since_sync = 0U;
-        start_record_buffers();
+        start_record_buffers(batch_target_records);
         memcpy(response->name, command->name, sizeof(response->name));
         break;
     }
@@ -813,14 +1065,15 @@ static void storage_task_run(void *context)
             storage_response_t response;
             handle_command(&command, &response);
             (void)xQueueSend(s_storage.responses, &response, portMAX_DELAY);
+            if (uxQueueMessagesWaiting(s_storage.commands) > 0U ||
+                ready_buffer_available()) {
+                xTaskNotifyGive(s_storage.task_handle);
+            }
             continue;
         }
 
-        (void)write_one_ready_buffer(NULL);
-        if (ready_buffer_available()) {
-            /* Recheck commands before writing the next PSRAM buffer. */
-            xTaskNotifyGive(s_storage.task_handle);
-        }
+        /* One wakeup owns the complete scheduled SD-write noise window. */
+        (void)drain_ready_buffers(true, NULL);
     }
 }
 
@@ -935,14 +1188,16 @@ static fw_status_t execute_command(storage_command_t *command,
 
 fw_status_t task_storage_recording_open(
     const char name[TASK_STORAGE_RECORDING_NAME_SIZE_BYTES],
+    const task_storage_recording_config_t *recording_config,
     fw_error_context_t *error)
 {
     storage_command_t command = {.operation = STORAGE_COMMAND_OPEN};
     storage_response_t response;
-    if (name == NULL) {
+    if (name == NULL || recording_config == NULL) {
         return set_error(error, FW_STATUS_INVALID_ARGUMENT,
                          FW_ERROR_OPERATION_OPEN, 0U);
     }
+    command.recording_config = *recording_config;
     memcpy(command.name, name, sizeof(command.name));
     return execute_command(&command, &response, error);
 }
@@ -1102,12 +1357,16 @@ fw_status_t task_storage_record_submit(uint8_t *record,
     }
 
     fw_status_t status = FW_STATUS_OK;
-    bool buffer_ready = false;
+    bool batch_ready = false;
     portENTER_CRITICAL(&s_record_buffer_lock);
     if (!s_storage.recording_active || !s_storage.record_acquired) {
         status = FW_STATUS_INVALID_STATE;
     } else if (s_storage.acquired_buffer_index >=
                TASK_STORAGE_PSRAM_BUFFER_COUNT) {
+        status = FW_STATUS_INTERNAL;
+    } else if (s_storage.batch_target_records == 0U ||
+               s_storage.records_in_batch >=
+                   s_storage.batch_target_records) {
         status = FW_STATUS_INTERNAL;
     } else {
         const uint8_t index = s_storage.acquired_buffer_index;
@@ -1121,17 +1380,26 @@ fw_status_t task_storage_record_submit(uint8_t *record,
             status = FW_STATUS_INVALID_ARGUMENT;
         } else {
             buffer->committed_records++;
+            s_storage.records_in_batch++;
             s_storage.record_acquired = false;
             s_storage.acquired_buffer_index =
                 TASK_STORAGE_INVALID_BUFFER_INDEX;
             s_storage.acquired_record_index = 0U;
-            if (buffer->committed_records ==
-                TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER) {
+            if (s_storage.records_in_batch ==
+                s_storage.batch_target_records) {
                 buffer->state = RECORD_BUFFER_READY;
                 s_storage.filling_buffer_index =
                     TASK_STORAGE_INVALID_BUFFER_INDEX;
+                make_sealed_buffers_ready_locked();
+                s_storage.records_in_batch = 0U;
                 (void)activate_free_buffer_locked();
-                buffer_ready = true;
+                batch_ready = true;
+            } else if (buffer->committed_records ==
+                       TASK_STORAGE_RECORDS_PER_PSRAM_BUFFER) {
+                buffer->state = RECORD_BUFFER_SEALED;
+                s_storage.filling_buffer_index =
+                    TASK_STORAGE_INVALID_BUFFER_INDEX;
+                (void)activate_free_buffer_locked();
             }
         }
     }
@@ -1141,7 +1409,7 @@ fw_status_t task_storage_record_submit(uint8_t *record,
         task_storage_record_release(record);
         return set_error(error, status, FW_ERROR_OPERATION_WRITE, 0U);
     }
-    if (buffer_ready) {
+    if (batch_ready) {
         xTaskNotifyGive(s_storage.task_handle);
     }
     return FW_STATUS_OK;

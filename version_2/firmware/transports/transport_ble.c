@@ -14,8 +14,8 @@
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
-#include "nvs_flash.h"
 #include "os/os_mbuf.h"
+#include "platform_settings.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
@@ -260,17 +260,9 @@ fw_status_t transport_ble_start(const transport_ble_config_t *config,
                          FW_ERROR_OPERATION_INITIALIZE, 0U);
     }
 
-    esp_err_t nvs_status = nvs_flash_init();
-    if (nvs_status == ESP_ERR_NVS_NO_FREE_PAGES ||
-        nvs_status == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_status = nvs_flash_erase();
-        if (nvs_status == ESP_OK) {
-            nvs_status = nvs_flash_init();
-        }
-    }
-    if (nvs_status != ESP_OK) {
-        return set_error(error, FW_STATUS_IO,
-                         FW_ERROR_OPERATION_INITIALIZE, 0U);
+    fw_status_t settings_status = platform_settings_initialize(error);
+    if (settings_status != FW_STATUS_OK) {
+        return settings_status;
     }
 
     if (nimble_port_init() != ESP_OK) {

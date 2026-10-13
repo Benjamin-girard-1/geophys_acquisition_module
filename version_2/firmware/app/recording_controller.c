@@ -5,6 +5,7 @@
 
 #include "device_configuration.h"
 #include "freertos/FreeRTOS.h"
+#include "recording_header.h"
 #include "task_acquisition.h"
 #include "task_storage.h"
 
@@ -131,7 +132,33 @@ fw_status_t recording_controller_start(
         return FW_STATUS_INVALID_ARGUMENT;
     }
 
-    status = task_storage_recording_open(name->bytes, error);
+    task_storage_recording_config_t storage_config = {
+        .start_monotonic_timestamp_100ns = snapshot.timestamp_100ns,
+        .adc_sample_rate_sps = snapshot.adc_sample_rate_sps,
+        .adc_channel_mask = snapshot.adc_channel_mask,
+        .card_types = {
+            (uint8_t)snapshot.card_slots[0],
+            (uint8_t)snapshot.card_slots[1],
+        },
+        .gnss_state = (uint8_t)snapshot.gnss_state,
+        .imu_state = (uint8_t)snapshot.imu_state,
+        .imu_averaging_time_ms = snapshot.imu_averaging_time_ms,
+        .power_rail_flags =
+            (snapshot.rail_3v3_enabled ?
+                 RECORDING_HEADER_POWER_3V3_ENABLED : 0U) |
+            (snapshot.rail_5v_enabled ?
+                 RECORDING_HEADER_POWER_5V_ENABLED : 0U) |
+            (snapshot.rail_9v_enabled ?
+                 RECORDING_HEADER_POWER_9V_ENABLED : 0U) |
+            (snapshot.rail_negative_5v_enabled ?
+                 RECORDING_HEADER_POWER_NEGATIVE_5V_ENABLED : 0U) |
+            (snapshot.rail_18v_enabled ?
+                 RECORDING_HEADER_POWER_18V_ENABLED : 0U),
+    };
+    memcpy(storage_config.adc_gains, snapshot.adc_gains,
+           sizeof(storage_config.adc_gains));
+    status = task_storage_recording_open(
+        name->bytes, &storage_config, error);
     if (status != FW_STATUS_OK) {
         result->recording_in_progress = task_storage_recording_active();
         return status;

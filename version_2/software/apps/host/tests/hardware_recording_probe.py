@@ -34,6 +34,11 @@ from geophys_host.protocol import (  # noqa: E402
     encode_temp_recording_read,
 )
 from geophys_host.adc_record import decode_adc_record  # noqa: E402
+from geophys_data import (  # noqa: E402
+    DATA_OFFSET,
+    HEADER_MAGIC,
+    decode_recording_header,
+)
 
 
 def request(connection: serial.Serial, frame: bytes, timeout_s: float = 12.0):
@@ -78,9 +83,15 @@ def download_recording(
 def validate_recording(
         contents: bytes) -> tuple[int, set[int], int, int, int]:
     assert contents and len(contents) % 512 == 0
+    data = contents
+    if contents.startswith(HEADER_MAGIC):
+        decode_recording_header(contents[:4096])
+        assert len(contents) >= DATA_OFFSET
+        data = contents[DATA_OFFSET:]
+    assert data, "recording contains no DAT blocks"
     records = [
-        decode_adc_record(contents[offset:offset + 512])
-        for offset in range(0, len(contents), 512)
+        decode_adc_record(data[offset:offset + 512])
+        for offset in range(0, len(data), 512)
     ]
     missing_conversions = 0
     for previous, current in zip(records, records[1:]):

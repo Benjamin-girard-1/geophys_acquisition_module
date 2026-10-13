@@ -150,10 +150,17 @@ static void field_recording_task(void *context)
     bool button_released = false;
     bool press_active = false;
     bool stop_latched = false;
+    bool recording_started = false;
     bool start_failed_with_ready_media = false;
 
     for (;;) {
         const TickType_t now = xTaskGetTickCount();
+        if (task_storage_recording_active()) {
+            recording_started = true;
+        } else if (recording_started) {
+            /* A wired stop or storage failure ends this boot's session too. */
+            stop_latched = true;
+        }
         bool pressed = false;
         if (board_boot_button_pressed(&pressed, NULL) == FW_STATUS_OK) {
             if (!pressed) {
@@ -180,7 +187,9 @@ static void field_recording_task(void *context)
             !task_storage_recording_active()) {
             last_start_attempt_tick = now;
             const fw_status_t status = start_recording(NULL);
-            if (status != FW_STATUS_OK &&
+            if (status == FW_STATUS_OK) {
+                recording_started = true;
+            } else if (
                 task_storage_media_state() == TASK_STORAGE_MEDIA_READY) {
                 /* Avoid creating many files when ADC startup itself fails. */
                 start_failed_with_ready_media = true;

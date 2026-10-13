@@ -465,8 +465,7 @@ static void finish_storage_record_if_complete(void)
     const uint8_t conversions =
         s_acquisition.storage_builder.required_conversions;
     const adc_record_codec_status_t codec_status =
-        adc_record_builder_finalize(&s_acquisition.storage_builder,
-                                    record_crc32, NULL);
+        adc_record_builder_complete(&s_acquisition.storage_builder);
     s_acquisition.storage_payload_number++;
     if (codec_status != ADC_RECORD_CODEC_OK ||
         task_storage_record_submit(s_acquisition.current_storage_record,
@@ -480,8 +479,6 @@ static void finish_storage_record_if_complete(void)
         }
     }
     s_acquisition.current_storage_record = NULL;
-    memset(&s_acquisition.storage_builder, 0,
-           sizeof(s_acquisition.storage_builder));
 }
 
 static fw_status_t begin_streaming_record_if_needed(void)
@@ -545,8 +542,6 @@ static void finish_streaming_record_if_complete(void)
                          &s_acquisition.current_streaming_record, 0U);
     }
     s_acquisition.current_streaming_record = NULL;
-    memset(&s_acquisition.streaming_builder, 0,
-           sizeof(s_acquisition.streaming_builder));
 }
 
 static void account_isr_overflow(void)

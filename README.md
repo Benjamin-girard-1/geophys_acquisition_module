@@ -54,13 +54,25 @@ acquisition hot path now reserves SPI2 and its DMA resources once and launches
 one hardware-CS-framed, prepared 32-byte transfer for each DRDY event. A
 dedicated core-1 capture task advances the two-buffer DMA pipeline and
 copies completed frames into a 256-frame ring; CRC validation, DAT construction,
-and storage handoff run independently on core 0. SD recording now uses two
-2 MiB PSRAM buffers: acquisition fills one continuously while the storage task
-writes the other as one logical batch through a 32 KiB internal SDMMC staging
+and storage handoff run independently on core 0. The hardware-tested storage
+baseline used two 2 MiB PSRAM buffers: acquisition filled one continuously
+while the storage task wrote the other through a 32 KiB internal SDMMC staging
 window. A 50-second four-channel 8 kSPS probe crossed both 2 MiB boundaries
-without stopping acquisition or losing a conversion. The four-bit SDMMC bus
-runs at its verified 40 MHz high-speed setting; every completed buffer and the
-recording close are synchronized to the filesystem. The SD volume uses FAT32
+without stopping acquisition or losing a conversion. The current
+noise-diagnostic implementation expands this to three 2 MiB buffers. Two
+buffers accumulate one conversion-count-scheduled batch, while the third keeps
+acquisition running during the grouped SD write and single filesystem sync.
+Stored-record CRC generation is also deferred to that same SD activity window,
+removing the 508-byte PSRAM reread from each 40-conversion record boundary;
+live-stream records continue to receive their CRC immediately.
+For four channels, batches occur every five minutes at 1 kSPS, two minutes at
+2 kSPS, one minute at 4 kSPS, and 30 seconds at 8 kSPS. A Rev-1 8 kSPS test
+recorded 35,333 records, crossed five scheduled 6,000-record boundaries with
+status-OK and sequence-contiguous records on both sides, and cleanly flushed
+the final partial batch. Magnetic-noise comparison remains open. The four-bit
+SDMMC bus runs at its verified 40 MHz
+high-speed setting; every scheduled batch and the recording close are
+synchronized to the filesystem. The SD volume uses FAT32
 with 32 KiB clusters so FatFs can issue 32 KiB multi-sector writes instead of
 splitting at the former 4 KiB cluster boundaries. A two-second
 channels-0–3 probe at 16 kSPS retained all 32,840 consecutive conversions at
@@ -123,15 +135,34 @@ in `version_2/firmware/app/app.c`. This radio-silent diagnostic configuration
 removed the measured 60–70 ms BLE advertising disturbance and preserves the
 implemented BLE code for later re-enablement.
 
-The same field-test build enables unattended SD recording. Its defaults are
-8 kSPS, channels 0–3 enabled, gain x8 on channels 0–2, and gain x1 on channel
-3; channels 4–7 are disabled. It waits five seconds after application
-initialization, then creates the first free name from `field000` through
-`field254` and starts acquisition. Holding the ESP32-S3 DevKitC BOOT button for
-three seconds stops the ADC, drains the PSRAM buffers, syncs the file, and
-closes it. A hard power-off cannot run that cleanup: after holding BOOT, wait
-for the close to finish before switching the battery off. The RESET button
-remains an immediate reset and must not be used to stop a recording.
+The same field-test build enables unattended SD recording. With no valid saved
+configuration, its defaults are 8 kSPS, channels 0–3 enabled, gain x8 on
+channels 0–2, and gain x1 on channel 3; channels 4–7 are disabled. A successful
+wired `DEVICE_SET_CONFIG` commits the sample rate, channel mask, and all eight
+gains to the ESP32's wear-levelled internal flash. These settings are restored
+after reset or power loss; live rail/status fields are not persistent. The
+firmware waits five seconds after application initialization, then creates the
+first free name from `field000` through `field254` and starts acquisition with
+the restored settings. Holding the ESP32-S3 DevKitC BOOT button for three
+seconds stops the ADC, drains the PSRAM buffers, syncs the file, and closes it.
+A hard power-off cannot run that cleanup: after holding BOOT, wait for the
+close to finish before switching the battery off. The RESET button remains an
+immediate reset and must not be used to stop a recording.
+
+New SD recordings reserve a self-contained 32 KiB header region. Its first
+4096 bytes are printable JSON containing the recording name, device and
+firmware/hardware identity, card types, channel mask, gain for every channel,
+sample rate, power state, channel mapping, and a link to the project tools.
+The rest reserves 896 fixed 32-byte UTC/orientation checkpoints; they are
+currently zero placeholders because GNSS is not installed and the IMU path is
+not yet implemented. ADC DAT blocks begin at byte 32768. The JSON descriptor
+passed native/Python tests and a Rev-1 readback after the 2026-10-07 flash:
+`field023` had a CRC-valid, printable JSON descriptor with the configured
+per-channel gains and a CRC-valid first `\DAT` block at byte 32768. The firmware
+now keeps unattended recording stopped after a wired `RECORDING_STOP`, matching
+the BOOT-button stop behavior. A short `field025` check confirmed that the board
+stayed idle and the closed file could be read. Long-duration timing verification
+remains open.
 
 The complete wire contract is
 [shared/protocol/protocol.md](shared/protocol/protocol.md). It is the sole

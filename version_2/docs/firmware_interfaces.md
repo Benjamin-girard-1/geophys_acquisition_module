@@ -5,7 +5,7 @@
 - Status: Active interface guide; wire details defer to `shared/protocol/protocol.md`
 - Product version: V2
 - Initial target: two magnetic cards, eight synchronized AD7779 channels
-- Last updated: 2026-10-01
+- Last updated: 2026-10-06
 
 ## 1. Purpose and implementation scope
 
@@ -148,10 +148,12 @@ excluded without suppressing later integrity faults.
 
 ### Unattended field recording
 
-- The radio-silent field build defaults to 8 kSPS with channels 0–3 enabled,
-  x8 gain on channels 0–2, and x1 gain on channel 3; channels 4–7 are disabled.
-  It starts an SD recording five seconds after application initialization
-  using the first unused `fieldNNN` name.
+- With no valid saved settings, the radio-silent field build defaults to
+  8 kSPS with channels 0–3 enabled, x8 gain on channels 0–2, and x1 gain on
+  channel 3; channels 4–7 are disabled. Valid settings previously applied over
+  the wired protocol replace these defaults. It starts an SD recording five
+  seconds after application initialization using the first unused `fieldNNN`
+  name and the restored settings.
 - A three-second hold of the active-low DevKitC BOOT button calls the same
   recording-controller stop path as the host command. That path stops the ADC,
   drains complete buffered records, syncs storage, and closes the file.
@@ -192,6 +194,21 @@ excluded without suppressing later integrity faults.
 - `platform_crc32_le()` uses the reflected IEEE polynomial `0x04C11DB7`. Protocol callers use an
   initial remainder of `0xFFFFFFFF` and apply a final XOR of `0xFFFFFFFF` to produce the
   CRC-32/ISO-HDLC value defined by `shared/protocol/protocol.md`.
+
+### Persistent settings
+
+- The ESP32-S3 platform owns NVS initialization and exposes only opaque blob
+  read/write operations; application code does not include ESP-IDF NVS types.
+- `device_configuration` owns the versioned settings schema and its CRC. The
+  saved fields are ADC sample rate, channel mask, and all eight gains.
+- A successful stopped-device `DEVICE_SET_CONFIG` commits changed ADC settings
+  before replying. Reapplying an unchanged, already-saved configuration does
+  not perform another flash write.
+- Missing, incompatible, oversized, invalid, or CRC-corrupt records use the
+  compiled defaults. Other flash I/O failures prevent initialization or cause
+  `DEVICE_SET_CONFIG` to fail without changing the in-RAM ADC settings.
+- Recording/live state, detected cards, SD state, diagnostic fields, and power
+  rail state are runtime observations and are not restored from flash.
 
 ## 5. Board-level interface
 
@@ -339,7 +356,7 @@ below remain the target internal record for a future acquisition-time pulse.
 | Resource | Sole owner | Other users | Access mechanism |
 |---|---|---|---|
 | AD7779 configuration and streaming | `task_acquisition` | Communication/status | Acquisition command queue and status snapshot |
-| SD recording files and 512-byte record pool | `task_storage` | `task_acquisition` / recording controller | Storage commands plus nonblocking free-record and ready-record queues |
+| SD recording files, immutable container headers, and 512-byte record pool | `task_storage` | `task_acquisition` / recording controller | Storage-open configuration snapshot plus nonblocking free-record and ready-record queues |
 | Live-stream block delivery | `task_acquisition` | `task_communication` | Independent fixed live-record free/ready queues; communication returns every accepted record exactly once |
 | Pulse-command serialization and ADC validity window | `task_acquisition` | Communication | Acquisition command queue |
 | Magnetic SET/RESET sequence and card-specific timing | `analog_cards/magnetic` | `task_acquisition` | Magnetic-card operation interface and bound callbacks |
@@ -356,7 +373,9 @@ Milestone-1 task rules:
 - `task_storage` is the sole filesystem owner. Acquisition obtains the next
   512-byte slot in the active 2 MiB PSRAM buffer without waiting, submits only
   complete records, and never waits for an SD write or sync. The storage task
-  writes the other PSRAM buffer while acquisition continues.
+  retains sealed buffers until the configured conversion-count batch boundary,
+  then writes the complete batch while acquisition continues in the third
+  buffer.
 - Live streaming uses its own fixed pool and never consumes or returns an SD
   recording buffer. Acquisition never waits for a live buffer or UART write.
 - Gain, sample-rate, channel-mask, and acquisition-rail changes are accepted
@@ -375,7 +394,7 @@ Initial milestone-1 sizing:
 | Queue/pool | Producer | Consumer | Capacity | Full/empty behavior |
 |---|---|---|---:|---|
 | DRDY timestamp ring | `ADC_DRDY` ISR | Acquisition | 64 timestamps | Increment overflow count; preserve visible sequence gap |
-| SD recording buffers | Acquisition | Storage | 2 buffers × 2 MiB PSRAM; 4,096 records per buffer | Ping-pong without blocking acquisition; if both buffers are unavailable, count dropped conversions and raise timing status |
+| SD recording buffers | Acquisition | Storage | 3 buffers × 2 MiB PSRAM; 4,096 records per buffer | Two buffers form one scheduled SD batch and the third remains available during the write; if all buffers are unavailable, count dropped conversions and raise timing status |
 | Free live records | Communication returns buffers | Acquisition | 16 buffers × 512 bytes | Never block acquisition; count loss and raise timing status when empty |
 | Ready live records | Acquisition | Communication | 16 record references | Never block acquisition; communication returns every accepted record exactly once |
 | Acquisition commands | Communication | Acquisition | 8 requests | Reject new command as `BUSY` when full |
@@ -384,17 +403,33 @@ Initial milestone-1 sizing:
 
 Buffer rules:
 
-- Both SD buffers are allocated from PSRAM before acquisition can start.
+- All three SD buffers are allocated from PSRAM before acquisition can start.
 - No heap allocation occurs in DRDY handling or steady-state acquisition.
 - Acquisition owns only the filling PSRAM buffer. Storage owns only a sealed
   buffer while its write is in progress; a buffer is not reused until that
   write returns.
+- Acquisition completes each stored record's header and 480-byte payload but
+  does not reread PSRAM to calculate its CRC at the record cadence. After
+  claiming a sealed buffer, storage calculates and writes every record CRC
+  immediately before the grouped SD write. Live-stream records remain fully
+  finalized by acquisition because they are consumed immediately.
+- A full buffer is sealed without waking storage until the batch boundary. For
+  four selected channels, the conversion-count targets are five minutes at
+  1 kSPS, two minutes at 2 kSPS, one minute at 4 kSPS, and 30 seconds at
+  8 kSPS. The supported 500 SPS and 16 kSPS presets use five minutes and
+  15 seconds respectively. From 1 kSPS through 16 kSPS, eight-channel
+  recording reaches the bounded batch capacity twice as quickly and therefore
+  writes at half these intervals; the 500 SPS eight-channel interval remains
+  five minutes because that batch still fits.
+- Storage writes every ready buffer in one activity window and performs one
+  filesystem sync after the complete scheduled batch. A clean recording stop
+  seals, writes, and synchronizes the final partial batch.
 - The ESP32-S3 SDMMC path stages a logical PSRAM-buffer write through a bounded
   aligned internal-memory window because this target cannot DMA directly from
   PSRAM.
-- SDMMC operates at a verified fixed 40 MHz in four-bit mode. Complete 2 MiB
-  buffers are written and synchronized to the filesystem, and recording close
-  always performs a final sync.
+- SDMMC operates at a verified fixed 40 MHz in four-bit mode. Scheduled batches
+  are synchronized to the filesystem, and recording close always performs a
+  final sync.
 - Recording media should be FAT32 with 32 KiB clusters. FatFs clips direct
   multi-sector writes at each cluster boundary; the previous 4 KiB format
   multiplied low-level SD transactions by eight and extended each 2 MiB write
@@ -421,6 +456,12 @@ Interface-level decisions:
 - Commands are exactly 64 bytes with a 48-byte payload area.
 - ADC data blocks are exactly 512 bytes with a 28-byte header, 480-byte sample payload, and
   four-byte CRC.
+- New SD recordings reserve a 32 KiB in-file header. Its first 4096 bytes are
+  immutable, printable JSON with a CRC field; its checkpoint area is zero-filled while
+  GNSS/IMU producers are unavailable, and DAT blocks begin at byte 32768.
+- `task_storage` writes and synchronizes the complete reserved header before
+  starting acquisition. The applied configuration snapshot is copied into the
+  immutable block; storage never reads mutable configuration while recording.
 - Parser accepts partial frames, multiple frames per read, corrupt bytes, and resynchronization.
 - One host command may be outstanding. Its named reply is identified by command ID; no request
   identifier is serialized.
@@ -462,7 +503,7 @@ Startup:
 4. Shift and latch the safe 16-bit image, then enable shift outputs.
 5. Fix the SD mux toward the ESP32 and hold USB2641 reset.
 6. Detect both card slots.
-7. Allocate the two fixed 2 MiB PSRAM storage buffers and create the task command queues.
+7. Allocate the three fixed 2 MiB PSRAM storage buffers and create the task command queues.
 8. Start `task_acquisition`; hardware stays powered down until a recording or live-stream request.
 9. Start `task_storage`, mount the fixed ESP32 SD path, and publish media state.
 10. Start `task_communication` for UART-to-USB commands.

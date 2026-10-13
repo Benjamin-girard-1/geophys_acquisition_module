@@ -6,7 +6,7 @@
 - Hardware target: V2-Rev-1 with ESP32-S3 DevKitC
 - Scope: staged implementation and validation
 - Status: Active planning checklist
-- Last updated: 2026-10-01
+- Last updated: 2026-10-06
 
 ## How to use this checklist
 
@@ -107,12 +107,17 @@ GPIO46 have been pulled down with a 10k resistor, this fix appears to work.
 |---|---|:---:|
 | FW-32 | Define ADC frame, block, status, flags, pulse request/result, and counter types from the interface contract | [x] |
 | FW-33 | Implement the 64-entry DRDY event ring and minimal falling-edge ISR | [x] |
-| FW-34 | Implement two fixed 2 MiB PSRAM SD buffers with nonblocking ping-pong ownership; allocate both before recording | [x] |
+| FW-34 | Implement three fixed 2 MiB PSRAM SD buffers with nonblocking ownership: two for a scheduled write batch and one for acquisition headroom; allocate all three before recording | [x] |
 | FW-35 | Make `task_acquisition` the sole owner of ADC configuration, streaming, and pulse timing | [ ] |
 | FW-36 | Assign one timestamp and monotonically increasing sequence to each simultaneous conversion frame | [x] |
 | FW-37 | Preserve invalid frames, dropped counts, sequence gaps, ISR overflow, and pool exhaustion visibly | [ ] |
-| FW-38 | Apply configuration changes atomically during stopped acquisition or live streaming, and reject them while recording | [ ] |
+| FW-38 | Apply configuration changes atomically during stopped acquisition or live streaming, persist ADC settings, and reject them while recording | [ ] |
 | FW-39 | Demonstrate that acquisition continues servicing DRDY while UART output is blocked or disconnected | [ ] |
+
+FW-38 partial evidence: on 2026-10-06, Rev-1 accepted a stopped-device
+4 kSPS, `0x0F` channel-mask, `0x003F` gain configuration, restored all three
+fields after a non-erasing reset, and then accepted and retained the original
+8 kSPS setting. Broader failure-injection/atomicity coverage remains open.
 
 ## 7. Wire protocol
 

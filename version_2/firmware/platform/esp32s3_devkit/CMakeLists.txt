@@ -6,6 +6,7 @@ idf_component_register(
         "src/platform_error.c"
         "src/platform_gpio.c"
         "src/platform_memory.c"
+        "src/platform_settings.c"
         "src/platform_spi.c"
         "src/platform_storage.c"
         "src/platform_time.c"
@@ -27,5 +28,6 @@ idf_component_register(
         freertos
         fatfs
         heap
+        nvs_flash
         sdmmc
 )

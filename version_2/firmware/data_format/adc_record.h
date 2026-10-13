@@ -77,7 +77,7 @@ typedef struct {
     uint8_t first_channel;
     uint8_t channel_count;
     bool begun;
-    bool finalized;
+    bool complete;
 } adc_record_builder_t;
 
 /** Begin a record. Only masks 0x0F, 0xF0, and 0xFF are recordable. */
@@ -109,12 +109,25 @@ void adc_record_builder_append_trusted(
     uint64_t monotonic_timestamp_100ns,
     const int32_t samples[ADC_RECORD_CHANNEL_COUNT]);
 
-/** Replace the block status before finalization. */
+/** Replace the block status before payload completion. */
 adc_record_codec_status_t adc_record_builder_set_status(
     adc_record_builder_t *builder,
     adc_record_status_t status);
 
-/** Finalize only when all 480 sample bytes are populated. */
+/**
+ * Mark the header and payload complete without calculating the trailing CRC.
+ * The caller must call adc_record_write_crc() before consuming the record.
+ */
+adc_record_codec_status_t adc_record_builder_complete(
+    adc_record_builder_t *builder);
+
+/** Calculate and write the trailing CRC for a complete record image. */
+adc_record_codec_status_t adc_record_write_crc(
+    uint8_t record[ADC_RECORD_SIZE_BYTES],
+    adc_record_crc32_callback_t crc32,
+    void *crc_context);
+
+/** Complete the payload and immediately write its trailing CRC. */
 adc_record_codec_status_t adc_record_builder_finalize(
     adc_record_builder_t *builder,
     adc_record_crc32_callback_t crc32,
