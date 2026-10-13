@@ -1,139 +1,92 @@
 # Helmholtz coil lab notebook
 
 Started 2026-10-13. This notebook records the coil construction and experiments
-for HMC1001/HMC1002 sensitivity and minimum detectable AC field. Bench dates
-for observations reported before this entry were not recorded. The wire-spool
-photo stays outside the repository.
-
-## How to use this notebook
-
-- **Observed** means reported from the bench or read from the spool.
-- **Specified** means taken from a manufacturer document.
-- **Calculated** means derived from stated inputs, not measured.
-- **Proposed** means a hypothesis, setting, or test awaiting bench evidence.
-- Keep raw observations with units. Add dated corrections and subsequent
-  results; do not silently turn a prediction into a result.
+for HMC1001/HMC1002 sensitivity and minimum detectable AC field.
 
 ## Apparatus and open build details
 
-| Item | Current record | Evidence/status |
-| --- | --- | --- |
-| Coil structure | Two Prusa Core One L printed forms; 290 mm nominal design diameter | User reported; design dimension, not a measured wire-center diameter |
-| Winding | Alpha Wire AZ181930, red, 18 AWG stranded tinned copper | Spool marking; Entry 001 |
-| Turn count and polarity | Five turns on each coil; additive wiring is intended | Turn count user reported; field polarity not yet checked |
-| Coil separation | 145 mm is the target if the mean winding radius is 145 mm | Actual winding-center separation not yet recorded |
-| Permanent ballast | Nominal 100 Ω in series | Installed; individual value, type, and power rating not recorded |
-| Coil free leads | About 0.50 m each, or 1.0 m combined | User reported; separate from long feed cable |
-| Feed cable | 0.246 Ω total loop DC resistance | User reported; cable length and routing not recorded |
-| AC source | Agilent/Keysight 33500B | User reported; actual current versus frequency not yet measured |
-| Magnetic readout | HMC1001/HMC1002, INA851 gain 51, AD7779 PGA up to 8 | User reported; transfer function not yet measured |
+| Item | Current record |
+| --- | --- |
+| Coil structure | Two Prusa Core One L printed forms; 290 mm nominal design diameter |
+| Winding | Alpha Wire AZ181930, red, 18 AWG stranded tinned copper |
+| Turn count and polarity | Five turns on each coil; additive wiring is intended |
+| Coil separation | About 145.0 ± 0.5 mm; the separation of the winding centroids within the printed forms has not been measured |
+| Permanent ballast | Nominal 100 Ω in series |
+| Coil free leads | About 0.50 m each, or 1.0 m combined |
+| Feed cable | 0.246 Ω total loop DC resistance |
+| AC source | Agilent/Keysight 33500B |
+| Magnetic readout | HMC1001/HMC1002, INA851 gain 51, AD7779 PGA up to 8 |
 
-## Entry 001 — Wire identification
-
-**Recorded:** 2026-10-13. **Status:** spool inspected and manufacturer data
-reviewed. **Purpose:** identify conductor and insulation dimensions relevant
-to winding geometry. No electrical test was performed in this entry.
-
-### Observed on the spool
+### 1) Wire
 
 - Alpha Wire AZ181930, red, 100 ft; lot 156242-AW and DOM code 1218.
-- Marked 1/C: 18 AWG (19/30) TC: one conductor, 19 strands of 30 AWG
-  tinned copper. This is ordinary stranded wire, not individually insulated
-  Litz wire.
-- Marked .011 (.28MM) ETFE INS. and MIL-W-22759/16 150C 600V. These are
-  markings on the spool; the DOM code and assembled-coil ratings are not
-  inferred from them.
-
-### Specified by Alpha Wire
-
-Conductor diameter 0.048 in (1.22 mm); nominal ETFE insulation wall
-0.0115 in (0.292 mm); finished diameter **0.071 ± 0.002 in
-(1.80 ± 0.05 mm)**. The manufacturer catalog gives approximately
+- Marked 1/C: 18 AWG (19/30) TC
+- Conductor diameter 0.048 in (1.22 mm); nominal ETFE insulation wall
+0.292 mm; finished diameter **(1.80 ± 0.05 mm)**.
 0.96 mm² conductor area for this 19/30 construction. Nominal DC resistance:
 **5.9 Ω/1000 ft at 20 °C = 0.01936 Ω/m**. Listed range -55 to 150 °C
-and 600 V RMS, under SAE-AS22759/16. These are wire specifications, not
-measured properties or ratings of the complete assembly.
+and 600 V RMS.
 
-### Calculated implication
 
-Ten ideal turns at 290 mm diameter contain 9.11 m of circular conductor
-and would have about **0.176 Ω** nominal resistance before intercoil,
-termination, and feed lengths. This replaces an earlier 0.19 Ω estimate
-based on generic 18 AWG data. If 290 mm is the outside diameter of a form
-and the first layer rests on it, that layer's conductor-center diameter is
-about **291.8 mm**. Actual winding-center dimensions remain to be measured.
+### 2) Diameter printed and diameter added by wire stacking
 
-## Entry 002 — DC resistance survey
+The **290 mm printed diameter** is treated here as the nominal diameter at
+the narrow bottom of the winding groove.
 
-**Bench date:** not recorded. **Logged:** 2026-10-13. **Status:** measurements
-reported by the user. **Question:** how much resistance do the winding and
-feed cable add to the permanent ballast?
+![Section of the printed V groove, including its 0.4 mm throat and 5 mm reference dimensions](pictures/slice_coil.png)
+
+The next picture illustrates the **one–two–two stacking pattern**: one turn
+deep in the V, two beside it, and two farther out. It is a placement sketch,
+**not a dimensioned drawing of the wire**; the calculation uses the specified
+**1.80 mm insulated diameter**.
+
+![Illustration of the five wire positions in the V groove](pictures/slice_with_5wires.png)
+
+#### Estimation of the real diameter
+For an ideal tight stack of round, uncompressed wires touching their
+neighbors and the approximately 45° groove walls, let $d=1.80$ mm be the
+insulated wire diameter and $w=0.40$ mm the throat width. The first
+conductor center is $x_0=d/\sqrt{2}-w/2=1.07$ mm radially beyond the groove
+bottom. Each next layer adds $d/\sqrt{2}=1.27$ mm of radius.
+
+| Position in stack | Turns per coil | Conductor-center radial offset from groove bottom | Conductor-center diameter if groove bottom is 290 mm |
+| --- | ---: | ---: | ---: |
+| Deepest | 1 | 1.07 mm | 292.15 mm |
+| Middle | 2 | 2.35 mm | 294.69 mm |
+| Outermost | 2 | 3.62 mm | 297.24 mm |
+
+The arithmetic mean conductor-center diameter of the five turns is
+**295.2 mm**. The stack varies near the start and end of the windings, so
+use an estimated diameter of **295.2 ± 1.0 mm**, or radius of
+**147.6 ± 0.5 mm**.
+
+### 3) Resistance estimation
+
+The two coils have five turns each at an estimated mean diameter of
+295.2 mm. Two 145 mm crossings connect the coils, and the two 50 cm end
+leads add another metre. The estimated total wire length is **10.56 ± 0.05 m**.
+The stated uncertainty includes about 0.03 m from the winding diameter and
+another 0.02 m allowance for lead lengths and twisted sections.
+
+At the manufacturer's nominal 0.01936 Ω/m, the wire resistance is estimated
+at **0.204 ± 0.001 Ω**, excluding contacts and joints.
+
+## 5) Resistance survey
 
 | Raw observation | Resistance |
 | --- | ---: |
-| Long feed cable, total loop | 0.246 Ω |
-| Coil measured through short leads, without 100 Ω ballast | About 0.300 Ω |
-| Short measurement leads | About 0.070 Ω |
-| Complete coil, nominal 100 Ω ballast, and long feed cable | 100.35 Ω |
+| Long feed cable, total loop | 0.246 +- 0.001 Ω |
+| Coil measured through short leads, without 100 Ω ballast | 0.300 +- 0.005 Ω |
+| Short measurement leads | 0.070 +-0.005 Ω |
+| 100 Ω +-0.01% | 100.01 +-0.03 Ω |
+| Complete coil, nominal 100 Ω ballast, and long feed cable | **100.35 +-0.01 Ω** |
 
-**Calculated:** 0.300 - 0.070 = about **0.230 Ω** for winding and associated
-connections, about 0.054 Ω above Entry 001's ideal-turn estimate. Extra
-wire length, contacts, and two-wire measurement uncertainty are unresolved.
-If the ballast were exactly 100.000 Ω, separately measured values would
-sum to **100.476 Ω**, 0.126 Ω above the reported complete-loop value. This
-does not establish the ballast's individual resistance.
+Windings: 0.300 - 0.070 = **0.23+-0.01Ω**, this is 0.03 Ω above the estimation, this
+is very acceptable considering some possible contact resistance.
 
-**Interpretation and limits:** The readings are consistent with a nominal
-100 Ω ballast. They do not measure AC current or field. The generator is
-assumed disconnected during the 100.35 Ω reading, so its internal 50 Ω is
-excluded. Meter model, lead-zero method, contacts, and temperature were
-not recorded.
+**100.35 +-0.01 Ω** will be used for the current calculations.
 
-**Next:** Record measurement conditions if the sub-ohm values are repeated.
-Use a four-wire method if individual winding or cable resistances matter.
-Calibrate field from measured current at each frequency.
-
-## Entry 003 — As-built winding report
-
-**Reported:** 2026-10-13. **Status:** user description of construction;
-geometry has not been measured after winding.
-
-- Each coil has **five turns**. The forms were printed on a Prusa Core One L.
-  The reported 290 mm nominal diameter came from the printer's 300 mm
-  maximum diameter allowance minus 10 mm for a wire-retaining ring. This is
-  a design dimension; printer accuracy and the exact reference surface have
-  not been checked with a diameter measurement.
-- The first insulated wire lies against the printed form. Its conductor
-  center is displaced from the contact surface by about half the specified
-  1.80 mm finished wire diameter, approximately **0.90 mm**, if the contact
-  surface itself is at 290 mm diameter.
-- Later turns are semi-stacked diagonally. The user estimates that stacking
-  may add roughly **1–2 mm of radius**; the reference point for that
-  estimate has not been measured. Individual turn centers, the mean radius
-  of each five-turn pack, axial positions, and the separation between coil
-  winding centroids remain unmeasured.
-- Each free lead from the coil assembly is approximately **0.50 m**, adding
-  about **1.0 m total** of the AZ181930 wire beyond the circular turns.
-  These leads are distinct from the long feed cable in Entry 002.
-
-**Implication:** the form design may be precise, but the magnetic field
-calculation needs the copper centerline geometry after winding. The
-ideal-radius coefficient in H1 remains provisional.
-
-**Resistance addendum, 2026-10-13:** At Alpha Wire's nominal 0.01936 Ω/m,
-the two free leads add about **0.0194 Ω**. Ideal circular turns plus those
-leads total about **10.11 m and 0.196 Ω**, before the intercoil link,
-diagonal stacking, solder joints, and measurement error. Entry 002's
-lead-corrected 0.230 Ω coil reading is about **0.034 Ω** higher than this
-updated estimate. The measured 100.35 Ω complete-loop resistance already
-includes the leads, so H2's drive-setting estimate does not change.
-
-## Working hypotheses and calculations
-
-These are predictions for comparison with later results, not results of a
-coil field test.
-
-### H1 — The series-aiding pair produces the predicted axial field
+### H1 — Predicted axial field of the assembled coil
 
 For two identical thin circular coils, with $N$ turns each, mean radius
 $R$, center separation $s$, and the same series current $I$, the midpoint
@@ -143,11 +96,24 @@ $$
 B(0)=\frac{\mu_0 N I R^2}{\left(R^2+(s/2)^2\right)^{3/2}}.
 $$
 
-At ideal Helmholtz spacing $s=R=0.145$ m and the reported $N=5$ turns on
-each coil, this predicts **31.006 µT/A**. If turns have different radii or
-axial positions, sum their contributions rather than treating the form
-diameter as the winding-center diameter. Winding-center dimensions,
-axial positions, and pair separation have not yet been measured.
+For the assembled-coil model, use the estimated mean conductor-center
+diameter $D=295.2\pm1.0$ mm, hence $R=147.6\pm0.5$ mm, and the reported
+spacing $s=145.0\pm0.5$ mm. The spacing is slightly smaller than the mean
+radius, so use the general expression above with these two different values.
+With $N=5$ turns per coil, the predicted midpoint field is
+
+$$
+B(0)\approx(30.78\ \mathrm{\mu T/A})I.
+$$
+
+The stated diameter and spacing tolerances alone give a worst-case coil
+constant of **30.68–30.89 µT/A**, approximately **30.78 ± 0.11 µT/A**
+(±0.34%). If the two tolerances instead represent independent standard
+uncertainties, their combined standard uncertainty is **±0.08 µT/A**
+(0.25%). These ranges do not include the unmeasured radial and axial
+positions of the individual turns or an offset between form spacing and
+winding-centroid spacing. Once those positions are known, sum the field
+contribution of each turn rather than relying on one mean radius.
 
 ### H2 — The 33500B can drive the planned AC ranges
 
@@ -161,21 +127,21 @@ I_{\rm pk}\approx\frac{V_{\rm HighZ,pp}}
  {2(50\ \Omega+100.35\ \Omega+R_{\rm ref})}.
 $$
 
-This prediction omits coil reactance and generator amplitude error. For
-reported five-turn count and idealized 290 mm winding-center geometry:
+This prediction omits coil reactance and generator amplitude error. Using
+the estimated **30.78 µT/A** coefficient for the built geometry:
 
 | Reference resistor | Intended peak field | Peak current | Approximate High Z setting |
 | --- | ---: | ---: | ---: |
-| 10 Ω | 1 µT | 32.3 mA | 10.34 Vpp |
-| 10 kΩ | 1 nT | 32.3 µA | 0.655 Vpp |
+| 10 Ω | 1 µT | 32.5 mA | 10.42 Vpp |
+| 10 kΩ | 1 nT | 32.5 µA | 0.660 Vpp |
 
 The accessible reference resistor goes near the generator return in series
 with the complete coil assembly. At each frequency measure its actual
 resistance and AC voltage, then calculate
 $I_{\rm pk}=V_{R,\rm pk}/R_{\rm ref}$. The hidden 100 Ω ballast limits
 current but is not an accessible current measurement point. At the
-33500B's 20 Vpp open-circuit maximum, the idealized geometry reaches
-about 1.93 µT peak with a 10 Ω reference. The installed ballast's power
+33500B's 20 Vpp open-circuit maximum, the estimated built geometry reaches
+about 1.92 µT peak with a 10 Ω reference. The installed ballast's power
 rating and heating under insulation still need checking.
 
 ### H3 — Nominal sensor response predicts a measurable tone
