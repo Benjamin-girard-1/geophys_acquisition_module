@@ -1,8 +1,9 @@
 # Helmholtz coil calibration plan
 
 This is a bench plan for measuring the magnetic acquisition chain's AC
-sensitivity and its minimum detectable field versus frequency. Dimensions,
-resistance, gain, and field values below are design estimates until measured.
+sensitivity and its minimum detectable field versus frequency. The electrical
+readings below are reported bench measurements; geometry, gain, and field
+values remain design estimates until measured.
 
 ## Coil construction and field
 
@@ -22,6 +23,26 @@ resistance, gain, and field values below are design estimates until measured.
   0.19 Ω at 20 °C, excluding leads. Measure the finished winding. Keep the
   winding arrangement the same on both frames; insulated-wire diameter and
   radial stacking can change the mean turn radius.
+
+### Reported DC resistance readings
+
+| Measurement | Reading |
+| --- | ---: |
+| Long feed cable, total loop resistance | 0.246 Ω |
+| Coil measured with short leads | About 0.300 Ω |
+| Short measurement leads alone | About 0.070 Ω |
+| Complete coil, permanent 100 Ω ballast, and long feed cable | 100.35 Ω |
+
+Subtracting the short-lead reading suggests about **0.230 Ω** for the
+winding and its connections. If the ballast were exactly 100.000 Ω, the
+separately measured parts would sum to **100.476 Ω**, 0.126 Ω above the
+reported complete-loop reading. That small discrepancy can arise from
+ballast tolerance, contact resistance, lead compensation, or meter accuracy;
+it does not establish the ballast's individual resistance. Confirm the
+measurement setup and zero the meter leads if individual low-ohm values are
+needed. The 100.35 Ω complete-loop reading is assumed to have been made with
+the generator disconnected, so it excludes the generator's internal 50 Ω
+output resistance.
 
 For the ideal pair at its center,
 
@@ -62,21 +83,22 @@ sense leads from across the fixed 100 Ω resistor before insulating it.
 The generator's output has a **physical 50 Ω series impedance**. Its `High Z`
 load menu setting changes the displayed voltage but does not remove that
 impedance. The following `High Z` settings are approximate starting points,
-assuming 0.19 Ω coil resistance and the ideal field coefficient; use measured
-current to assign the actual field. The listed external resistor is both the
-added series resistance and the accessible current reference.
+using the reported 100.35 Ω complete-loop DC resistance and the ideal field
+coefficient; use measured current to assign the actual field. The listed
+external resistor is both added series resistance and the accessible current
+reference.
 
 | External reference resistor | Peak field | Peak current | Approximate generator setting |
 | --- | ---: | ---: | ---: |
 | 10 Ω | 0.5 µT | 16.1 mA | 5.17 Vpp |
-| 10 Ω | 1 µT | 32.3 mA | 10.33 Vpp |
-| 10 Ω | 1.5 µT | 48.4 mA | 15.50 Vpp |
+| 10 Ω | 1 µT | 32.3 mA | 10.34 Vpp |
+| 10 Ω | 1.5 µT | 48.4 mA | 15.51 Vpp |
 | 10 kΩ | 1 nT | 32.3 µA | 0.655 Vpp |
 | 10 kΩ | 0.1 nT | 3.23 µA | 65.5 mVpp |
 
 The specified 33500B maximum is 20 Vpp open circuit; consequently five turns
 with the permanent 100 Ω ballast and external 10 Ω reference reach
-approximately 1.94 µT peak. Without the external reference, the limit is
+approximately 1.93 µT peak. Without the external reference, the limit is
 approximately 2.06 µT peak. A permanent 1 kΩ ballast would instead limit the
 coil to approximately 0.30 µT peak. More field requires more turns or a
 separately characterized current driver. Source
