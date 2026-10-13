@@ -23,6 +23,7 @@ photo stays outside the repository.
 | Turn count and polarity | Five turns on each coil; additive wiring is intended | Turn count user reported; field polarity not yet checked |
 | Coil separation | 145 mm is the target if the mean winding radius is 145 mm | Actual winding-center separation not yet recorded |
 | Permanent ballast | Nominal 100 Ω in series | Installed; individual value, type, and power rating not recorded |
+| Coil free leads | About 0.50 m each, or 1.0 m combined | User reported; separate from long feed cable |
 | Feed cable | 0.246 Ω total loop DC resistance | User reported; cable length and routing not recorded |
 | AC source | Agilent/Keysight 33500B | User reported; actual current versus frequency not yet measured |
 | Magnetic readout | HMC1001/HMC1002, INA851 gain 51, AD7779 PGA up to 8 | User reported; transfer function not yet measured |
@@ -111,10 +112,21 @@ geometry has not been measured after winding.
   estimate has not been measured. Individual turn centers, the mean radius
   of each five-turn pack, axial positions, and the separation between coil
   winding centroids remain unmeasured.
+- Each free lead from the coil assembly is approximately **0.50 m**, adding
+  about **1.0 m total** of the AZ181930 wire beyond the circular turns.
+  These leads are distinct from the long feed cable in Entry 002.
 
 **Implication:** the form design may be precise, but the magnetic field
 calculation needs the copper centerline geometry after winding. The
 ideal-radius coefficient in H1 remains provisional.
+
+**Resistance addendum, 2026-10-13:** At Alpha Wire's nominal 0.01936 Ω/m,
+the two free leads add about **0.0194 Ω**. Ideal circular turns plus those
+leads total about **10.11 m and 0.196 Ω**, before the intercoil link,
+diagonal stacking, solder joints, and measurement error. Entry 002's
+lead-corrected 0.230 Ω coil reading is about **0.034 Ω** higher than this
+updated estimate. The measured 100.35 Ω complete-loop resistance already
+includes the leads, so H2's drive-setting estimate does not change.
 
 ## Working hypotheses and calculations
 
