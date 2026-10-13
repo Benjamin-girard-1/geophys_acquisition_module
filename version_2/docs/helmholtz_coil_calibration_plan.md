@@ -18,11 +18,33 @@ values remain design estimates until measured.
 - Keep the intercoil lead near the outer frame. Route the return from the
   second coil alongside that lead so their opposing currents cancel much of
   their stray field. Keep the two leads to the generator together or twisted.
-- The selected wire is **18 AWG stranded copper**. If the five-turn pair uses
-  approximately 9.11 m of 0.823 mm² copper, its estimated DC resistance is
-  0.19 Ω at 20 °C, excluding leads. Measure the finished winding. Keep the
-  winding arrangement the same on both frames; insulated-wire diameter and
-  radial stacking can change the mean turn radius.
+- The selected wire is **Alpha Wire AZ181930**, a single-conductor red hookup
+  wire. The spool is marked `18 AWG (19/30) TC`, identifying 19 strands of
+  30 AWG tinned copper, and `.011 (.28MM) ETFE INS.`. Its printed rating is
+  `MIL-W-22759/16 150C 600V`; Alpha Wire lists the applicable specification
+  as SAE-AS22759/16. The spool is marked `100 FT`, lot `156242-AW`, and
+  `DOM: 1218`. These markings are transcribed from the spool; the image is
+  not stored in this repository.
+- Alpha Wire specifies a nominal **0.048 in (1.22 mm) conductor diameter**,
+  **0.0115 in (0.292 mm) ETFE wall**, and **0.071 ± 0.002 in
+  (1.80 ± 0.05 mm) finished diameter**. Its catalog lists about **0.96 mm²**
+  of conductor cross-section, reflecting the actual 19/30 construction.
+  The product's nominal DC resistance is **5.9 Ω/1000 ft at 20 °C**,
+  or **0.01936 Ω/m**. The temperature range is -55 to 150 °C and the voltage
+  rating is 600 V RMS. These are wire specifications, not ratings of the
+  assembled coil or its ballast resistor.
+- Ten ideal 290 mm-diameter turns use approximately 9.11 m of wire and would
+  have about **0.176 Ω** nominal DC resistance from this manufacturer's wire
+  data, excluding the intercoil link, terminations, and feed leads. The
+  previously used generic 18 AWG area and 0.19 Ω estimate have been replaced
+  by the part-specific data. Measure the finished winding rather than using
+  the ideal-turn estimate for calibration.
+- Keep the winding arrangement the same on both frames. Measure the **mean
+  conductor centerline diameter**, not merely the form diameter. If 290 mm
+  is the outside diameter of a form with a single layer of this wire on it,
+  the first-layer conductor centerline diameter is approximately 291.8 mm.
+  Radial stacking or axial turn spacing changes the field geometry; measure
+  the actual winding centroids and their separation.
 
 ### Reported DC resistance readings
 
@@ -34,8 +56,11 @@ values remain design estimates until measured.
 | Complete coil, permanent 100 Ω ballast, and long feed cable | 100.35 Ω |
 
 Subtracting the short-lead reading suggests about **0.230 Ω** for the
-winding and its connections. If the ballast were exactly 100.000 Ω, the
-separately measured parts would sum to **100.476 Ω**, 0.126 Ω above the
+winding and its connections, roughly 0.054 Ω above the 0.176 Ω nominal
+ideal-turn estimate. The difference may include the intercoil link, other
+wire length, contacts, and measurement uncertainty. If the ballast were
+exactly 100.000 Ω, the separately measured parts would sum to **100.476 Ω**,
+0.126 Ω above the
 reported complete-loop reading. That small discrepancy can arise from
 ballast tolerance, contact resistance, lead compensation, or meter accuracy;
 it does not establish the ballast's individual resistance. Confirm the
@@ -143,6 +168,8 @@ this nominal scale; see [its notes](../software/apps/dev_tools/PLOTTER_UPDATE_TE
 
 - [NIST, Helmholtz-coil field geometry](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nbsspecialpublication300v3.pdf)
 - [NIST, copper resistivity at 20 °C](https://nvlpubs.nist.gov/nistpubs/Legacy/circ/nbscircular31e2.pdf)
+- [Alpha Wire AZ181930 product specification](https://www.alphawire.com/products/wire/hook-up-wire/premium/az181930)
+- [Alpha Wire catalog, nominal conductor area](https://www.alphawire.com/-/media/Project/AlphaWire/AlphaWire/2023-Master-Catalog/2023-MasterCat-English-20230609.pdf?rev=08a9584660404c8dad92412e1b961875)
 - [Honeywell HMC1001/HMC1002 data sheet](https://prod-edam.honeywell.com/content/dam/honeywell-edam/aero/en-us/products/navigation-and-sensors/sensors/low-field-high-precision-linear-1-and-2-axis-analog-magnetic-sensors/documents/hon-aero-1-and-2-axis-magnetic-sensors.pdf?download=false)
 - [Keysight 33500 Series user guide](https://www.keysight.com/us/en/assets/9018-03290/user-manuals/9018-03290.pdf)
 - [Keysight 33500B/33600A specifications](https://www.keysight.com/in/en/assets/7018-05928/data-sheets/5992-2572.pdf)
