@@ -26,6 +26,17 @@ Then read the documents relevant to the task:
 
 Do not rely on this recap instead of reading the applicable source documents.
 
+## User-owned lab notebook
+
+`version_2/docs/helmholtz_coil_lab_notebook.md` is the repository owner's
+personal lab notebook. Read it for context, but do not edit, reformat, append
+results, or include it in routine documentation updates. Only change this file
+when the user explicitly requests an edit to the notebook; keep that edit within
+the requested scope. For example, a request to correct grammar or an obvious
+mistake does not authorize rewriting hypotheses, measurements, or conclusions.
+This restriction takes precedence over the general documentation-update guidance
+below.
+
 ## Repository recap
 
 This project is a modular ESP32-S3 geophysical acquisition system. The ESP32-S3
@@ -52,7 +63,7 @@ Preserve the existing layered structure:
 - `shared/protocol/`: wire contract shared by firmware and host software.
 - `version_2/software/apps/host/`: device control and live monitoring software.
 - `version_2/software/apps/dev_tools/`: developer-only recording diagnostics.
-- `version_2/software/packages/data/`: shared Python recording-format code.
+- `version_2/software/packages/recording/`: shared Python recording-format code.
 
 ## Current protocol boundary
 

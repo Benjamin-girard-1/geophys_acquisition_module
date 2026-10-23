@@ -11,7 +11,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from geophys_data import (  # noqa: E402
+from geophys_recording import (  # noqa: E402
     DATA_OFFSET,
     RecordingFileError,
     STATIC_HEADER_SIZE,

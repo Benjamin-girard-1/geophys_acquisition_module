@@ -34,7 +34,7 @@ from geophys_host.protocol import (  # noqa: E402
     encode_temp_recording_read,
 )
 from geophys_host.adc_record import decode_adc_record  # noqa: E402
-from geophys_data import (  # noqa: E402
+from geophys_recording import (  # noqa: E402
     DATA_OFFSET,
     HEADER_MAGIC,
     decode_recording_header,

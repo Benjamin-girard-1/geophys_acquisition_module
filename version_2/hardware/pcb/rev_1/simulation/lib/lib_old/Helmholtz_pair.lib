@@ -1,0 +1,35 @@
+* Series-connected Helmholtz-style coil pair, midpoint axial field.
+* Pin order: IN RETURN FIELD
+* IN and RETURN are the only electrical winding terminals.
+* V(FIELD,0) in volts numerically equals B in microtesla (1 V = 1 uT).
+* FIELD is an ideal signal-voltage output referenced to SPICE ground; connect
+* it only to high-impedance magnetic-field inputs such as HMC1001_SPICE.FIELD.
+*
+* N       turns PER coil; both coils carry the same series current and are
+*         wound so their midpoint axial fields add.
+* R_PAIR  total series DC resistance of the pair and its attached short leads,
+*         in ohms; excludes the external ballast and feed cable.
+* L_PAIR  total terminal inductance in henries, including mutual coupling.
+*         45u is a rough estimate for the built pair, not a measurement.
+* D       mean conductor-center diameter of each coil in metres.
+* S       axial separation of the coil centers in metres. For an ideal
+*         Helmholtz pair set S=D/2; the built pair has S=145m.
+*
+* Model assumes the sensor is at the axial midpoint, in free space, with
+* negligible magnetic materials and quasistatic current. It does not model
+* winding capacitance, field variation away from the center, or core effects.
+* For unequal coils or a sensor away from the midpoint, use a different field
+* equation. Reverse IN and RETURN to flip field polarity.
+*
+* Midpoint field for two identical N-turn coils of radius R=D/2:
+* B [T] = mu0*N*I*R^2 / (R^2+(S/2)^2)^(3/2).
+* Thus the transducer gain below is in V/A after converting tesla to uT.
+
+.subckt HELMHOLTZ_PAIR IN RETURN FIELD params: N=5 R_PAIR=0.23 L_PAIR=45u D=295.2m S=145m
+RCOIL IN N_R {R_PAIR}
+LCOIL N_R N_L {L_PAIR}
+VSENSE N_L RETURN 0
+* Numerical reference for a floating winding drive loop; not a ballast load.
+RREFERENCE RETURN 0 1T
+HFIELD FIELD 0 VSENSE {1e6*4*3.141592653589793e-7*N*(D/2)^2/((D/2)^2+(S/2)^2)^1.5}
+.ends HELMHOLTZ_PAIR

@@ -1,4 +1,4 @@
-"""Portable readers for Geophys acquisition data."""
+"""Portable readers for Geophys recording files."""
 
 from .adc_record import (
     AdcRecord,
@@ -20,12 +20,14 @@ from .recording_header import (
     RecordingHeaderError,
     decode_recording_header,
 )
+from .numpy_recording import NumpyRecording, read_recording_numpy
 
 __all__ = [
     "AdcRecord",
     "AdcRecordError",
     "DATA_OFFSET",
     "HEADER_MAGIC",
+    "NumpyRecording",
     "RECORD_SIZE",
     "STATIC_HEADER_SIZE",
     "TOTAL_HEADER_SIZE",
@@ -36,4 +38,5 @@ __all__ = [
     "decode_recording_header",
     "iter_adc_records",
     "read_recording_header",
+    "read_recording_numpy",
 ]

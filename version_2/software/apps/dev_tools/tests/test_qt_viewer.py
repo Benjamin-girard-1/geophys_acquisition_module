@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 DEV_TOOLS_ROOT = Path(__file__).resolve().parents[1]
 SOFTWARE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(DEV_TOOLS_ROOT))
-sys.path.insert(0, str(SOFTWARE_ROOT / "packages" / "data"))
+sys.path.insert(0, str(SOFTWARE_ROOT / "packages" / "recording"))
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from geophys_dev_tools.plot import (  # noqa: E402
@@ -141,8 +141,10 @@ class QtViewerTests(unittest.TestCase):
         finally:
             window.close()
 
-    def test_magnetic_units_scale_both_plots_and_exclude_thermistor(self) -> None:
+    def test_thermistor_can_be_selected_from_nominal_magnetic_view(self) -> None:
         header = SimpleNamespace(
+            hardware_version=2,
+            hardware_revision=1,
             adc_gains=(8, 8, 8, 1, 1, 1, 1, 1),
             card_types=(1, 0),
             channel_slots=(1, 1, 1, 1, 2, 2, 2, 2),
@@ -156,15 +158,18 @@ class QtViewerTests(unittest.TestCase):
              3: np.ones(timestamps.size, dtype=np.int32)},
             1, {0: 1}, 0, 0, 0, 0.001, header,
         )
-        window = RecordingPlotWindow(data, (0, 3), (0, 3))
+        window = RecordingPlotWindow(data, (0,), (0,))
         window.show()
         self._wait_for_fft(window)
         try:
             scale = magnetic_nt_per_count(header, 0)
             self.assertEqual(window.waveform_scale_box.currentData(), "nt")
             self.assertEqual(window.fft_scale_box.currentData(), "nt")
-            self.assertFalse(window._waveform_checks[3].isEnabled())
-            self.assertFalse(window._fft_checks[3].isEnabled())
+            self.assertTrue(window._waveform_checks[3].isEnabled())
+            self.assertTrue(window._fft_checks[3].isEnabled())
+            self.assertFalse(window._waveform_checks[3].isChecked())
+            self.assertFalse(window._fft_checks[3].isChecked())
+            self.assertEqual(window._waveform_checks[3].text(), "CH3 Temp")
             self.assertEqual(set(window._spectra), {0})
             self.assertAlmostEqual(
                 float(np.max(window._waveform_curves[0].yData)),
@@ -174,14 +179,41 @@ class QtViewerTests(unittest.TestCase):
                 float(window._fft_display_values[0][150]),
                 float(window._spectra[0].amplitudes[150]) * scale,
             )
-            window.waveform_scale_box.setCurrentIndex(0)
-            self.assertTrue(window._waveform_checks[3].isEnabled())
+            window._waveform_checks[3].setChecked(True)
+            self.assertEqual(window.waveform_scale_box.currentData(), "nt")
+            self.assertEqual(window.fft_scale_box.currentData(), "nt")
             self.assertTrue(window._waveform_checks[3].isChecked())
             self.assertAlmostEqual(
-                float(np.max(window._waveform_curves[0].yData)), 10_000,
+                float(np.max(window._waveform_curves[0].yData)),
+                10_000 * scale, places=3,
             )
+            self.assertGreater(len(window._waveform_curves[3].xData), 0)
+            self.assertAlmostEqual(
+                float(window._waveform_curves[3].yData[0]), 25.0,
+                places=3,
+            )
+            self.assertTrue(
+                window.waveform_plot.getPlotItem().getAxis("right").isVisible()
+            )
+
+            window._fft_checks[3].setChecked(True)
+            self._wait_for_fft(window)
+            self.assertEqual(window.fft_scale_box.currentData(), "counts")
+            self.assertEqual(set(window._spectra), {0, 3})
+            self.assertGreater(len(window._fft_curves[3].xData), 0)
         finally:
             window.close()
+
+        mixed = RecordingPlotWindow(data, (0, 3), (0, 3))
+        mixed.show()
+        self._wait_for_fft(mixed)
+        try:
+            self.assertEqual(mixed.waveform_scale_box.currentData(), "nt")
+            self.assertEqual(mixed.fft_scale_box.currentData(), "counts")
+            self.assertTrue(mixed._waveform_checks[3].isChecked())
+            self.assertEqual(set(mixed._spectra), {0, 3})
+        finally:
+            mixed.close()
 
 
 if __name__ == "__main__":

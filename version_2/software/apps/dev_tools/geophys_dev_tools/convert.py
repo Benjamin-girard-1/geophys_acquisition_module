@@ -11,7 +11,8 @@ from pathlib import Path
 import sys
 import tempfile
 
-from geophys_data import RecordingFileError, iter_adc_records
+from geophys_recording import RecordingFileError, iter_adc_records
+from .paths import acquisition_data_directory
 
 
 STATUS_NAMES = {
@@ -52,8 +53,7 @@ class ConversionSummary:
 
 def default_scratch_directory() -> Path:
     """Return the external, non-repository directory for disposable data."""
-    repository_root = Path(__file__).resolve().parents[5]
-    return repository_root.parent / "geophys_acquisition_data" / "scratch"
+    return acquisition_data_directory() / "scratch"
 
 
 def default_output_path(
@@ -221,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         "--output",
         type=Path,
         help=(
-            "output CSV; defaults to geophys_acquisition_data/scratch/"
+            "output CSV; defaults to geophys_experiments/scratch/"
             "<recording>.csv"
         ),
     )

@@ -9,7 +9,7 @@ import numpy as np
 DEV_TOOLS_ROOT = Path(__file__).resolve().parents[1]
 SOFTWARE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(DEV_TOOLS_ROOT))
-sys.path.insert(0, str(SOFTWARE_ROOT / "packages" / "data"))
+sys.path.insert(0, str(SOFTWARE_ROOT / "packages" / "recording"))
 
 from geophys_dev_tools.viewport import (  # noqa: E402
     select_visible_extrema,

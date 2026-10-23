@@ -1,0 +1,39 @@
+* OPAx197 single-channel functional model for ngspice/KiCad.
+* Pin order: IN+ IN- VCC VEE OUT
+* Two instances represent the two channels of the OPA2197.
+*
+* This is a linear small-signal model for DC operating points and AC sweeps.
+* Datasheet typicals represented: 134 dB open-loop gain (5e6 V/V),
+* 10 MHz gain-bandwidth, 5 pA input bias, 100 Megohm / 1.6 pF differential
+* and 10 Tohm / 6.4 pF common-mode input impedances, and 1 mA/channel IQ.
+* VOS defaults to zero because its datasheet sign varies between parts; set
+* VOS explicitly to examine DC offset. ROUT=55 ohm is an approximation.
+*
+* Output limiting, slew rate, noise, input common-mode range, and output
+* current limit are not represented. Do not use this model to predict
+* saturation, startup, pulse response, or noise. The earlier nonlinear
+* functional model could settle to a false DC operating point in the servo
+* loop, producing an incorrect AC linearization.
+
+.subckt OPA1197_FUNC IN+ IN- VCC VEE OUT params:
++ AOL=5e6 GBW=10e6 VOS=0 IBIAS=5p IQ=1m
++ ROUT=55 RDIFF=100Meg CDIFF=1.6p RCM=10T CCM=6.4p
+
+RDIFF_IN IN+ IN- {RDIFF}
+CDIFF_IN IN+ IN- {CDIFF}
+RCM_P IN+ VEE {RCM}
+RCM_N IN- VEE {RCM}
+CCM_P IN+ VEE {CCM}
+CCM_N IN- VEE {CCM}
+IB_P IN+ VEE {IBIAS}
+IB_N IN- VEE {IBIAS}
+
+* One dominant pole: f_p = GBW/AOL, with unity gain at GBW.
+BERR ERR 0 V={V(IN+,IN-)+VOS}
+EOL OL 0 ERR 0 {AOL}
+RDOM OL DRIVE 1k
+CDOM DRIVE 0 {AOL/(2*3.141592653589793*GBW*1k)}
+ROUT_OUT DRIVE OUT {ROUT}
+
+IQ_SUPPLY VCC VEE {IQ}
+.ends OPA1197_FUNC

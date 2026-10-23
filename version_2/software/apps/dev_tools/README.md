@@ -14,40 +14,43 @@ Set up the local environment from the repository root:
 
 ```sh
 python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install -e version_2/software/packages/data \
+.venv/bin/python -m pip install -e version_2/software/packages/recording \
   -e version_2/software/apps/dev_tools
 ```
 
 From the repository root, launch the tool:
 
 ```sh
-.venv/bin/python version_2/software/apps/dev_tools/launch_plot.py
+python3 version_2/software/apps/dev_tools/launch_plot.py
 ```
 
-A native Qt file chooser opens in the sibling `geophys_acquisition_data/`
-directory. Canceling it exits without opening a plot.
+The launcher uses the repository's `.venv` automatically when it exists. A
+native Qt file chooser opens in the sibling `geophys_experiments/`
+directory. Set `GEOPHYS_ACQUISITION_DATA` to use another recording directory.
+Canceling the chooser exits without opening a plot.
 
 Pass a recording path to plot a different file:
 
 ```sh
-.venv/bin/python version_2/software/apps/dev_tools/launch_plot.py /path/to/recording
+python3 version_2/software/apps/dev_tools/launch_plot.py /path/to/recording
 ```
 
-Channels 0 through 3 are plotted by default:
+The three magnetic axes, channels 0 through 2, are plotted by default;
+channel 3 (thermistor) starts off:
 
 ```sh
-.venv/bin/python version_2/software/apps/dev_tools/launch_plot.py \
+python3 version_2/software/apps/dev_tools/launch_plot.py \
   /path/to/recording
 ```
 
-The `--channels` choices are `all`, `0-3`, and `4-7`. This option chooses the
-initial selection for both plots. Use `--channels all` to initially show every
-recorded channel. When the recording path is omitted, the native file chooser
-opens and channels 0–3 are initially selected.
+The `--channels` choices are `all`, `0-2`, `3`, `0-3`, and `4-7`. This option
+chooses the initial selection for both plots. Use `--channels 3` to inspect
+the thermistor alone. When the recording path is omitted,
+the native file chooser opens and channels 0–2 are initially selected.
 
 The Qt viewer gives most of the window to the waveform and shows the FFT below
-it. Both plots have their own zoom and channel checkboxes. The highlighted
+it. The heading shows the recording duration in seconds and `hh:mm:ss`.
+Both plots have their own zoom and channel checkboxes. The highlighted
 region on the waveform is the exact input to the FFT; drag either edge to trim
 it, or edit **Trim start (s)** and **Trim end (s)**. The defaults exclude 50
 seconds from the start and 10 seconds from the end. A recording shorter than
@@ -59,12 +62,21 @@ selection: every included sample then has the same weight. A rectangular
 window can spread strong tones into neighboring frequencies. Both modes remove
 the window-weighted mean before SciPy's real FFT and display single-sided peak
 amplitude. For recordings whose JSON header identifies a magnetic card, the
-waveform and FFT default to nominal nT. **Waveform units** can switch to raw ADC
-counts; **FFT amplitude** can switch to raw ADC counts or dBFS. Only the three
-magnetic axes on each magnetic card use the nT scale. The fourth channel is a
-thermistor and is disabled in nT mode; its checkbox selection returns when
-switching back to counts or dBFS. DAT-only recordings without gain/card metadata
-remain in ADC counts and dBFS.
+waveform and FFT default to nominal nT when only magnetic axes are selected.
+**Waveform units** can switch to raw ADC counts; **FFT amplitude** can switch
+to raw ADC counts or dBFS. Only the three magnetic axes on each magnetic card
+use the nT scale. On Rev-1 magnetic-card recordings, CH3 (and CH7 on a second
+card) uses a separate right-hand waveform axis in nominal °C. Its checkbox
+starts off but remains available alongside magnetic channels in nT. The
+thermistor FFT remains in ADC counts or dBFS; selecting it while the FFT uses
+nT switches the FFT to counts. The temperature conversion assumes the schematic's
+100 kΩ bridge resistors, a 3.3 V bridge supply, and the Murata
+NCU18WF104D60RB's nominal R25 = 100 kΩ and B25/50 = 4250 K. It uses the
+recorded ADC gain and the AD7779's 2.5 V reference. Neither the bridge rail
+nor the mounted resistors have been calibrated, so °C is an estimate of board
+temperature, not measured laboratory air temperature. DAT-only recordings
+without gain/card
+metadata remain in ADC counts and dBFS.
 **Waveform Y fit** starts with the selected FFT region so
 startup transients do not flatten the rest of the waveform; choose **Full
 recording** to include every sample in the vertical scale. The heading reports
@@ -109,17 +121,17 @@ selected channels are transformed together.
 Convert a validated recording from the portable 512-byte block format:
 
 ```sh
-.venv/bin/python version_2/software/apps/dev_tools/launch_convert.py \
-  ../geophys_acquisition_data/scratch/V2_noise_test
+python3 version_2/software/apps/dev_tools/launch_convert.py \
+  ../geophys_experiments/scratch/V2_noise_test
 ```
 
 By default, the CSV is written to the external
-`geophys_acquisition_data/scratch/` directory and is therefore kept outside
+`geophys_experiments/scratch/` directory and is therefore kept outside
 the source repository. Existing files are not overwritten. Use `--force` to
 replace one, or `--output PATH` to choose another destination:
 
 ```sh
-.venv/bin/python version_2/software/apps/dev_tools/launch_convert.py \
+python3 version_2/software/apps/dev_tools/launch_convert.py \
   /path/to/recording --output /path/to/output.csv
 ```
 

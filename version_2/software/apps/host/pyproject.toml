@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Device-control host for the Geophys acquisition module"
 requires-python = ">=3.10"
 dependencies = [
-    "geophys-data>=0.1,<0.2",
+    "geophys-recording>=0.1,<0.2",
     "pyserial>=3.5,<4",
     "matplotlib>=3.8,<4",
     "bleak>=1.0,<4",

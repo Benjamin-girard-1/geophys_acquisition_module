@@ -186,7 +186,7 @@ Milestone-1 execution and verification are tracked in
 │   └── tools/                   Repository-wide development utilities
 ├── version_1/                   Earlier product generation
 └── version_2/
-    ├── docs/                    Datasheet links and supporting documentation
+    ├── docs/                    Datasheets and documentation
     ├── firmware/
     │   ├── common/              Portable types shared across firmware layers
     │   ├── main/                ESP-IDF entry point and composition root
@@ -204,11 +204,8 @@ Milestone-1 execution and verification are tracked in
     │   ├── pcb/                 KiCad projects organized by revision
     │   └── mechanical/          Mechanical design files
     └── software/
-        ├── apps/
-        │   ├── host/            Device control and live monitoring
-        │   └── dev_tools/       Developer-only recording diagnostics
-        └── packages/
-            └── data/            Shared Python data-format decoder
+        ├── apps/                Host and recording diagnostics
+        └── packages/recording/  Shared Python recording decoder
 ```
 
 ## Firmware boundaries
@@ -287,11 +284,11 @@ verified on hardware.
 ## Plotting an extracted recording
 
 The small developer tool opens a file chooser in the sibling
-`geophys_acquisition_data/` directory, then validates and plots the selected
+`geophys_experiments/` directory, then validates and plots the selected
 recording:
 
 ```sh
-.venv/bin/python version_2/software/apps/dev_tools/launch_plot.py
+python3 version_2/software/apps/dev_tools/launch_plot.py
 ```
 
 Pass a path as the first argument to plot a different recording. The application

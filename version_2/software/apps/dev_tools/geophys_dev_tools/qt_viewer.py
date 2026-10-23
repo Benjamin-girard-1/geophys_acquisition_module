@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QEvent, QObject, QRunnable, QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from geophys_data import RecordingFileError
+from geophys_recording import RecordingFileError
 
 from .plot import (
     RecordingPlotData,
@@ -26,6 +27,7 @@ from .plot import (
     amplitudes_to_dbfs,
     calculate_frequency_spectra,
     magnetic_nt_per_count,
+    thermistor_celsius_from_counts,
     valid_sample_bounds,
 )
 from .viewport import select_visible_extrema
@@ -86,8 +88,15 @@ class RecordingPlotWindow(QWidget):
             if (scale := magnetic_nt_per_count(data.recording_header, channel))
             is not None
         }
-        self._waveform_saved_nonmagnetic: dict[int, bool] = {}
-        self._fft_saved_nonmagnetic: dict[int, bool] = {}
+        header = data.recording_header
+        self._thermistor_channels = {
+            channel for channel in data.channel_indices
+            if header is not None and
+            header.hardware_version == 2 and header.hardware_revision == 1 and
+            0 < header.channel_slots[channel] <= len(header.card_types) and
+            header.card_types[header.channel_slots[channel] - 1] == 1 and
+            header.channel_inputs[channel] == 3
+        }
         self._thread_pool = QThreadPool(self)
         self._thread_pool.setMaxThreadCount(1)
         self.setWindowTitle(f"Geophys recording — {data.path.name}")
@@ -101,9 +110,12 @@ class RecordingPlotWindow(QWidget):
             for status, count in sorted(data.status_counts.items())
             if status != 0
         )
+        hours, remainder = divmod(int(self._duration_s), 3600)
+        minutes, seconds = divmod(remainder, 60)
         heading_text = (
             f"<b>{data.path.name}</b> · {data.timestamps_s.size:,} samples · "
-            f"{self._duration_s:.3f} s · "
+            f"{self._duration_s:.3f} s "
+            f"({hours:02d}:{minutes:02d}:{seconds:02d}) · "
             f"{data.missing_conversions:,} missing conversions"
         )
         if status_issues:
@@ -132,7 +144,10 @@ class RecordingPlotWindow(QWidget):
         trim_controls.addWidget(QLabel("Waveform units"))
         self.waveform_scale_box = QComboBox()
         self.waveform_scale_box.addItem("ADC counts", "counts")
-        if any(channel in self._magnetic_scales for channel in waveform_channels):
+        if (waveform_channels and self._magnetic_scales and
+                all(channel in self._magnetic_scales or
+                    channel in self._thermistor_channels
+                    for channel in waveform_channels)):
             self.waveform_scale_box.addItem("Nominal nT", "nt")
             self.waveform_scale_box.setCurrentIndex(1)
         elif self._magnetic_scales:
@@ -157,11 +172,16 @@ class RecordingPlotWindow(QWidget):
         self.fft_scale_box = QComboBox()
         self.fft_scale_box.addItem("dBFS", "dbfs")
         self.fft_scale_box.addItem("ADC counts", "counts")
-        if any(channel in self._magnetic_scales for channel in fft_channels):
+        if (fft_channels and
+                all(channel in self._magnetic_scales
+                    for channel in fft_channels)):
             self.fft_scale_box.addItem("Nominal nT peak", "nt")
             self.fft_scale_box.setCurrentIndex(2)
         elif self._magnetic_scales:
             self.fft_scale_box.addItem("Nominal nT peak", "nt")
+            if any(channel not in self._magnetic_scales
+                   for channel in fft_channels):
+                self.fft_scale_box.setCurrentIndex(1)
         self.fft_scale_box.setToolTip(
             "Single-sided peak amplitude. Nominal nT uses the magnetic sensor, "
             "analog amplifier, and recorded ADC gain."
@@ -200,6 +220,17 @@ class RecordingPlotWindow(QWidget):
             else "Raw ADC counts",
             "Time since first sample (s)",
         )
+        self._temperature_view = pg.ViewBox()
+        waveform_item = self.waveform_plot.getPlotItem()
+        waveform_item.showAxis("right")
+        waveform_item.getAxis("right").setLabel("Nominal board temperature (°C)")
+        waveform_item.getAxis("right").linkToView(self._temperature_view)
+        waveform_item.scene().addItem(self._temperature_view)
+        self._temperature_view.setXLink(self.waveform_plot.getViewBox())
+        self._temperature_view.setMouseEnabled(x=False, y=False)
+        self._temperature_view.setMenuEnabled(False)
+        waveform_item.getViewBox().sigResized.connect(self._align_temperature_view)
+        self._align_temperature_view()
         self._configure_plot(
             self.fft_plot,
             "Nominal peak amplitude (nT)"
@@ -220,19 +251,23 @@ class RecordingPlotWindow(QWidget):
         self._fft_curves = {}
         for color_index, channel in enumerate(data.channel_indices):
             pen = pg.mkPen(pg.intColor(color_index, hues=8), width=1)
-            self._waveform_curves[channel] = self.waveform_plot.plot(
-                pen=pen, name=f"CH{channel}"
-            )
+            if channel in self._thermistor_channels:
+                curve = pg.PlotDataItem(pen=pen)
+                self._temperature_view.addItem(curve)
+                waveform_item.legend.addItem(curve, f"CH{channel} Temp")
+                self._waveform_curves[channel] = curve
+            else:
+                self._waveform_curves[channel] = self.waveform_plot.plot(
+                    pen=pen, name=f"CH{channel}"
+                )
             self._fft_curves[channel] = self.fft_plot.plot(
                 pen=pen, name=f"CH{channel}"
             )
         self._sync_magnetic_channel_checks(
-            self._waveform_checks, self._waveform_saved_nonmagnetic,
-            self.waveform_scale_box.currentData() == "nt",
+            self._waveform_checks, self.waveform_scale_box.currentData() == "nt"
         )
         self._sync_magnetic_channel_checks(
-            self._fft_checks, self._fft_saved_nonmagnetic,
-            self.fft_scale_box.currentData() == "nt",
+            self._fft_checks, self.fft_scale_box.currentData() == "nt"
         )
 
         if self._duration_s > 60.0:
@@ -271,8 +306,17 @@ class RecordingPlotWindow(QWidget):
         layout.addWidget(QLabel(f"{title} channels"), row, 0)
         checks = {}
         for column, channel in enumerate(self.data.channel_indices, start=1):
-            check = QCheckBox(f"CH{channel}")
+            label = (
+                f"CH{channel} Temp" if channel in self._thermistor_channels
+                else f"CH{channel}"
+            )
+            check = QCheckBox(label)
             check.setChecked(channel in selected)
+            if channel in self._thermistor_channels:
+                check.setToolTip(
+                    "Waveform uses the separate nominal °C axis; FFT uses "
+                    "raw ADC counts or dBFS."
+                )
             check.toggled.connect(callback)
             layout.addWidget(check, row, column)
             checks[channel] = check
@@ -296,6 +340,11 @@ class RecordingPlotWindow(QWidget):
         widget.showGrid(x=True, y=True, alpha=0.2)
         widget.getPlotItem().getViewBox().setMouseMode(pg.ViewBox.RectMode)
 
+    def _align_temperature_view(self) -> None:
+        self._temperature_view.setGeometry(
+            self.waveform_plot.getViewBox().sceneBoundingRect()
+        )
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Resize:
             if watched is self.waveform_plot:
@@ -308,28 +357,29 @@ class RecordingPlotWindow(QWidget):
         return tuple(channel for channel, check in checks.items() if check.isChecked())
 
     def _sync_magnetic_channel_checks(
-            self, checks: dict[int, QCheckBox], saved: dict[int, bool],
-            magnetic_only: bool) -> None:
+            self, checks: dict[int, QCheckBox], magnetic_only: bool) -> None:
         for channel, check in checks.items():
             if channel in self._magnetic_scales:
                 continue
-            with QSignalBlocker(check):
-                if magnetic_only:
-                    saved[channel] = check.isChecked()
+            if channel in self._thermistor_channels and checks is self._waveform_checks:
+                check.setToolTip("Waveform uses the separate nominal °C axis.")
+                continue
+            if magnetic_only:
+                with QSignalBlocker(check):
                     check.setChecked(False)
-                    check.setEnabled(False)
-                    check.setToolTip("This channel is not a magnetic axis.")
-                else:
-                    check.setEnabled(True)
-                    if channel in saved:
-                        check.setChecked(saved.pop(channel))
-                    check.setToolTip("")
+                tooltip = "Select to switch this plot to raw ADC counts."
+            elif channel in self._thermistor_channels:
+                tooltip = (
+                    "Thermistor FFT uses raw ADC counts or dBFS."
+                )
+            else:
+                tooltip = ""
+            check.setToolTip(tooltip)
 
     def _on_waveform_scale_changed(self, _index: int) -> None:
         magnetic_only = self.waveform_scale_box.currentData() == "nt"
         self._sync_magnetic_channel_checks(
-            self._waveform_checks, self._waveform_saved_nonmagnetic,
-            magnetic_only,
+            self._waveform_checks, magnetic_only,
         )
         self.waveform_plot.setLabel(
             "left", "Nominal field-equivalent (nT)" if magnetic_only
@@ -340,10 +390,21 @@ class RecordingPlotWindow(QWidget):
         self._update_calibration_note()
 
     def _update_calibration_note(self) -> None:
-        self.calibration_note.setVisible(
-            self.waveform_scale_box.currentData() == "nt" or
-            self.fft_scale_box.currentData() == "nt"
+        magnetic = (self.waveform_scale_box.currentData() == "nt" or
+                    self.fft_scale_box.currentData() == "nt")
+        temperature = bool(
+            self._thermistor_channels &
+            set(self._selected_channels(self._waveform_checks))
         )
+        notes = []
+        if magnetic:
+            notes.append("nT is a nominal field-equivalent scale; the bridge "
+                         "servo removes DC and very slow fields")
+        if temperature:
+            notes.append("°C assumes nominal 3.3 V and bridge resistors; "
+                         "board temperature is not calibrated")
+        self.calibration_note.setText(". ".join(notes) + ("." if notes else ""))
+        self.calibration_note.setVisible(bool(notes))
 
     def _refresh_waveform_view(self, *_args) -> None:
         left, right = self.waveform_plot.viewRange()[0]
@@ -357,9 +418,16 @@ class RecordingPlotWindow(QWidget):
                 self.data.timestamps_s, self.data.samples[channel],
                 left, right, width,
             )
-            if self.waveform_scale_box.currentData() == "nt":
+            if channel in self._thermistor_channels:
+                y = thermistor_celsius_from_counts(
+                    y, self.data.recording_header.adc_gains[channel]
+                )
+            elif self.waveform_scale_box.currentData() == "nt":
                 y = y * self._magnetic_scales[channel]
             curve.setData(x, y)
+        self.waveform_plot.getPlotItem().getAxis("right").setVisible(
+            bool(self._thermistor_channels & set(selected))
+        )
 
     def _refresh_fft_view(self, *_args) -> None:
         left, right = self.fft_plot.viewRange()[0]
@@ -399,8 +467,15 @@ class RecordingPlotWindow(QWidget):
         self._request_fft()
 
     def _on_waveform_changed(self, _checked: bool) -> None:
+        if (self.waveform_scale_box.currentData() == "nt" and
+                any(channel not in self._magnetic_scales and
+                    channel not in self._thermistor_channels for channel in
+                    self._selected_channels(self._waveform_checks))):
+            self.waveform_scale_box.setCurrentIndex(0)
+            return
         self._refresh_waveform_view()
         self._fit_waveform_y()
+        self._update_calibration_note()
 
     def _fit_waveform_y(self, *_args) -> None:
         channels = self._selected_channels(self._waveform_checks)
@@ -416,6 +491,34 @@ class RecordingPlotWindow(QWidget):
                 return
         else:
             first, last = 0, self.data.timestamps_s.size
+        thermistors = tuple(channel for channel in channels
+                            if channel in self._thermistor_channels)
+        if thermistors:
+            bounds = []
+            for channel in thermistors:
+                samples = self.data.samples[channel][first:last]
+                gain = self.data.recording_header.adc_gains[channel]
+                values = thermistor_celsius_from_counts(
+                    np.array((samples.min(), samples.max())), gain
+                )
+                if not np.all(np.isfinite(values)):
+                    valid = thermistor_celsius_from_counts(samples, gain)
+                    valid = valid[np.isfinite(valid)]
+                    if not valid.size:
+                        continue
+                    values = np.array((valid.min(), valid.max()))
+                bounds.append(values)
+            if bounds:
+                minimum_t = min(float(np.min(values)) for values in bounds)
+                maximum_t = max(float(np.max(values)) for values in bounds)
+                margin_t = max(0.01, (maximum_t - minimum_t) * 0.05)
+                self._temperature_view.setYRange(
+                    minimum_t - margin_t, maximum_t + margin_t, padding=0
+                )
+        channels = tuple(channel for channel in channels
+                         if channel not in self._thermistor_channels)
+        if not channels:
+            return
         field_units = self.waveform_scale_box.currentData() == "nt"
         minimum = min(
             int(self.data.samples[channel][first:last].min()) *
@@ -434,13 +537,18 @@ class RecordingPlotWindow(QWidget):
         )
 
     def _on_fft_channels_changed(self, _checked: bool) -> None:
+        if (self.fft_scale_box.currentData() == "nt" and
+                any(channel not in self._magnetic_scales for channel in
+                    self._selected_channels(self._fft_checks))):
+            self.fft_scale_box.setCurrentIndex(1)
+            return
         self._request_fft()
 
     def _on_fft_scale_changed(self, _index: int) -> None:
         self._update_calibration_note()
         magnetic_only = self.fft_scale_box.currentData() == "nt"
         self._sync_magnetic_channel_checks(
-            self._fft_checks, self._fft_saved_nonmagnetic, magnetic_only,
+            self._fft_checks, magnetic_only,
         )
         label = {
             "dbfs": "Amplitude (dBFS)",

@@ -1,6 +1,6 @@
 r"""Compatibility imports for the shared 512-byte ``\DAT`` decoder."""
 
-from geophys_data.adc_record import (
+from geophys_recording.adc_record import (
     AdcRecord,
     AdcRecordError,
     CRC_OFFSET,

@@ -15,10 +15,11 @@ from numpy.typing import NDArray
 from scipy import fft as scipy_fft
 from scipy.signal import windows
 
-from geophys_data import (
+from geophys_recording import (
     RecordingFileError, RecordingHeader, iter_adc_records,
     read_recording_header,
 )
+from .paths import acquisition_data_directory
 
 DEFAULT_START_TRIM_S = 1.0
 DEFAULT_END_TRIM_S = 0.0
@@ -29,9 +30,15 @@ MAGNETIC_BRIDGE_V = 5.6
 MAGNETIC_SENSITIVITY_V_PER_V_PER_G = 0.0032
 MAGNETIC_INA_GAIN = 51.0
 NANOTESLA_PER_GAUSS = 100_000.0
+THERMISTOR_R25_OHM = 100_000.0
+THERMISTOR_B25_50_K = 4250.0
+THERMISTOR_BRIDGE_RESISTOR_OHM = 100_000.0
+THERMISTOR_BRIDGE_SUPPLY_V = 3.3
 FFT_DBFS_FLOOR = -180.0
 CHANNEL_SELECTIONS = {
     "all": None,
+    "0-2": (0, 1, 2),
+    "3": (3,),
     "0-3": (0, 1, 2, 3),
     "4-7": (4, 5, 6, 7),
 }
@@ -110,8 +117,7 @@ class FrequencySpectrum:
 
 
 def default_data_directory() -> Path:
-    repository_root = Path(__file__).resolve().parents[5]
-    return repository_root.parent / "geophys_acquisition_data"
+    return acquisition_data_directory()
 
 
 def _get_qt_application():
@@ -278,6 +284,30 @@ def magnetic_nt_per_count(
          MAGNETIC_INA_GAIN * MAGNETIC_BRIDGE_V *
          MAGNETIC_SENSITIVITY_V_PER_V_PER_G)
     )
+
+
+def thermistor_celsius_from_counts(
+        counts: np.ndarray | float, gain: int = 1) -> np.ndarray:
+    """Nominal Rev-1 NCU18WF104D60RB bridge temperature from AD7779 codes.
+
+    TH+ is the R23/NTC divider, TH- is the R21/R22 half-supply divider.
+    The 1 k series resistors do not alter the ideal DC bridge voltage.
+    """
+    if gain <= 0:
+        raise ValueError("ADC gain must be positive")
+    voltage = np.asarray(counts, dtype=np.float64) * (
+        ADC_REFERENCE_V / (ADC_BIPOLAR_CODES * gain)
+    )
+    divider_fraction = 0.5 + voltage / THERMISTOR_BRIDGE_SUPPLY_V
+    with np.errstate(divide="ignore", invalid="ignore"):
+        resistance = (THERMISTOR_BRIDGE_RESISTOR_OHM * divider_fraction /
+                      (1.0 - divider_fraction))
+        kelvin = 1.0 / (
+            1.0 / 298.15 +
+            np.log(resistance / THERMISTOR_R25_OHM) / THERMISTOR_B25_50_K
+        )
+    return np.where((divider_fraction > 0.0) &
+                    (divider_fraction < 1.0), kelvin - 273.15, np.nan)
 
 
 def format_status_counts(status_counts: dict[int, int]) -> str:
@@ -546,8 +576,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--channels",
         choices=tuple(CHANNEL_SELECTIONS),
-        default="0-3",
-        help="initial channel selection for both plots (default: 0-3)",
+        default="0-2",
+        help="initial channel selection for both plots (default: 0-2; thermistor off)",
     )
     arguments = parser.parse_args(argv)
     path = arguments.recording or select_recording_file()

@@ -662,7 +662,7 @@
           "show": false
         }
       ],
-      "filter_string": "",
+      "filter_string": "C11",
       "group_symbols": true,
       "include_excluded_from_bom": false,
       "name": "",
@@ -739,7 +739,7 @@
   "sheets": [
     [
       "b5f9ef85-43f0-43d8-a1fd-ed489b1654c1",
-      "magnetic_expension_v2"
+      "magnetic_board_v2_r1"
     ],
     [
       "95fd4708-3510-44cf-9b01-8535361ee411",

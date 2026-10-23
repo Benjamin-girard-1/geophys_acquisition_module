@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Developer diagnostics for Geophys SD-card recordings"
 requires-python = ">=3.10"
 dependencies = [
-    "geophys-data>=0.1,<0.2",
+    "geophys-recording>=0.1,<0.2",
     "numpy>=1.26,<3",
     "PySide6-Essentials>=6.7,<7",
     "pyqtgraph>=0.13.7,<0.15",

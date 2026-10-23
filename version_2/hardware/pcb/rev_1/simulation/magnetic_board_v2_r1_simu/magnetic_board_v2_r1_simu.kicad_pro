@@ -637,12 +637,12 @@
       "version": 1
     },
     "ngspice": {
-      "fix_include_paths": true,
+      "fix_include_paths": false,
       "meta": {
         "version": 0
       },
       "model_mode": 4,
-      "workbook_filename": "magnetic_board_v2_r1_simu.wbk"
+      "workbook_filename": "magnetic_board_v2_r1_simu_helmholtz.wbk"
     },
     "page_layout_descr_file": "",
     "plot_directory": "",
@@ -656,7 +656,7 @@
         "uuid": "4b6d8667-e40a-49ff-8675-69d8bcf2d783"
       }
     ],
-    "used_designators": "",
+    "used_designators": "C16,V2,L1-2",
     "variants": []
   },
   "sheets": [

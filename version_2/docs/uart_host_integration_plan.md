@@ -39,7 +39,7 @@ host -> byte transport -> task_communication -> validated command
 - `app/task_communication.*` owns the UART session, parser, dispatch, reply
   scheduling, and `\DAT` routing.
 - `software/apps/host/` implements command codecs and connection policy.
-- `software/packages/data/` provides the transport-independent Python `\DAT`
+- `software/packages/recording/` provides the transport-independent Python `\DAT`
   decoder shared by the host and developer diagnostics.
 
 Protocol and data-format code do not directly operate UART, FreeRTOS, FatFs,

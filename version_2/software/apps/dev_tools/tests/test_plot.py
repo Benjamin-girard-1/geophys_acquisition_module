@@ -12,10 +12,10 @@ import numpy as np
 
 DEV_TOOLS_ROOT = Path(__file__).resolve().parents[1]
 SOFTWARE_ROOT = Path(__file__).resolve().parents[3]
-DATA_PACKAGE_ROOT = SOFTWARE_ROOT / "packages" / "data"
+RECORDING_PACKAGE_ROOT = SOFTWARE_ROOT / "packages" / "recording"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(DEV_TOOLS_ROOT))
-sys.path.insert(0, str(DATA_PACKAGE_ROOT))
+sys.path.insert(0, str(RECORDING_PACKAGE_ROOT))
 
 import geophys_dev_tools.plot as plot_module  # noqa: E402
 from geophys_dev_tools.plot import (  # noqa: E402
@@ -26,11 +26,12 @@ from geophys_dev_tools.plot import (  # noqa: E402
     default_data_directory,
     load_recording,
     magnetic_nt_per_count,
+    thermistor_celsius_from_counts,
     RecordingPlotData,
     resolve_plot_channels,
     select_recording_file,
 )
-from geophys_data import RecordingFileError  # noqa: E402
+from geophys_recording import RecordingFileError  # noqa: E402
 
 
 class PlotDataTests(unittest.TestCase):
@@ -40,6 +41,12 @@ class PlotDataTests(unittest.TestCase):
             "data_block" / "valid" / "adc_record_8ch.txt"
         )
         self.record = bytes.fromhex(vector_path.read_text(encoding="ascii"))
+
+    def test_default_data_directory_finds_sibling_folder(self) -> None:
+        self.assertEqual(
+            default_data_directory(),
+            REPOSITORY_ROOT.parent / "geophys_experiments",
+        )
 
     def test_loads_samples_for_each_channel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -76,9 +83,24 @@ class PlotDataTests(unittest.TestCase):
             resolve_plot_channels(data, "0-3"),
             (0, 1, 2, 3),
         )
+        self.assertEqual(resolve_plot_channels(data, "3"), (3,))
+
+    def test_thermistor_bridge_conversion(self) -> None:
+        self.assertAlmostEqual(
+            float(thermistor_celsius_from_counts(0)), 25.0
+        )
+        self.assertLess(
+            float(thermistor_celsius_from_counts(-550_000)), 30.0
+        )
+        self.assertGreater(
+            float(thermistor_celsius_from_counts(-550_000)), 29.0
+        )
+        self.assertLess(
+            float(thermistor_celsius_from_counts(100_000)), 25.0
+        )
 
     @patch.object(plot_module, "show_plot")
-    def test_main_plots_channels_zero_through_three_by_default(
+    def test_main_plots_axes_without_thermistor_by_default(
             self, show_plot) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "recording"
@@ -89,7 +111,7 @@ class PlotDataTests(unittest.TestCase):
         self.assertEqual(result, 0)
         plotted_data, plotted_channels = show_plot.call_args.args
         self.assertEqual(plotted_data.channel_indices, tuple(range(8)))
-        self.assertEqual(plotted_channels, (0, 1, 2, 3))
+        self.assertEqual(plotted_channels, (0, 1, 2))
 
     def test_rejects_channel_group_missing_from_recording(self) -> None:
         # This test only exercises selection and therefore can construct the

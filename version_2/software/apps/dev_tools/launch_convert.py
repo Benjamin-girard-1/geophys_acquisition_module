@@ -3,10 +3,10 @@
 from pathlib import Path
 import sys
 
-DATA_PACKAGE_ROOT = (
-    Path(__file__).resolve().parents[2] / "packages" / "data"
-)
-sys.path.insert(0, str(DATA_PACKAGE_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from launcher_support import prepare_launcher  # noqa: E402
+
+prepare_launcher(Path(__file__))
 
 from geophys_dev_tools.convert import entrypoint  # noqa: E402
 

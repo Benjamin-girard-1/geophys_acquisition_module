@@ -8,15 +8,16 @@ import unittest
 
 DEV_TOOLS_ROOT = Path(__file__).resolve().parents[1]
 SOFTWARE_ROOT = Path(__file__).resolve().parents[3]
-DATA_PACKAGE_ROOT = SOFTWARE_ROOT / "packages" / "data"
+RECORDING_PACKAGE_ROOT = SOFTWARE_ROOT / "packages" / "recording"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(DEV_TOOLS_ROOT))
-sys.path.insert(0, str(DATA_PACKAGE_ROOT))
+sys.path.insert(0, str(RECORDING_PACKAGE_ROOT))
 
 from geophys_dev_tools.convert import (  # noqa: E402
     CSV_COLUMNS,
     convert_recording_to_csv,
     default_output_path,
+    default_scratch_directory,
 )
 
 
@@ -27,6 +28,12 @@ class ConvertTests(unittest.TestCase):
             "data_block" / "valid" / "adc_record_8ch.txt"
         )
         self.record = bytes.fromhex(vector_path.read_text(encoding="ascii"))
+
+    def test_default_scratch_directory_finds_sibling_folder(self) -> None:
+        self.assertEqual(
+            default_scratch_directory(),
+            REPOSITORY_ROOT.parent / "geophys_experiments" / "scratch",
+        )
 
     def test_converts_valid_record_to_wide_csv(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

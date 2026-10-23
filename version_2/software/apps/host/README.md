@@ -39,8 +39,7 @@ From the repository root:
 
 ```sh
 python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install -e version_2/software/packages/data \
+.venv/bin/python -m pip install -e version_2/software/packages/recording \
   -e version_2/software/apps/host
 ```
 
@@ -50,6 +49,7 @@ Launch the desktop application from the repository root:
 python3 version_2/software/apps/host/launch_host.py
 ```
 
+The launcher uses the repository's `.venv` automatically when it exists.
 Select the device's USB/COM port, leave the baud rate at `921600`, and click
 **Connect**. The recordings catalog and current device configuration load
 automatically. In the **Config** tab, select **Acquire this slot** for slot 1
@@ -82,32 +82,32 @@ BLE advertising and the `HELLO` exchange remain available at the same time.
 The same application can also be launched as a module:
 
 ```sh
-python3 -m geophys_host
+.venv/bin/python -m geophys_host
 ```
 
 The command-line connection probe remains available:
 
 ```sh
-python3 -m geophys_host.cli hello /dev/cu.usbserial-PORT
+.venv/bin/python -m geophys_host.cli hello /dev/cu.usbserial-PORT
 ```
 
 Scan for BLE devices and perform the same identity request with:
 
 ```sh
-python3 -m geophys_host.cli ble-scan
-python3 -m geophys_host.cli ble-hello DEVICE-IDENTIFIER
+.venv/bin/python -m geophys_host.cli ble-scan
+.venv/bin/python -m geophys_host.cli ble-hello DEVICE-IDENTIFIER
 ```
 
 The earlier command-line live view also remains available:
 
 ```sh
-python3 -m geophys_host.cli live /dev/cu.usbserial-PORT
+.venv/bin/python -m geophys_host.cli live /dev/cu.usbserial-PORT
 ```
 
 Capture every validated 512-byte block byte-for-byte while plotting:
 
 ```sh
-python3 -m geophys_host.cli live /dev/cu.usbserial-PORT \
+.venv/bin/python -m geophys_host.cli live /dev/cu.usbserial-PORT \
   --channels all --decimation 2 --capture capture.dat
 ```
 
@@ -124,7 +124,7 @@ defined and verified.
 Run the portable tests with:
 
 ```sh
-python3 -m unittest discover -s version_2/software/apps/host/tests -v
+.venv/bin/python -m unittest discover -s version_2/software/apps/host/tests -v
 ```
 
 ## Modules
@@ -145,13 +145,13 @@ tests/
 └── shared vectors, stream fragmentation, and named-reply tests
 ```
 
-The Python decoder lives in `software/packages/data/geophys_data/` and remains
+The Python decoder lives in `software/packages/recording/geophys_recording/` and remains
 independent from the C encoder. Both sides consume the byte-exact vectors under
 `shared/protocol/test_vectors/`.
 
 ## Dependency boundary
 
-- The shared `geophys_data` package and `stream_parser.py` do not open serial
+- The shared `geophys_recording` package and `stream_parser.py` do not open serial
   ports or update a UI.
 - The GUI sends device operations to one background serial owner and updates
   Tk widgets only from the GUI thread.
